@@ -70,7 +70,7 @@ fn build_dir_context() -> String {
         }
     }
 
-    // Home directory (if not already cwd)
+    // Home directory and its subdirectories (one level deep)
     let home = dirs::home_dir().unwrap_or_default();
     let cwd = env::current_dir().unwrap_or_default();
     if home != cwd {
@@ -79,6 +79,25 @@ fn build_dir_context() -> String {
                 ctx.push_str("Home directory (~) contents: ");
                 ctx.push_str(&entries.join(", "));
                 ctx.push('\n');
+            }
+
+            // List contents of home subdirectories (skip huge ones)
+            let mut total_entries = entries.len();
+            for entry in &entries {
+                if total_entries > 200 {
+                    break;
+                }
+                if let Some(dir_name) = entry.strip_suffix('/') {
+                    let subdir = home.join(dir_name);
+                    if let Ok(sub_entries) = list_dir_names(&subdir) {
+                        if !sub_entries.is_empty() && sub_entries.len() <= 40 {
+                            ctx.push_str(&format!("~/{dir_name}/ contents: "));
+                            ctx.push_str(&sub_entries.join(", "));
+                            ctx.push('\n');
+                            total_entries += sub_entries.len();
+                        }
+                    }
+                }
             }
         }
     }
