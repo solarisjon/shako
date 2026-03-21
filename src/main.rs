@@ -1,7 +1,10 @@
 use std::io::{self, Write};
 
 use anyhow::Result;
-use reedline::{FileBackedHistory, Reedline, Signal};
+use reedline::{
+    default_emacs_keybindings, ColumnarMenu, Emacs, FileBackedHistory, KeyCode, KeyModifiers,
+    MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, Signal,
+};
 
 mod ai;
 mod builtins;
@@ -43,11 +46,37 @@ fn main() -> Result<()> {
             }),
     );
 
+    let completion_menu = Box::new(
+        ColumnarMenu::default()
+            .with_name("completion_menu")
+            .with_columns(4)
+            .with_column_padding(2),
+    );
+
+    let mut keybindings = default_emacs_keybindings();
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".to_string()),
+            ReedlineEvent::MenuNext,
+        ]),
+    );
+    keybindings.add_binding(
+        KeyModifiers::SHIFT,
+        KeyCode::BackTab,
+        ReedlineEvent::MenuPrevious,
+    );
+
+    let edit_mode = Box::new(Emacs::new(keybindings));
+
     let mut line_editor = Reedline::create()
         .with_history(history)
         .with_highlighter(Box::new(highlighter))
         .with_completer(Box::new(completer))
-        .with_hinter(Box::new(hinter));
+        .with_hinter(Box::new(hinter))
+        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+        .with_edit_mode(edit_mode);
 
     let prompt = StarshipPrompt::new();
     let rt = tokio::runtime::Runtime::new()?;
