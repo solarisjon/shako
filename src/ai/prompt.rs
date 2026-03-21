@@ -11,7 +11,7 @@ Environment:
 - Current directory: {}
 - User: {}
 
-The user typed natural language instead of a shell command. Translate their
+{}The user typed natural language instead of a shell command. Translate their
 intent into one or more shell commands.
 
 Rules:
@@ -20,12 +20,13 @@ Rules:
 3. If the intent is ambiguous, return the safest interpretation.
 4. Never generate destructive commands (rm -rf, mkfs, etc.) without
    the user explicitly describing destruction.
-5. If you cannot translate the intent, respond with exactly: JBOSH_CANNOT_TRANSLATE"#,
-        ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user,
+5. ALWAYS use the exact file and directory names shown above. Never guess or normalize names.
+6. If you cannot translate the intent, respond with exactly: JBOSH_CANNOT_TRANSLATE"#,
+        ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user, ctx.dir_context,
     );
 
     if !ctx.available_tools.is_empty() {
-        prompt.push_str("\n6. The user has modern CLI tools installed. ALWAYS prefer them:");
+        prompt.push_str("\n7. The user has modern CLI tools installed. ALWAYS prefer them:");
         for (tool, instruction) in &ctx.available_tools {
             prompt.push_str(&format!("\n   - {tool}: {instruction}"));
         }
@@ -45,7 +46,7 @@ Environment:
 - Current directory: {}
 - User: {}
 
-A command just failed. The user wants to understand why and how to fix it.
+{}A command just failed. The user wants to understand why and how to fix it.
 
 Respond in this exact format:
 CAUSE: One-line explanation of what went wrong
@@ -55,15 +56,16 @@ Rules:
 1. Be concise — one line for CAUSE, then the fix.
 2. If multiple fixes are possible, give the most likely one.
 3. The FIX must be a valid shell command, not an explanation.
-4. If you need the user to install something, say so in CAUSE and put the install command in FIX.
-5. If you cannot determine the issue, respond with:
+4. ALWAYS use the exact file and directory names from the listings above.
+5. If you need the user to install something, say so in CAUSE and put the install command in FIX.
+6. If you cannot determine the issue, respond with:
    CAUSE: Unable to determine the issue from the available information
    FIX: JBOSH_NO_FIX"#,
-        ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user,
+        ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user, ctx.dir_context,
     );
 
     if !ctx.available_tools.is_empty() {
-        prompt.push_str("\n6. When suggesting fixes, prefer these installed tools:");
+        prompt.push_str("\n7. When suggesting fixes, prefer these installed tools:");
         for (tool, instruction) in &ctx.available_tools {
             prompt.push_str(&format!("\n   - {tool}: {instruction}"));
         }
