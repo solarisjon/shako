@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "A fish-inspired shell with transparent AI command translation"
 license = "MIT"
-repository = "https://github.com/jbowman/jbosh"
+repository = "https://github.com/solarisjon/Jon-s-Brilliant-Operating-Shell"
 rust-version = "1.85.0"
 
 [[bin]]
