@@ -35,9 +35,11 @@ pub fn run_wizard(config_path: &Path) -> Result<String> {
         _ => wizard_lm_studio(&mut out)?,
     };
 
-    // Create config directory
+    // Create config directory and fish-like subdirectories
     if let Some(dir) = config_path.parent() {
         std::fs::create_dir_all(dir)?;
+        std::fs::create_dir_all(dir.join("conf.d"))?;
+        std::fs::create_dir_all(dir.join("functions"))?;
     }
     std::fs::write(config_path, &toml)?;
 
@@ -47,9 +49,51 @@ pub fn run_wizard(config_path: &Path) -> Result<String> {
         " \x1b[32m✓\x1b[0m Config written to \x1b[33m{}\x1b[0m",
         config_path.display()
     )?;
+
+    if let Some(dir) = config_path.parent() {
+        writeln!(
+            out,
+            " \x1b[32m✓\x1b[0m Created \x1b[33m{}/conf.d/\x1b[0m  \x1b[90m(drop .fish or .sh config snippets here)\x1b[0m",
+            dir.display()
+        )?;
+        writeln!(
+            out,
+            " \x1b[32m✓\x1b[0m Created \x1b[33m{}/functions/\x1b[0m  \x1b[90m(autoloaded fish-style functions)\x1b[0m",
+            dir.display()
+        )?;
+    }
+
+    // Offer fish import if fish config exists
+    let fish_dir = dirs::home_dir().map(|h| h.join(".config").join("fish"));
+    if let Some(ref fd) = fish_dir {
+        if fd.is_dir() {
+            writeln!(out)?;
+            writeln!(
+                out,
+                " \x1b[36m?\x1b[0m Found fish config at \x1b[33m{}\x1b[0m",
+                fd.display()
+            )?;
+            let answer = prompt_line(
+                &mut out,
+                " Import fish config into shako? [Y/n]: ",
+                "y",
+            )?;
+            if matches!(answer.trim().to_lowercase().as_str(), "" | "y" | "yes") {
+                writeln!(out)?;
+                drop(out);
+                crate::fish_import::run_import();
+            } else {
+                writeln!(
+                    out,
+                    " \x1b[90m(skipped — run `fish-import` later to import)\x1b[0m"
+                )?;
+            }
+        }
+    }
+
     writeln!(
-        out,
-        " Edit it any time to change providers or add aliases.\n"
+        io::stdout().lock(),
+        " Edit config any time to change providers or add aliases.\n"
     )?;
 
     Ok(toml)
@@ -304,5 +348,132 @@ fn prompt_line(out: &mut impl Write, prompt: &str, default: &str) -> Result<Stri
         Ok(default.to_string())
     } else {
         Ok(input)
+    }
+}
+
+/// Recommended tools with (binary, name, description, impact level).
+/// Impact: "core" = significant shako experience uplift, "nice" = useful but optional.
+const RECOMMENDED_TOOLS: &[(&str, &str, &str, &str)] = &[
+    ("starship", "Starship", "cross-shell prompt with git, rust, node info", "core"),
+    ("eza", "eza", "modern ls with icons, git status, tree view", "core"),
+    ("bat", "bat", "cat with syntax highlighting and line numbers", "core"),
+    ("fd", "fd", "faster find with simpler syntax", "core"),
+    ("rg", "ripgrep", "faster grep that respects .gitignore", "core"),
+    ("zoxide", "zoxide", "smart cd that learns your habits (powers z/zi)", "core"),
+    ("fzf", "fzf", "fuzzy finder for interactive selection (powers zi)", "core"),
+    ("dust", "dust", "visual disk usage (replaces du)", "nice"),
+    ("delta", "delta", "side-by-side diff with syntax highlighting", "nice"),
+    ("procs", "procs", "modern ps with color and search", "nice"),
+    ("sd", "sd", "simpler sed for find-and-replace", "nice"),
+];
+
+/// Check which recommended tools are installed and print a summary.
+/// Only called on first run (after the setup wizard).
+pub fn check_recommended_tools() {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+
+    let mut missing_core: Vec<&str> = Vec::new();
+    let mut missing_nice: Vec<&str> = Vec::new();
+    let mut all_installed = true;
+
+    writeln!(out, "\x1b[1m Recommended tools:\x1b[0m\n").ok();
+
+    for &(binary, _name, desc, impact) in RECOMMENDED_TOOLS {
+        if which::which(binary).is_ok() {
+            writeln!(
+                out,
+                "   \x1b[32m✓\x1b[0m \x1b[1m{binary:<10}\x1b[0m \x1b[90m{desc}\x1b[0m"
+            )
+            .ok();
+        } else {
+            all_installed = false;
+            writeln!(
+                out,
+                "   \x1b[31m✗\x1b[0m \x1b[1m{binary:<10}\x1b[0m \x1b[90m{desc}\x1b[0m"
+            )
+            .ok();
+            match impact {
+                "core" => missing_core.push(binary),
+                _ => missing_nice.push(binary),
+            }
+        }
+    }
+
+    writeln!(out).ok();
+
+    if all_installed {
+        writeln!(
+            out,
+            " \x1b[32m✓ All recommended tools installed!\x1b[0m\n"
+        )
+        .ok();
+        return;
+    }
+
+    // Detect package manager and show install command
+    let (pm, install_cmd) = detect_package_manager();
+
+    if !missing_core.is_empty() {
+        let tools = missing_core.join(" ");
+        writeln!(
+            out,
+            " \x1b[33mInstall recommended:\x1b[0m\n   {install_cmd} {tools}"
+        )
+        .ok();
+    }
+
+    if !missing_nice.is_empty() {
+        let tools = missing_nice.join(" ");
+        if missing_core.is_empty() {
+            writeln!(
+                out,
+                " \x1b[90mOptional:\x1b[0m\n   {install_cmd} {tools}"
+            )
+            .ok();
+        } else {
+            writeln!(
+                out,
+                "\n \x1b[90mOptional:\x1b[0m\n   {install_cmd} {tools}"
+            )
+            .ok();
+        }
+    }
+
+    writeln!(out).ok();
+    writeln!(
+        out,
+        " \x1b[90mshako works without these, but they unlock smart aliases and better AI commands.\x1b[0m\n"
+    )
+    .ok();
+
+    // Suggest the pm name if we fell back to generic
+    if pm == "unknown" {
+        writeln!(
+            out,
+            " \x1b[90mUse your system package manager to install the tools above.\x1b[0m\n"
+        )
+        .ok();
+    }
+}
+
+/// Detect the system package manager and return (name, install_prefix).
+fn detect_package_manager() -> (&'static str, &'static str) {
+    if which::which("brew").is_ok() {
+        ("brew", "brew install")
+    } else if which::which("apt").is_ok() {
+        ("apt", "sudo apt install")
+    } else if which::which("dnf").is_ok() {
+        ("dnf", "sudo dnf install")
+    } else if which::which("pacman").is_ok() {
+        ("pacman", "sudo pacman -S")
+    } else if which::which("apk").is_ok() {
+        ("apk", "sudo apk add")
+    } else if which::which("pkg").is_ok() {
+        ("pkg", "pkg install")
+    } else if which::which("nix-env").is_ok() {
+        ("nix", "nix-env -iA nixpkgs.")
+    } else {
+        ("unknown", "# install:")
     }
 }

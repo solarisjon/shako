@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -85,7 +87,15 @@ pub async fn query_llm(
         req = req.bearer_auth(&api_key);
     }
 
-    let response = req.send().await?;
+    let response = req.send().await.map_err(|e| {
+        let mut msg = format!("{e}");
+        let mut source = e.source();
+        while let Some(cause) = source {
+            msg.push_str(&format!("\n  caused by: {cause}"));
+            source = cause.source();
+        }
+        anyhow::anyhow!("{msg}")
+    })?;
 
     if !response.status().is_success() {
         let status = response.status();

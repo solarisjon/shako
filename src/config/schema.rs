@@ -16,6 +16,8 @@ pub struct JboshConfig {
     #[serde(default)]
     pub behavior: BehaviorConfig,
     #[serde(default)]
+    pub fish: FishConfig,
+    #[serde(default)]
     pub aliases: HashMap<String, String>,
 }
 
@@ -60,6 +62,12 @@ pub struct BehaviorConfig {
     pub history_context_lines: usize,
     #[serde(default = "default_safety_mode")]
     pub safety_mode: String,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct FishConfig {
+    #[serde(default)]
+    pub source_config: bool,
 }
 
 // Defaults
@@ -122,7 +130,8 @@ impl Default for BehaviorConfig {
 
 impl JboshConfig {
     /// Load config from ~/.config/shako/config.toml, falling back to defaults.
-    pub fn load() -> Result<Self> {
+    /// Returns `(config, first_run)` where `first_run` is true if the wizard was invoked.
+    pub fn load() -> Result<(Self, bool)> {
         let config_path = Self::config_path();
 
         if config_path.exists() {
@@ -136,7 +145,7 @@ impl JboshConfig {
             );
             log::debug!("  llm endpoint: {}", active.endpoint);
             log::debug!("  llm model: {}", active.model);
-            Ok(config)
+            Ok((config, false))
         } else {
             log::info!(
                 "no config found at {}, running first-time setup",
@@ -144,7 +153,7 @@ impl JboshConfig {
             );
             let toml = crate::setup::run_wizard(&config_path)?;
             let config: JboshConfig = toml::from_str(&toml)?;
-            Ok(config)
+            Ok((config, true))
         }
     }
 

@@ -11,6 +11,7 @@ mod builtins;
 mod classifier;
 mod config;
 mod executor;
+mod fish_import;
 mod parser;
 mod safety;
 mod setup;
@@ -49,10 +50,14 @@ fn main() -> Result<()> {
         }
     }
 
-    let config = JboshConfig::load()?;
+    let (config, first_run) = JboshConfig::load()?;
 
     if !quiet {
         print_banner(&config);
+    }
+
+    if first_run {
+        setup::check_recommended_tools();
     }
 
     let classifier = Classifier::new();
@@ -110,7 +115,14 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     let mut state = ShellState::new(history_path);
 
-    // Load aliases from config
+    // Resolve the shako config directory (used for conf.d, functions, init)
+    let shako_config_dir = std::env::var("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+        .map(|d| d.join("shako"));
+
+    // Load aliases from config.toml
     for (name, value) in &config.aliases {
         state.aliases.insert(name.clone(), value.clone());
     }
@@ -128,13 +140,66 @@ fn main() -> Result<()> {
         .unwrap_or(0);
     unsafe { std::env::set_var("SHLVL", (shlvl + 1).to_string()) };
 
-    // Auto-source init file if it exists
-    let init_path = dirs::config_dir()
-        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-        .map(|d| d.join("shako").join("init.sh"));
-    if let Some(ref path) = init_path {
-        if path.exists() {
-            builtins::run_builtin(&format!("source {}", path.display()), &mut state);
+    // ── Fish-like startup order ──────────────────────────────────────
+    //  1. Source ~/.config/shako/conf.d/*.{fish,sh}  (config snippets)
+    //  2. Source ~/.config/shako/config.shako         (main user config)
+    //  3. Load  ~/.config/shako/functions/            (autoloaded functions)
+    //  4. Optionally source fish config               (if [fish] source_config = true)
+
+    if let Some(ref dir) = shako_config_dir {
+        // 1. conf.d/ — config snippets sourced alphabetically
+        let conf_d = dir.join("conf.d");
+        if conf_d.is_dir() {
+            builtins::source_conf_d(&conf_d, &mut state);
+        }
+
+        // 2. config.shako — main user config (with backward compat)
+        let config_shako = dir.join("config.shako");
+        let init_sh = dir.join("init.sh");
+        let init_fish = dir.join("init.fish");
+
+        if config_shako.exists() {
+            builtins::run_builtin(&format!("source {}", config_shako.display()), &mut state);
+        } else if init_sh.exists() {
+            builtins::run_builtin(&format!("source {}", init_sh.display()), &mut state);
+        } else if init_fish.exists() {
+            builtins::run_builtin(&format!("source {}", init_fish.display()), &mut state);
+        }
+
+        // 3. functions/ — autoloaded function files (lazy-loaded on call,
+        //    but we also do an eager scan to register names)
+        let functions_dir = dir.join("functions");
+        if functions_dir.is_dir() {
+            builtins::load_functions_dir(&functions_dir, &mut state);
+            state.functions_dir = Some(functions_dir);
+        }
+    }
+
+    // 4. Source fish config if enabled (reuse existing fish setup)
+    if config.fish.source_config {
+        let fish_config_dir = dirs::home_dir()
+            .map(|h| h.join(".config").join("fish"));
+
+        if let Some(ref fish_dir) = fish_config_dir {
+            // Fish conf.d/ snippets first
+            let fish_conf_d = fish_dir.join("conf.d");
+            if fish_conf_d.is_dir() {
+                builtins::source_conf_d(&fish_conf_d, &mut state);
+            }
+
+            // Then config.fish
+            let config_fish = fish_dir.join("config.fish");
+            if config_fish.exists() {
+                if let Ok(contents) = std::fs::read_to_string(&config_fish) {
+                    builtins::source_fish_string(&contents, &mut state);
+                }
+            }
+
+            // Load fish functions (don't overwrite shako-defined ones)
+            let fish_functions = fish_dir.join("functions");
+            if fish_functions.is_dir() {
+                builtins::load_functions_dir(&fish_functions, &mut state);
+            }
         }
     }
 
@@ -191,11 +256,15 @@ fn main() -> Result<()> {
 
                 let timer = CommandTimer::start();
 
-                // Check if first token is a shell function
+                // Check if first token is a shell function (including autoload)
                 let first_token = input.split_whitespace().next().unwrap_or("");
-                if let Some(func) = state.functions.get(first_token).cloned() {
-                    let args: Vec<&str> = input.split_whitespace().skip(1).collect();
-                    builtins::run_function(&func, &args);
+                if state.functions.contains_key(first_token)
+                    || state.try_autoload_function(first_token)
+                {
+                    if let Some(func) = state.functions.get(first_token).cloned() {
+                        let args: Vec<&str> = input.split_whitespace().skip(1).collect();
+                        builtins::run_function(&func, &args);
+                    }
                     timer.stop();
                     continue;
                 }
