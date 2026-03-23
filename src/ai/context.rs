@@ -15,16 +15,54 @@ pub struct ShellContext {
     pub dir_context: String,
 }
 
-/// Modern tools the AI should prefer when available.
+/// Modern tools the AI should prefer when available, with concrete syntax guidance.
 const TOOL_PREFERENCES: &[(&str, &str)] = &[
-    ("fd", "use fd instead of find"),
-    ("rg", "use rg (ripgrep) instead of grep"),
-    ("eza", "use eza instead of ls"),
-    ("bat", "use bat instead of cat"),
-    ("dust", "use dust instead of du"),
-    ("sd", "use sd instead of sed"),
-    ("procs", "use procs instead of ps"),
-    ("delta", "use delta instead of diff"),
+    (
+        "fd",
+        "use fd instead of find. \
+         Syntax: `fd PATTERN` (name/regex search), `fd -e EXTENSION` for files by extension \
+         (e.g. `fd -e md` finds all .md files — do NOT use `fd .md` or `fd -t f .md`), \
+         `fd -t f` files only, `fd -t d` dirs only, `fd -H` include hidden. \
+         Always search from `.` (current dir) unless a different path is given.",
+    ),
+    (
+        "rg",
+        "use rg (ripgrep) instead of grep. \
+         Syntax: `rg PATTERN`, `rg -l PATTERN` (filenames only), \
+         `rg -t FILETYPE PATTERN` (e.g. `rg -t rust TODO`), \
+         `rg -i PATTERN` (case-insensitive). Respects .gitignore by default.",
+    ),
+    (
+        "eza",
+        "use eza instead of ls. \
+         Syntax: `eza` (basic), `eza -la` (long + hidden), `eza --tree` (tree view), \
+         `eza --tree --level=N` (limit depth).",
+    ),
+    (
+        "bat",
+        "use bat instead of cat. \
+         Syntax: `bat FILE` (with syntax highlighting), `bat -n FILE` (line numbers only).",
+    ),
+    (
+        "dust",
+        "use dust instead of du. \
+         Syntax: `dust` (current dir), `dust PATH`, `dust -n N` (top N entries).",
+    ),
+    (
+        "sd",
+        "use sd instead of sed for simple substitutions. \
+         Syntax: `sd 'FIND' 'REPLACE' FILE` (in-place) or pipe: `echo foo | sd foo bar`.",
+    ),
+    (
+        "procs",
+        "use procs instead of ps. \
+         Syntax: `procs` (all processes), `procs KEYWORD` (filter by name).",
+    ),
+    (
+        "delta",
+        "use delta instead of diff. \
+         Syntax: `delta FILE1 FILE2` or pipe: `diff FILE1 FILE2 | delta`.",
+    ),
 ];
 
 /// Build context from the current environment.
