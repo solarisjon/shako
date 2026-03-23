@@ -1,4 +1,4 @@
-# jbosh — Jon's Brilliant Operating Shell
+# shako
 
 A fish-inspired shell with transparent AI command translation and modern CLI tool defaults.
 
@@ -8,8 +8,8 @@ Type `ls` — it runs (via `eza` if installed). Type `list all python files modi
 
 ```bash
 cargo build --release
-make install        # installs to ~/.local/bin/jbosh
-jbosh
+make install        # installs to ~/.local/bin/shako
+shako
 ```
 
 ## How It Works
@@ -46,23 +46,23 @@ Commands are syntax-highlighted as you type:
 
 ```bash
 # Build and install
-make install                    # builds release, copies to ~/.local/bin/jbosh
+make install                    # builds release, copies to ~/.local/bin/shako
 
 # Register as a login shell (requires sudo)
 make register-shell             # adds to /etc/shells
 
 # Set as your default shell
-chsh -s ~/.local/bin/jbosh
+chsh -s ~/.local/bin/shako
 ```
 
 ### Requirements
 
 - Rust 1.85.0+ (edition 2024)
-- [Starship](https://starship.rs/) prompt (optional but recommended — jbosh integrates natively)
+- [Starship](https://starship.rs/) prompt (optional but recommended — shako integrates natively)
 
 ### Recommended Tools
 
-jbosh automatically detects and prefers modern CLI tools. Install any of these and they become the default — both as shell aliases **and** in AI-generated commands:
+shako automatically detects and prefers modern CLI tools. Install any of these and they become the default — both as shell aliases **and** in AI-generated commands:
 
 | Install | Replaces | What you get |
 |---|---|---|
@@ -95,11 +95,11 @@ Your `[aliases]` in config.toml always take priority over smart defaults.
 
 ## Configuration
 
-On first launch jbosh runs an interactive setup wizard that creates `~/.config/jbosh/config.toml` for you. You can also create or edit it manually.
+On first launch shako runs an interactive setup wizard that creates `~/.config/shako/config.toml` for you. You can also create or edit it manually.
 
 ### LLM Providers
 
-jbosh supports multiple named providers. Set `active_provider` to switch between them:
+shako supports multiple named providers. Set `active_provider` to switch between them:
 
 ```toml
 active_provider = "lm_studio"   # switch to "work_proxy" to use that instead
@@ -112,7 +112,7 @@ model = "your-model-name"       # model loaded in LM Studio
 [providers.work_proxy]
 endpoint = "https://your-llm-proxy.company.com/v1/chat/completions"
 model = "claude-sonnet-4.5"
-api_key_env = "JBOSH_LLM_KEY"  # name of env var holding your API key
+api_key_env = "SHAKO_LLM_KEY"  # name of env var holding your API key
 verify_ssl = false              # set false for internal/self-signed CAs
 ```
 
@@ -130,7 +130,7 @@ model = "your-model-name"
 [providers.work_proxy]
 endpoint = "https://your-llm-proxy.company.com/v1/chat/completions"
 model = "claude-sonnet-4.5"
-api_key_env = "JBOSH_LLM_KEY"
+api_key_env = "SHAKO_LLM_KEY"
 timeout_secs = 30
 max_tokens = 512
 verify_ssl = false
@@ -153,10 +153,10 @@ gl = "git log --oneline -20"
 
 ### Init File
 
-If `~/.config/jbosh/init.sh` exists, it's sourced automatically at startup. Supports `alias`, `export`, `set` (fish-style), and `function` definitions:
+If `~/.config/shako/init.sh` exists, it's sourced automatically at startup. Supports `alias`, `export`, `set` (fish-style), and `function` definitions:
 
 ```bash
-# ~/.config/jbosh/init.sh
+# ~/.config/shako/init.sh
 
 # POSIX style
 alias k='kubectl'
@@ -188,7 +188,7 @@ function deploy() { git push && ssh prod "cd /app && git pull" }
 - **Natural language → command** — type what you want, AI translates, you confirm
 - **Forced AI mode** — `? grep` or `ai: how do I find large files`
 - **Tool-aware** — AI knows which modern tools you have and prefers them (fd over find, rg over grep, etc.)
-- **Error recovery** — when a command fails (exit ≥2), jbosh offers AI diagnosis with a suggested fix
+- **Error recovery** — when a command fails (exit ≥2), shako offers AI diagnosis with a suggested fix
 - **Safety layer** — dangerous AI-generated commands are blocked (`rm -rf /`) or warned (`sudo`, `chmod`)
 - **Confirmation UX** — `[Y]es / [n]o / [e]dit` before any AI command runs
 
@@ -230,7 +230,7 @@ function deploy() { git push && ssh prod "cd /app && git pull" }
 
 ### Prompt
 
-jbosh integrates with [Starship](https://starship.rs/) for prompt rendering:
+shako integrates with [Starship](https://starship.rs/) for prompt rendering:
 
 - Last command exit code, duration, and terminal width
 - Background job count (drives Starship's jobs module)
@@ -238,7 +238,7 @@ jbosh integrates with [Starship](https://starship.rs/) for prompt rendering:
 - `STARSHIP_SESSION_KEY` set at startup for stateful modules
 - Left and right prompts rendered in parallel (two `starship prompt` calls run simultaneously)
 
-On first launch jbosh creates `~/.config/jbosh/starship.toml` — a copy of your global Starship config with the `[shell]` module enabled and `unknown_indicator = "jbosh"` so your prompt shows **jbosh** as the shell name. Edit that file to customise Starship specifically for jbosh.
+On first launch shako creates `~/.config/shako/starship.toml` — a copy of your global Starship config with the `[shell]` module enabled and `unknown_indicator = "shako"` so your prompt shows **shako** as the shell name. Edit that file to customise Starship specifically for shako.
 
 If Starship isn't installed, a minimal `❯` prompt is used.
 

@@ -28,21 +28,21 @@ fn main() -> Result<()> {
     env_logger::init();
     // Tell Starship which shell is running so its shell module displays correctly.
     // Safety: called at startup before any threads exist.
-    unsafe { std::env::set_var("STARSHIP_SHELL", "jbosh") };
+    unsafe { std::env::set_var("STARSHIP_SHELL", "shako") };
     // Ensure PWD reflects the real cwd at startup — Starship and subprocesses read it.
     if let Ok(cwd) = std::env::current_dir() {
         unsafe { std::env::set_var("PWD", cwd) };
     }
 
-    // Create ~/.config/jbosh/starship.toml (merging user's global config) so Starship's
-    // shell module shows "jbosh" instead of nothing/generic. Set STARSHIP_CONFIG so
+    // Create ~/.config/shako/starship.toml (merging user's global config) so Starship's
+    // shell module shows "shako" instead of nothing/generic. Set STARSHIP_CONFIG so
     // all starship invocations from this session use it.
-    let jbosh_config_dir = std::env::var("XDG_CONFIG_HOME")
+    let shako_config_dir = std::env::var("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
         .ok()
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-        .map(|d| d.join("jbosh"));
-    if let Some(ref dir) = jbosh_config_dir {
+        .map(|d| d.join("shako"));
+    if let Some(ref dir) = shako_config_dir {
         if let Some(starship_cfg) = setup::ensure_starship_config(dir) {
             // Safety: called at startup before any threads exist.
             unsafe { std::env::set_var("STARSHIP_CONFIG", starship_cfg) };
@@ -64,13 +64,13 @@ fn main() -> Result<()> {
     let history_path = dirs::data_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join(".local/share")))
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("jbosh")
+        .join("shako")
         .join("history.txt");
 
     let history = Box::new(
         FileBackedHistory::with_file(10_000, history_path.clone())
             .unwrap_or_else(|e| {
-                eprintln!("jbosh: history: {e}, using in-memory only");
+                eprintln!("shako: history: {e}, using in-memory only");
                 FileBackedHistory::new(1000).expect("failed to create history")
             }),
     );
@@ -132,7 +132,7 @@ fn main() -> Result<()> {
     // Auto-source init file if it exists
     let init_path = dirs::config_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-        .map(|d| d.join("jbosh").join("init.sh"));
+        .map(|d| d.join("shako").join("init.sh"));
     if let Some(ref path) = init_path {
         if path.exists() {
             builtins::run_builtin(
@@ -223,7 +223,7 @@ fn main() -> Result<()> {
                             match ai::translate_and_execute(&text, &config).await {
                                 Ok(_) => prompt::set_last_status(0),
                                 Err(e) => {
-                                    eprintln!("jbosh: ai error: {e}");
+                                    eprintln!("shako: ai error: {e}");
                                     prompt::set_last_status(1);
                                 }
                             }
@@ -234,7 +234,7 @@ fn main() -> Result<()> {
                             match ai::translate_and_execute(&text, &config).await {
                                 Ok(_) => prompt::set_last_status(0),
                                 Err(e) => {
-                                    eprintln!("jbosh: ai error: {e}");
+                                    eprintln!("shako: ai error: {e}");
                                     prompt::set_last_status(1);
                                 }
                             }
@@ -243,7 +243,7 @@ fn main() -> Result<()> {
                     Classification::Typo { suggestion, .. } => {
                         if config.behavior.auto_correct_typos {
                             print!(
-                                "\x1b[33mjbosh: did you mean \x1b[1m{suggestion}\x1b[0m\x1b[33m? [Y/n]\x1b[0m "
+                                "\x1b[33mshako: did you mean \x1b[1m{suggestion}\x1b[0m\x1b[33m? [Y/n]\x1b[0m "
                             );
                             io::stdout().flush().ok();
                             let mut answer = String::new();
@@ -258,7 +258,7 @@ fn main() -> Result<()> {
                                 match ai::translate_and_execute(&suggestion, &config).await {
                                     Ok(_) => prompt::set_last_status(0),
                                     Err(e) => {
-                                        eprintln!("jbosh: ai error: {e}");
+                                        eprintln!("shako: ai error: {e}");
                                         prompt::set_last_status(1);
                                     }
                                 }
@@ -278,7 +278,7 @@ fn main() -> Result<()> {
                 break;
             }
             Err(e) => {
-                eprintln!("jbosh: input error: {e}");
+                eprintln!("shako: input error: {e}");
                 break;
             }
         }
@@ -303,7 +303,7 @@ fn offer_ai_recovery(
         return;
     }
 
-    print!("\x1b[33mjbosh: command failed (exit {exit_code}). ask AI for help? [y/N]\x1b[0m ");
+    print!("\x1b[33mshako: command failed (exit {exit_code}). ask AI for help? [y/N]\x1b[0m ");
     io::stdout().flush().ok();
 
     let mut answer = String::new();
@@ -336,7 +336,7 @@ fn offer_ai_recovery(
                     } else if let Some(f) = line.strip_prefix("FIX:") {
                         fix = f.trim().to_string();
                     } else if !fix.is_empty() && !line.is_empty()
-                        && line != "JBOSH_NO_FIX"
+                        && line != "SHAKO_NO_FIX"
                     {
                         // Multi-line fix
                         fix.push('\n');
@@ -348,7 +348,7 @@ fn offer_ai_recovery(
                     eprintln!("\x1b[36m  cause:\x1b[0m {cause}");
                 }
 
-                if fix.is_empty() || fix == "JBOSH_NO_FIX" {
+                if fix.is_empty() || fix == "SHAKO_NO_FIX" {
                     return;
                 }
 
@@ -387,7 +387,7 @@ fn offer_ai_recovery(
             }
             Err(e) => {
                 print!("\r\x1b[K");
-                eprintln!("jbosh: ai error: {e}");
+                eprintln!("shako: ai error: {e}");
             }
         }
     });
@@ -441,7 +441,7 @@ fn print_banner(config: &JboshConfig) {
     };
 
     eprintln!(
-        "\x1b[1;36mjbosh\x1b[0m \x1b[90mv{version}\x1b[0m  \x1b[90m·\x1b[0m  \
+        "\x1b[1;36mshako\x1b[0m \x1b[90mv{version}\x1b[0m  \x1b[90m·\x1b[0m  \
          \x1b[33m{provider_name}\x1b[0m  {model}  \x1b[90m{endpoint_display}\x1b[0m",
         model = llm.model,
     );

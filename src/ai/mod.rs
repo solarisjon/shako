@@ -15,8 +15,8 @@ pub async fn translate_and_execute(input: &str, config: &JboshConfig) -> Result<
 
     let command = response.trim();
 
-    if command == "JBOSH_CANNOT_TRANSLATE" || command.is_empty() {
-        eprintln!("jbosh: couldn't translate that to a command");
+    if command == "SHAKO_CANNOT_TRANSLATE" || command.is_empty() {
+        eprintln!("shako: couldn't translate that to a command");
         return Ok(());
     }
 

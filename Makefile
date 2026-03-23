@@ -25,13 +25,13 @@ clean:
 	cargo clean
 
 install: release
-	cp target/release/jbosh ~/.local/bin/jbosh
+	cp target/release/shako ~/.local/bin/shako
 
 register-shell:
-	@if grep -q "$(HOME)/.local/bin/jbosh" /etc/shells 2>/dev/null; then \
-		echo "jbosh already in /etc/shells"; \
+	@if grep -q "$(HOME)/.local/bin/shako" /etc/shells 2>/dev/null; then \
+		echo "shako already in /etc/shells"; \
 	else \
-		echo "$(HOME)/.local/bin/jbosh" | sudo tee -a /etc/shells; \
-		echo "jbosh added to /etc/shells"; \
-		echo "run: chsh -s $(HOME)/.local/bin/jbosh"; \
+		echo "$(HOME)/.local/bin/shako" | sudo tee -a /etc/shells; \
+		echo "shako added to /etc/shells"; \
+		echo "run: chsh -s $(HOME)/.local/bin/shako"; \
 	fi

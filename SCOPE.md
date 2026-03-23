@@ -1,4 +1,4 @@
-# jbosh — Jon's Brilliant Operating Shell
+# shako
 
 ## Vision
 
@@ -49,7 +49,7 @@ When a first-token doesn't resolve to a binary:
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                     jbosh                            │
+│                     shako                            │
 │                                                      │
 │  ┌─────────┐    ┌──────────────┐    ┌─────────────┐ │
 │  │ Reedline │───→│   Classifier │───→│  Executor   │ │
@@ -119,12 +119,12 @@ src/
 ## Configuration
 
 ```toml
-# ~/.config/jbosh/config.toml
+# ~/.config/shako/config.toml
 
 [llm]
 endpoint = "https://llm-proxy.internal.company.com/v1/chat/completions"
 model = "gpt-4"
-api_key_env = "JBOSH_LLM_KEY"        # env var name holding the key
+api_key_env = "SHAKO_LLM_KEY"        # env var name holding the key
 timeout_secs = 30
 max_tokens = 512
 verify_ssl = false                     # for internal CAs
@@ -152,7 +152,7 @@ You are a shell command translator. The user is working in an interactive shell.
 
 Environment:
 - OS: {os} ({arch})
-- Shell: jbosh
+- Shell: shako
 - Current directory: {cwd}
 - Recent history: {history}
 
@@ -166,7 +166,7 @@ Rules:
 4. If the intent is ambiguous, return the safest interpretation.
 5. Never generate destructive commands (rm -rf, mkfs, etc.) without
    the user explicitly describing destruction.
-6. If you cannot translate the intent, respond with: JBOSH_CANNOT_TRANSLATE
+6. If you cannot translate the intent, respond with: SHAKO_CANNOT_TRANSLATE
 ```
 
 ## Safety Layer
@@ -239,4 +239,4 @@ Commands matching these patterns trigger confirmation regardless of source:
 
 ## Name
 
-**jbosh** — Jon's Brilliant Operating Shell (or just "bosh" in casual use).
+**shako** — a fast, AI-augmented shell. Named after the mako shark.

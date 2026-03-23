@@ -1,5 +1,5 @@
 [package]
-name = "jbosh"
+name = "shako"
 version = "0.1.0"
 edition = "2024"
 description = "A fish-inspired shell with transparent AI command translation"
@@ -8,7 +8,7 @@ repository = "https://github.com/solarisjon/Jon-s-Brilliant-Operating-Shell"
 rust-version = "1.85.0"
 
 [[bin]]
-name = "jbosh"
+name = "shako"
 path = "src/main.rs"
 
 [dependencies]

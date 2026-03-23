@@ -63,7 +63,7 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
         match File::open(path) {
             Ok(f) => { cmd.stdin(Stdio::from(f)); }
             Err(e) => {
-                eprintln!("jbosh: {path}: {e}");
+                eprintln!("shako: {path}: {e}");
                 return None;
             }
         }
@@ -78,7 +78,7 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
         match file {
             Ok(f) => { cmd.stdout(Stdio::from(f)); }
             Err(e) => {
-                eprintln!("jbosh: {path}: {e}");
+                eprintln!("shako: {path}: {e}");
                 return None;
             }
         }
@@ -87,7 +87,7 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
     match cmd.spawn() {
         Ok(child) => Some(child),
         Err(e) => {
-            eprintln!("jbosh: {program}: {e}");
+            eprintln!("shako: {program}: {e}");
             None
         }
     }
@@ -155,7 +155,7 @@ fn execute_single(input: &str) -> ExitStatus {
                 cmd.stdin(Stdio::from(f));
             }
             Err(e) => {
-                eprintln!("jbosh: {path}: {e}");
+                eprintln!("shako: {path}: {e}");
                 return fake_status(1);
             }
         }
@@ -172,7 +172,7 @@ fn execute_single(input: &str) -> ExitStatus {
                 cmd.stdout(Stdio::from(f));
             }
             Err(e) => {
-                eprintln!("jbosh: {path}: {e}");
+                eprintln!("shako: {path}: {e}");
                 return fake_status(1);
             }
         }
@@ -188,7 +188,7 @@ fn execute_single(input: &str) -> ExitStatus {
             status
         }
         Err(e) => {
-            eprintln!("jbosh: {program}: {e}");
+            eprintln!("shako: {program}: {e}");
             fake_status(127)
         }
     }
@@ -205,7 +205,7 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
 
         let args = parser::parse_args(&cmd_str);
         if args.is_empty() {
-            eprintln!("jbosh: empty command in pipeline");
+            eprintln!("shako: empty command in pipeline");
             return fake_status(1);
         }
 
@@ -224,7 +224,7 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
                     cmd.stdin(Stdio::from(f));
                 }
                 Err(e) => {
-                    eprintln!("jbosh: {path}: {e}");
+                    eprintln!("shako: {path}: {e}");
                     return fake_status(1);
                 }
             }
@@ -243,7 +243,7 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
                     cmd.stdout(Stdio::from(f));
                 }
                 Err(e) => {
-                    eprintln!("jbosh: {path}: {e}");
+                    eprintln!("shako: {path}: {e}");
                     return fake_status(1);
                 }
             }
@@ -257,7 +257,7 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
                 children.push(child);
             }
             Err(e) => {
-                eprintln!("jbosh: {program}: {e}");
+                eprintln!("shako: {program}: {e}");
                 return fake_status(127);
             }
         }
@@ -268,7 +268,7 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
         match child.wait() {
             Ok(status) => last_status = status,
             Err(e) => {
-                eprintln!("jbosh: wait: {e}");
+                eprintln!("shako: wait: {e}");
                 last_status = fake_status(1);
             }
         }
@@ -295,7 +295,7 @@ fn parse_redirects(input: &str) -> (String, Option<String>, bool, Option<String>
                     stdout_path = Some(tokens[i + 1].to_string());
                     i += 2;
                 } else {
-                    eprintln!("jbosh: syntax error near >>");
+                    eprintln!("shako: syntax error near >>");
                     i += 1;
                 }
             }
@@ -304,7 +304,7 @@ fn parse_redirects(input: &str) -> (String, Option<String>, bool, Option<String>
                     stdout_path = Some(tokens[i + 1].to_string());
                     i += 2;
                 } else {
-                    eprintln!("jbosh: syntax error near >");
+                    eprintln!("shako: syntax error near >");
                     i += 1;
                 }
             }
@@ -313,7 +313,7 @@ fn parse_redirects(input: &str) -> (String, Option<String>, bool, Option<String>
                     stdin_path = Some(tokens[i + 1].to_string());
                     i += 2;
                 } else {
-                    eprintln!("jbosh: syntax error near <");
+                    eprintln!("shako: syntax error near <");
                     i += 1;
                 }
             }

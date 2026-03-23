@@ -1,8 +1,8 @@
-# AGENTS.md — jbosh
+# AGENTS.md — shako
 
 ## What This Is
 
-**jbosh** (Jon's Brilliant Operating Shell) — a fish-inspired interactive shell written in Rust where natural language and shell commands coexist. Type `ls` and it runs instantly (via `eza` if installed). Type `list all python files modified today` and it routes through an LLM, translates to a shell command, confirms with the user, and executes.
+**shako** — a fish-inspired interactive shell written in Rust where natural language and shell commands coexist. Type `ls` and it runs instantly (via `eza` if installed). Type `list all python files modified today` and it routes through an LLM, translates to a shell command, confirms with the user, and executes.
 
 **Design philosophy**: Shell-first, AI-augmented — not an AI agent that happens to have shell access. Real commands execute with zero latency; only unrecognized input goes to the LLM.
 
@@ -16,7 +16,7 @@ make check          # cargo check
 make fmt            # cargo fmt
 make lint           # cargo clippy -- -W warnings
 make release        # cargo build --release
-make install        # release build + copy to ~/.local/bin/jbosh
+make install        # release build + copy to ~/.local/bin/shako
 make register-shell # add to /etc/shells (requires sudo)
 make clean          # cargo clean
 ```
@@ -90,7 +90,7 @@ Order matters:
 1. `context::build_context()` — gathers OS, arch, cwd, user
 2. `prompt::system_prompt()` — formats system prompt with context
 3. `client::query_llm()` — sends to OpenAI-compatible endpoint
-4. If response is `JBOSH_CANNOT_TRANSLATE` or empty → error message
+4. If response is `SHAKO_CANNOT_TRANSLATE` or empty → error message
 5. **Safety check** — `safety::is_dangerous()` blocks/warns based on `safety_mode`
 6. **Extra warning** — `safety::needs_extra_confirmation()` for sudo/rm/chmod
 7. If `confirm_ai_commands` is true → `confirm::confirm_command()` → Y/n/e
@@ -132,7 +132,7 @@ Full tokenizer and expansion engine:
 ### Error Handling
 
 - `anyhow::Result` throughout for propagation
-- User-facing errors: `eprintln!("jbosh: {context}: {e}")`
+- User-facing errors: `eprintln!("shako: {context}: {e}")`
 - Config missing → falls back to defaults silently
 
 ### Async
@@ -143,17 +143,17 @@ Full tokenizer and expansion engine:
 
 ### Configuration
 
-- Config path searched: `$XDG_CONFIG_HOME/jbosh/config.toml` → `~/.config/jbosh/config.toml` → platform default
+- Config path searched: `$XDG_CONFIG_HOME/shako/config.toml` → `~/.config/shako/config.toml` → platform default
 - All fields have serde defaults — works with no config file
 - `[aliases]` section loaded at startup, user config overrides smart defaults
-- Auto-sources `~/.config/jbosh/init.sh` if it exists
+- Auto-sources `~/.config/shako/init.sh` if it exists
 
 ### State Management
 
 - `ShellState` holds: aliases, functions, jobs, history path
 - Exit code tracked via atomics in `shell::prompt` (for starship + `$?`)
 - Command duration tracked via `CommandTimer` (for starship)
-- `SHLVL` incremented on entry, `STARSHIP_SHELL` set to `jbosh`
+- `SHLVL` incremented on entry, `STARSHIP_SHELL` set to `shako`
 
 ### Smart Defaults (smart_defaults.rs)
 
@@ -213,5 +213,5 @@ Tests use `assert!(matches!(...))` for enum variants and direct equality for str
 6. **Smart defaults never override** — user's `[aliases]` config always wins.
 7. **Functions use `;` as separator** — function bodies split on `;` for multi-statement execution.
 8. **Background `&` check** — `input.ends_with('&') && !input.ends_with("&&")` to avoid matching `&&`.
-9. **History on macOS** — stored at `~/Library/Application Support/jbosh/history.txt` via `dirs::data_dir()`.
-10. **Starship shell name** — `STARSHIP_SHELL=jbosh` is set at startup so starship shows the correct shell.
+9. **History on macOS** — stored at `~/Library/Application Support/shako/history.txt` via `dirs::data_dir()`.
+10. **Starship shell name** — `STARSHIP_SHELL=shako` is set at startup so starship shows the correct shell.

@@ -119,7 +119,7 @@ pub fn run_builtin(input: &str, state: &mut ShellState) {
         "fg" => builtin_fg(&parts[1..], state),
         "bg" => builtin_bg(&parts[1..], state),
         "functions" => builtin_functions(state),
-        other => eprintln!("jbosh: unknown builtin: {other}"),
+        other => eprintln!("shako: unknown builtin: {other}"),
     }
 }
 
@@ -141,7 +141,7 @@ pub fn try_define_function(input: &str, state: &mut ShellState) -> bool {
         .unwrap_or(rest.len());
     let name = rest[..name_end].trim().to_string();
     if name.is_empty() {
-        eprintln!("jbosh: function: missing name");
+        eprintln!("shako: function: missing name");
         return true;
     }
 
@@ -158,11 +158,11 @@ pub fn try_define_function(input: &str, state: &mut ShellState) -> bool {
         if let Some(body) = inner.strip_suffix('}') {
             body.trim().to_string()
         } else {
-            eprintln!("jbosh: function: missing closing '}}' for {name}");
+            eprintln!("shako: function: missing closing '}}' for {name}");
             return true;
         }
     } else {
-        eprintln!("jbosh: function: missing '{{' for {name}");
+        eprintln!("shako: function: missing '{{' for {name}");
         return true;
     };
 
@@ -203,7 +203,7 @@ fn builtin_cd(args: &[&str]) {
         match dirs::home_dir() {
             Some(home) => home,
             None => {
-                eprintln!("jbosh: cd: HOME not set");
+                eprintln!("shako: cd: HOME not set");
                 return;
             }
         }
@@ -214,7 +214,7 @@ fn builtin_cd(args: &[&str]) {
                 std::path::PathBuf::from(old)
             }
             Err(_) => {
-                eprintln!("jbosh: cd: OLDPWD not set");
+                eprintln!("shako: cd: OLDPWD not set");
                 return;
             }
         }
@@ -224,7 +224,7 @@ fn builtin_cd(args: &[&str]) {
             match dirs::home_dir() {
                 Some(home) => home.join(&path[1..].trim_start_matches('/')),
                 None => {
-                    eprintln!("jbosh: cd: HOME not set");
+                    eprintln!("shako: cd: HOME not set");
                     return;
                 }
             }
@@ -238,7 +238,7 @@ fn builtin_cd(args: &[&str]) {
     }
 
     if let Err(e) = env::set_current_dir(&target) {
-        eprintln!("jbosh: cd: {}: {e}", target.display());
+        eprintln!("shako: cd: {}: {e}", target.display());
     } else if let Ok(cwd) = env::current_dir() {
         // Keep PWD in sync — Starship and most Unix tools read PWD rather than
         // resolving the kernel cwd, so without this the prompt stays stale.
@@ -266,7 +266,7 @@ fn builtin_z(args: &[&str]) {
             builtin_cd(&[path.as_str()]);
         }
         None => {
-            eprintln!("jbosh: z: no match for {:?}", args.join(" "));
+            eprintln!("shako: z: no match for {:?}", args.join(" "));
         }
     }
 }
@@ -274,7 +274,7 @@ fn builtin_z(args: &[&str]) {
 /// `zi` — interactive zoxide selection via fzf.
 fn builtin_zi() {
     if !smart_defaults::has_zoxide() {
-        eprintln!("jbosh: zi: zoxide not installed");
+        eprintln!("shako: zi: zoxide not installed");
         return;
     }
 
@@ -286,7 +286,7 @@ fn builtin_zi() {
         Ok(out) if out.status.success() => {
             let list = String::from_utf8_lossy(&out.stdout).to_string();
             if list.trim().is_empty() {
-                eprintln!("jbosh: zi: no directories tracked yet");
+                eprintln!("shako: zi: no directories tracked yet");
                 return;
             }
 
@@ -303,7 +303,7 @@ fn builtin_zi() {
                 print!("{list}");
             }
         }
-        _ => eprintln!("jbosh: zi: failed to query zoxide"),
+        _ => eprintln!("shako: zi: failed to query zoxide"),
     }
 }
 
@@ -314,7 +314,7 @@ fn builtin_export(args: &[&str]) {
         } else {
             match env::var(arg) {
                 Ok(val) => println!("{arg}={val}"),
-                Err(_) => eprintln!("jbosh: export: {arg}: not set"),
+                Err(_) => eprintln!("shako: export: {arg}: not set"),
             }
         }
     }
@@ -359,7 +359,7 @@ fn builtin_set(args: &[&str]) {
                     'g' | 'U' => {} // global/universal — treat as default
                     'e' => erase = true,
                     _ => {
-                        eprintln!("jbosh: set: unknown option: -{ch}");
+                        eprintln!("shako: set: unknown option: -{ch}");
                         return;
                     }
                 }
@@ -373,7 +373,7 @@ fn builtin_set(args: &[&str]) {
     let remaining = &args[var_start..];
 
     if remaining.is_empty() {
-        eprintln!("jbosh: set: missing variable name");
+        eprintln!("shako: set: missing variable name");
         return;
     }
 
@@ -404,7 +404,7 @@ fn builtin_history(args: &[&str], state: &ShellState) {
         .unwrap_or(25);
 
     if !state.history_path.exists() {
-        eprintln!("jbosh: history: no history file");
+        eprintln!("shako: history: no history file");
         return;
     }
 
@@ -416,7 +416,7 @@ fn builtin_history(args: &[&str], state: &ShellState) {
                 println!("{:>5}  {}", start + i + 1, line);
             }
         }
-        Err(e) => eprintln!("jbosh: history: {e}"),
+        Err(e) => eprintln!("shako: history: {e}"),
     }
 }
 
@@ -440,7 +440,7 @@ fn builtin_alias(args: &[&str], state: &mut ShellState) {
         } else {
             match state.aliases.get(*arg) {
                 Some(value) => println!("alias {arg}='{value}'"),
-                None => eprintln!("jbosh: alias: {arg}: not found"),
+                None => eprintln!("shako: alias: {arg}: not found"),
             }
         }
     }
@@ -453,14 +453,14 @@ fn builtin_unalias(args: &[&str], state: &mut ShellState) {
             return;
         }
         if state.aliases.remove(*arg).is_none() {
-            eprintln!("jbosh: unalias: {arg}: not found");
+            eprintln!("shako: unalias: {arg}: not found");
         }
     }
 }
 
 fn builtin_source(args: &[&str], state: &mut ShellState) {
     if args.is_empty() {
-        eprintln!("jbosh: source: filename argument required");
+        eprintln!("shako: source: filename argument required");
         return;
     }
 
@@ -476,7 +476,7 @@ fn builtin_source(args: &[&str], state: &mut ShellState) {
         let contents = match std::fs::read_to_string(&expanded) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("jbosh: source: {}: {e}", expanded.display());
+                eprintln!("shako: source: {}: {e}", expanded.display());
                 return;
             }
         };
@@ -519,7 +519,7 @@ fn builtin_type(args: &[&str], state: &ShellState) {
         } else if let Ok(path) = which::which(arg) {
             println!("{arg} is {}", path.display());
         } else {
-            eprintln!("jbosh: type: {arg}: not found");
+            eprintln!("shako: type: {arg}: not found");
         }
     }
 }
@@ -551,7 +551,7 @@ fn builtin_fg(args: &[&str], state: &mut ShellState) {
     let job_idx = if args.is_empty() {
         // Default to most recent job
         if state.jobs.is_empty() {
-            eprintln!("jbosh: fg: no current job");
+            eprintln!("shako: fg: no current job");
             return;
         }
         state.jobs.len() - 1
@@ -559,14 +559,14 @@ fn builtin_fg(args: &[&str], state: &mut ShellState) {
         let target_id: usize = match args[0].trim_start_matches('%').parse() {
             Ok(id) => id,
             Err(_) => {
-                eprintln!("jbosh: fg: {}: no such job", args[0]);
+                eprintln!("shako: fg: {}: no such job", args[0]);
                 return;
             }
         };
         match state.jobs.iter().position(|j| j.id == target_id) {
             Some(idx) => idx,
             None => {
-                eprintln!("jbosh: fg: %{target_id}: no such job");
+                eprintln!("shako: fg: %{target_id}: no such job");
                 return;
             }
         }
@@ -579,7 +579,7 @@ fn builtin_fg(args: &[&str], state: &mut ShellState) {
             let code = status.code().unwrap_or(0);
             crate::shell::prompt::set_last_status(code);
         }
-        Err(e) => eprintln!("jbosh: fg: {e}"),
+        Err(e) => eprintln!("shako: fg: {e}"),
     }
 }
 
@@ -588,7 +588,7 @@ fn builtin_bg(args: &[&str], state: &mut ShellState) {
 
     if args.is_empty() {
         if state.jobs.is_empty() {
-            eprintln!("jbosh: bg: no current job");
+            eprintln!("shako: bg: no current job");
             return;
         }
         // On Unix, send SIGCONT to the most recent job
@@ -603,7 +603,7 @@ fn builtin_bg(args: &[&str], state: &mut ShellState) {
         let target_id: usize = match args[0].trim_start_matches('%').parse() {
             Ok(id) => id,
             Err(_) => {
-                eprintln!("jbosh: bg: {}: no such job", args[0]);
+                eprintln!("shako: bg: {}: no such job", args[0]);
                 return;
             }
         };
@@ -614,7 +614,7 @@ fn builtin_bg(args: &[&str], state: &mut ShellState) {
                 let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGCONT);
                 eprintln!("[{}] {} &", job.id, job.command);
             } else {
-                eprintln!("jbosh: bg: %{target_id}: no such job");
+                eprintln!("shako: bg: %{target_id}: no such job");
             }
         }
     }

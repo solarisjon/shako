@@ -87,7 +87,7 @@ pub fn build_context() -> Result<ShellContext> {
         os: env::consts::OS.to_string(),
         arch: env::consts::ARCH.to_string(),
         cwd,
-        shell: "jbosh".to_string(),
+        shell: "shako".to_string(),
         user,
         available_tools,
         dir_context,

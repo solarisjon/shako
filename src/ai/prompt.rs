@@ -20,7 +20,7 @@ Rules:
 3. If the intent is ambiguous, return the safest interpretation.
 4. Never generate destructive commands (rm -rf, mkfs, etc.) without
    the user explicitly describing destruction.
-5. If you cannot translate the intent, respond with exactly: JBOSH_CANNOT_TRANSLATE
+5. If you cannot translate the intent, respond with exactly: SHAKO_CANNOT_TRANSLATE
 6. Always quote glob patterns in arguments (e.g. '*.md', not *.md) so the shell
    does not expand them before the tool receives them."#,
         ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user,
@@ -67,7 +67,7 @@ Rules:
 4. If you need the user to install something, say so in CAUSE and put the install command in FIX.
 5. If you cannot determine the issue, respond with:
    CAUSE: Unable to determine the issue from the available information
-   FIX: JBOSH_NO_FIX"#,
+   FIX: SHAKO_NO_FIX"#,
         ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user,
     );
 

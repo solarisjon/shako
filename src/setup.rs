@@ -8,7 +8,7 @@ pub fn run_wizard(config_path: &Path) -> Result<String> {
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
-    writeln!(out, "\n\x1b[1;36m welcome to jbosh!\x1b[0m")?;
+    writeln!(out, "\n\x1b[1;36m welcome to shako!\x1b[0m")?;
     writeln!(out, " No config found at \x1b[33m{}\x1b[0m", config_path.display())?;
     writeln!(out, " Let's get you set up.\n")?;
 
@@ -63,8 +63,8 @@ fn wizard_lm_studio(out: &mut impl Write) -> Result<String> {
     };
 
     Ok(format!(
-        r#"# jbosh configuration
-# Docs: https://github.com/jonsnyder/jbosh
+        r#"# shako configuration
+# Docs: https://github.com/solarisjon/shako
 
 active_provider = "lm_studio"
 
@@ -98,14 +98,14 @@ fn wizard_custom_proxy(out: &mut impl Write) -> Result<String> {
     }
 
     let model = prompt_line(out, " Model name: ", "gpt-4")?;
-    let api_key_env = prompt_line(out, " API key env var [JBOSH_LLM_KEY]: ", "JBOSH_LLM_KEY")?;
+    let api_key_env = prompt_line(out, " API key env var [SHAKO_LLM_KEY]: ", "SHAKO_LLM_KEY")?;
 
     let verify_ssl_ans = prompt_line(out, " Verify SSL? [Y/n]: ", "y")?;
     let verify_ssl = !matches!(verify_ssl_ans.trim().to_lowercase().as_str(), "n" | "no");
 
     Ok(format!(
-        r#"# jbosh configuration
-# Docs: https://github.com/jonsnyder/jbosh
+        r#"# shako configuration
+# Docs: https://github.com/solarisjon/shako
 
 active_provider = "work_proxy"
 
@@ -137,8 +137,8 @@ safety_mode = "warn"  # "warn" | "block" | "off"
 }
 
 fn template_config() -> String {
-    r#"# jbosh configuration
-# Docs: https://github.com/jonsnyder/jbosh
+    r#"# shako configuration
+# Docs: https://github.com/solarisjon/shako
 #
 # Uncomment and fill in a provider, then set active_provider to use it.
 
@@ -151,7 +151,7 @@ fn template_config() -> String {
 # [providers.work_proxy]
 # endpoint = "https://your-proxy.company.com/v1/chat/completions"
 # model = "claude-sonnet-4.5"
-# api_key_env = "JBOSH_LLM_KEY"
+# api_key_env = "SHAKO_LLM_KEY"
 # verify_ssl = false
 
 [behavior]
@@ -166,20 +166,20 @@ safety_mode = "warn"  # "warn" | "block" | "off"
     .to_string()
 }
 
-/// Ensure `~/.config/jbosh/starship.toml` exists with jbosh shell indicator set.
+/// Ensure `~/.config/shako/starship.toml` exists with shako shell indicator set.
 ///
-/// Starship's `shell` module only knows bash/fish/zsh/etc — jbosh maps to "unknown"
-/// and uses `unknown_indicator` (default: ""). This function creates a jbosh-specific
-/// Starship config (merging the user's global config) so the prompt shows "jbosh".
+/// Starship's `shell` module only knows bash/fish/zsh/etc — shako maps to "unknown"
+/// and uses `unknown_indicator` (default: ""). This function creates a shako-specific
+/// Starship config (merging the user's global config) so the prompt shows "shako".
 ///
-/// Returns the path to the jbosh Starship config if successfully created/existing,
+/// Returns the path to the shako Starship config if successfully created/existing,
 /// so the caller can set `STARSHIP_CONFIG` accordingly.
-pub fn ensure_starship_config(jbosh_config_dir: &Path) -> Option<PathBuf> {
+pub fn ensure_starship_config(shako_config_dir: &Path) -> Option<PathBuf> {
     if which::which("starship").is_err() {
         return None;
     }
 
-    let dest = jbosh_config_dir.join("starship.toml");
+    let dest = shako_config_dir.join("starship.toml");
     if dest.exists() {
         return Some(dest);
     }
@@ -188,7 +188,7 @@ pub fn ensure_starship_config(jbosh_config_dir: &Path) -> Option<PathBuf> {
         .and_then(|p| std::fs::read_to_string(p).ok())
         .unwrap_or_default();
 
-    let merged = match merge_jbosh_shell_settings(&base) {
+    let merged = match merge_shako_shell_settings(&base) {
         Ok(s) => s,
         Err(e) => {
             log::warn!("could not merge starship config: {e}");
@@ -196,8 +196,8 @@ pub fn ensure_starship_config(jbosh_config_dir: &Path) -> Option<PathBuf> {
         }
     };
 
-    if let Err(e) = std::fs::create_dir_all(jbosh_config_dir) {
-        log::warn!("could not create jbosh config dir: {e}");
+    if let Err(e) = std::fs::create_dir_all(shako_config_dir) {
+        log::warn!("could not create shako config dir: {e}");
         return None;
     }
 
@@ -206,7 +206,7 @@ pub fn ensure_starship_config(jbosh_config_dir: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    log::info!("wrote jbosh starship config to {}", dest.display());
+    log::info!("wrote shako starship config to {}", dest.display());
     Some(dest)
 }
 
@@ -224,8 +224,8 @@ fn find_user_starship_config() -> Option<PathBuf> {
     if p.exists() { Some(p) } else { None }
 }
 
-/// Merge jbosh shell indicator settings into an existing Starship TOML config string.
-fn merge_jbosh_shell_settings(base: &str) -> Result<String> {
+/// Merge shako shell indicator settings into an existing Starship TOML config string.
+fn merge_shako_shell_settings(base: &str) -> Result<String> {
     use toml::Value;
 
     let mut config: toml::map::Map<String, Value> = if base.is_empty() {
@@ -242,13 +242,13 @@ fn merge_jbosh_shell_settings(base: &str) -> Result<String> {
         .as_table_mut()
         .ok_or_else(|| anyhow::anyhow!("[shell] is not a TOML table"))?;
 
-    // Always enable the shell module under jbosh.
+    // Always enable the shell module under shako.
     table.insert("disabled".to_string(), Value::Boolean(false));
 
-    // Set unknown_indicator to "jbosh" only if the user hasn't customised it.
+    // Set unknown_indicator to "shako" only if the user hasn't customised it.
     table
         .entry("unknown_indicator".to_string())
-        .or_insert_with(|| Value::String("jbosh".to_string()));
+        .or_insert_with(|| Value::String("shako".to_string()));
 
     Ok(toml::to_string_pretty(&Value::Table(config))?)
 }

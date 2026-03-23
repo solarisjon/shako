@@ -694,29 +694,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
-name = "jbosh"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crossterm",
- "dirs",
- "env_logger",
- "glob",
- "log",
- "nix",
- "nu-ansi-term",
- "reedline",
- "reqwest",
- "serde",
- "serde_json",
- "strsim",
- "thiserror",
- "tokio",
- "toml",
- "which",
-]
-
-[[package]]
 name = "jiff"
 version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1373,6 +1350,29 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "shako"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossterm",
+ "dirs",
+ "env_logger",
+ "glob",
+ "log",
+ "nix",
+ "nu-ansi-term",
+ "reedline",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "strsim",
+ "thiserror",
+ "tokio",
+ "toml",
+ "which",
 ]
 
 [[package]]

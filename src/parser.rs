@@ -321,7 +321,7 @@ fn run_command_substitution(cmd: &str) -> String {
             result
         }
         Err(e) => {
-            eprintln!("jbosh: command substitution: {e}");
+            eprintln!("shako: command substitution: {e}");
             String::new()
         }
     }
@@ -507,18 +507,18 @@ mod tests {
 
     #[test]
     fn test_env_var_expansion() {
-        unsafe { env::set_var("JBOSH_TEST_VAR", "expanded") };
-        let result = expand_env_vars("$JBOSH_TEST_VAR");
+        unsafe { env::set_var("SHAKO_TEST_VAR", "expanded") };
+        let result = expand_env_vars("$SHAKO_TEST_VAR");
         assert_eq!(result, "expanded");
-        unsafe { env::remove_var("JBOSH_TEST_VAR") };
+        unsafe { env::remove_var("SHAKO_TEST_VAR") };
     }
 
     #[test]
     fn test_env_var_braces() {
-        unsafe { env::set_var("JBOSH_TEST_VAR2", "braced") };
-        let result = expand_env_vars("${JBOSH_TEST_VAR2}");
+        unsafe { env::set_var("SHAKO_TEST_VAR2", "braced") };
+        let result = expand_env_vars("${SHAKO_TEST_VAR2}");
         assert_eq!(result, "braced");
-        unsafe { env::remove_var("JBOSH_TEST_VAR2") };
+        unsafe { env::remove_var("SHAKO_TEST_VAR2") };
     }
 
     #[test]
@@ -571,10 +571,10 @@ mod tests {
 
     #[test]
     fn test_parse_args_full() {
-        unsafe { env::set_var("JBOSH_PARSE_TEST", "works") };
-        let args = parse_args("echo $JBOSH_PARSE_TEST");
+        unsafe { env::set_var("SHAKO_PARSE_TEST", "works") };
+        let args = parse_args("echo $SHAKO_PARSE_TEST");
         assert_eq!(args, vec!["echo", "works"]);
-        unsafe { env::remove_var("JBOSH_PARSE_TEST") };
+        unsafe { env::remove_var("SHAKO_PARSE_TEST") };
     }
 
     #[test]

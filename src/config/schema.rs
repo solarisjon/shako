@@ -73,7 +73,7 @@ fn default_model() -> String {
 }
 
 fn default_api_key_env() -> String {
-    "JBOSH_LLM_KEY".to_string()
+    "SHAKO_LLM_KEY".to_string()
 }
 
 fn default_timeout() -> u64 {
@@ -121,7 +121,7 @@ impl Default for BehaviorConfig {
 }
 
 impl JboshConfig {
-    /// Load config from ~/.config/jbosh/config.toml, falling back to defaults.
+    /// Load config from ~/.config/shako/config.toml, falling back to defaults.
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path();
 
@@ -149,7 +149,7 @@ impl JboshConfig {
             .map(PathBuf::from)
             .ok()
             .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-            .map(|d| d.join("jbosh").join("config.toml"));
+            .map(|d| d.join("shako").join("config.toml"));
 
         if let Some(ref p) = xdg_path {
             if p.exists() {
@@ -157,10 +157,10 @@ impl JboshConfig {
             }
         }
 
-        // Fall back to platform default (~/Library/Application Support/jbosh/config.toml on macOS)
+        // Fall back to platform default (~/Library/Application Support/shako/config.toml on macOS)
         let platform_path = dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("jbosh")
+            .join("shako")
             .join("config.toml");
 
         if platform_path.exists() {
