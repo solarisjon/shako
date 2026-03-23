@@ -120,21 +120,19 @@ impl Classifier {
         // Check builtins
         for &builtin in BUILTINS {
             let dist = damerau_levenshtein(token, builtin);
-            if dist > 0 && dist <= 2 {
-                if best.as_ref().is_none_or(|(_, d)| dist < *d) {
+            if dist > 0 && dist <= 2
+                && best.as_ref().is_none_or(|(_, d)| dist < *d) {
                     best = Some((builtin.to_string(), dist));
                 }
-            }
         }
 
         // Check PATH commands
         for cmd in &self.path_commands {
             let dist = damerau_levenshtein(token, cmd);
-            if dist > 0 && dist <= 2 {
-                if best.as_ref().is_none_or(|(_, d)| dist < *d) {
+            if dist > 0 && dist <= 2
+                && best.as_ref().is_none_or(|(_, d)| dist < *d) {
                     best = Some((cmd.clone(), dist));
                 }
-            }
         }
 
         best.map(|(cmd, _)| cmd)
@@ -159,23 +157,62 @@ fn looks_like_natural_language(args: &[&str]) -> bool {
     if args.iter().any(|a| {
         a.starts_with('-')          // flag: -n, --name, etc.
             || a.contains('/')      // path separator: ./foo, /tmp, ../bar
-            || *a == ".."           // parent dir
+            || *a == ".." // parent dir
     }) {
         return false;
     }
 
     // Common words that appear in English prose but never as shell arguments.
     const NL_WORDS: &[&str] = &[
-        "the", "a", "an",
-        "all", "every", "each", "any", "some",
-        "in", "on", "at", "to", "for", "of", "by", "with", "from", "into",
-        "this", "that", "these", "those",
-        "my", "me", "i",
-        "file", "files", "directory", "folder", "folders",
-        "which", "what", "how", "where", "when",
-        "modified", "created", "changed", "named", "called",
-        "today", "yesterday", "recent", "latest",
-        "largest", "smallest", "biggest", "newest", "oldest",
+        "the",
+        "a",
+        "an",
+        "all",
+        "every",
+        "each",
+        "any",
+        "some",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "by",
+        "with",
+        "from",
+        "into",
+        "this",
+        "that",
+        "these",
+        "those",
+        "my",
+        "me",
+        "i",
+        "file",
+        "files",
+        "directory",
+        "folder",
+        "folders",
+        "which",
+        "what",
+        "how",
+        "where",
+        "when",
+        "modified",
+        "created",
+        "changed",
+        "named",
+        "called",
+        "today",
+        "yesterday",
+        "recent",
+        "latest",
+        "largest",
+        "smallest",
+        "biggest",
+        "newest",
+        "oldest",
     ];
 
     args.iter()

@@ -1,5 +1,4 @@
 /// Safety layer — detect dangerous commands before execution.
-
 const DANGEROUS_PATTERNS: &[&str] = &[
     "rm -rf /",
     "rm -rf ~",

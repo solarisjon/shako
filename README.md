@@ -246,7 +246,7 @@ If Starship isn't installed, a minimal `❯` prompt is used.
 
 ```bash
 make build          # cargo build
-make test           # cargo test (34 tests)
+make test           # cargo test (36 tests)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt

@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::process::Command;
-use std::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Instant;
 

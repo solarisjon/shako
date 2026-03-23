@@ -308,10 +308,7 @@ fn run_command_substitution(cmd: &str) -> String {
         return String::new();
     }
 
-    match std::process::Command::new("sh")
-        .args(["-c", cmd])
-        .output()
-    {
+    match std::process::Command::new("sh").args(["-c", cmd]).output() {
         Ok(output) => {
             let mut result = String::from_utf8_lossy(&output.stdout).to_string();
             // Shells strip trailing newlines from command substitution

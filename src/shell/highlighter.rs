@@ -1,5 +1,5 @@
-use reedline::{Highlighter, StyledText};
 use nu_ansi_term::{Color, Style};
+use reedline::{Highlighter, StyledText};
 use which::which;
 
 pub struct JboshHighlighter;
@@ -26,11 +26,17 @@ impl Highlighter for JboshHighlighter {
         };
 
         if first_token.starts_with('?') || first_token == "ai:" {
-            styled.push((Style::new().fg(Color::Purple).bold(), first_token.to_string()));
+            styled.push((
+                Style::new().fg(Color::Purple).bold(),
+                first_token.to_string(),
+            ));
         } else if crate::builtins::is_builtin(first_token) {
             styled.push((Style::new().fg(Color::Cyan).bold(), first_token.to_string()));
         } else if which(first_token).is_ok() {
-            styled.push((Style::new().fg(Color::Green).bold(), first_token.to_string()));
+            styled.push((
+                Style::new().fg(Color::Green).bold(),
+                first_token.to_string(),
+            ));
         } else if first_token.starts_with('/') || first_token.starts_with("./") {
             styled.push((Style::new().fg(Color::Yellow), first_token.to_string()));
         } else {

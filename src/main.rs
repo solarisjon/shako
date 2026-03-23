@@ -2,8 +2,8 @@ use std::io::{self, Write};
 
 use anyhow::Result;
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, Emacs, FileBackedHistory, KeyCode, KeyModifiers,
-    MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, Signal,
+    ColumnarMenu, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
+    ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
 };
 
 mod ai;
@@ -68,11 +68,10 @@ fn main() -> Result<()> {
         .join("history.txt");
 
     let history = Box::new(
-        FileBackedHistory::with_file(10_000, history_path.clone())
-            .unwrap_or_else(|e| {
-                eprintln!("shako: history: {e}, using in-memory only");
-                FileBackedHistory::new(1000).expect("failed to create history")
-            }),
+        FileBackedHistory::with_file(10_000, history_path.clone()).unwrap_or_else(|e| {
+            eprintln!("shako: history: {e}, using in-memory only");
+            FileBackedHistory::new(1000).expect("failed to create history")
+        }),
     );
 
     let completion_menu = Box::new(
@@ -135,10 +134,7 @@ fn main() -> Result<()> {
         .map(|d| d.join("shako").join("init.sh"));
     if let Some(ref path) = init_path {
         if path.exists() {
-            builtins::run_builtin(
-                &format!("source {}", path.display()),
-                &mut state,
-            );
+            builtins::run_builtin(&format!("source {}", path.display()), &mut state);
         }
     }
 
@@ -335,9 +331,7 @@ fn offer_ai_recovery(
                         cause = c.trim().to_string();
                     } else if let Some(f) = line.strip_prefix("FIX:") {
                         fix = f.trim().to_string();
-                    } else if !fix.is_empty() && !line.is_empty()
-                        && line != "SHAKO_NO_FIX"
-                    {
+                    } else if !fix.is_empty() && !line.is_empty() && line != "SHAKO_NO_FIX" {
                         // Multi-line fix
                         fix.push('\n');
                         fix.push_str(line);
@@ -427,10 +421,7 @@ fn print_banner(config: &JboshConfig) {
     let version = env!("CARGO_PKG_VERSION");
     let llm = config.active_llm();
 
-    let provider_name = config
-        .active_provider
-        .as_deref()
-        .unwrap_or("llm");
+    let provider_name = config.active_provider.as_deref().unwrap_or("llm");
 
     // Truncate long endpoints so the banner stays on one line.
     let endpoint = &llm.endpoint;

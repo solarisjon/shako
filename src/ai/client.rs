@@ -28,7 +28,11 @@ struct ChatChoice {
 }
 
 /// Query the configured LLM endpoint with OpenAI-compatible API.
-pub async fn query_llm(system_prompt: &str, user_input: &str, config: &LlmConfig) -> Result<String> {
+pub async fn query_llm(
+    system_prompt: &str,
+    user_input: &str,
+    config: &LlmConfig,
+) -> Result<String> {
     let api_key = std::env::var(&config.api_key_env).unwrap_or_default();
 
     let client = reqwest::Client::builder()

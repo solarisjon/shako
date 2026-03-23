@@ -14,7 +14,8 @@ fn setup_child_signals(cmd: &mut Command) {
     unsafe {
         cmd.pre_exec(|| {
             // Put this process into its own process group
-            let _ = nix::unistd::setpgid(nix::unistd::Pid::from_raw(0), nix::unistd::Pid::from_raw(0));
+            let _ =
+                nix::unistd::setpgid(nix::unistd::Pid::from_raw(0), nix::unistd::Pid::from_raw(0));
             // Reset signal handlers to defaults (shell may have ignored them)
             nix::sys::signal::signal(
                 nix::sys::signal::Signal::SIGINT,
@@ -61,7 +62,9 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
 
     if let Some(ref path) = stdin_redirect {
         match File::open(path) {
-            Ok(f) => { cmd.stdin(Stdio::from(f)); }
+            Ok(f) => {
+                cmd.stdin(Stdio::from(f));
+            }
             Err(e) => {
                 eprintln!("shako: {path}: {e}");
                 return None;
@@ -76,7 +79,9 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
             File::create(path)
         };
         match file {
-            Ok(f) => { cmd.stdout(Stdio::from(f)); }
+            Ok(f) => {
+                cmd.stdout(Stdio::from(f));
+            }
             Err(e) => {
                 eprintln!("shako: {path}: {e}");
                 return None;

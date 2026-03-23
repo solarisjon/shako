@@ -9,13 +9,23 @@ pub fn run_wizard(config_path: &Path) -> Result<String> {
     let mut out = stdout.lock();
 
     writeln!(out, "\n\x1b[1;36m welcome to shako!\x1b[0m")?;
-    writeln!(out, " No config found at \x1b[33m{}\x1b[0m", config_path.display())?;
+    writeln!(
+        out,
+        " No config found at \x1b[33m{}\x1b[0m",
+        config_path.display()
+    )?;
     writeln!(out, " Let's get you set up.\n")?;
 
     writeln!(out, " Which AI provider would you like to use?")?;
-    writeln!(out, "   \x1b[1m[1]\x1b[0m LM Studio  \x1b[90m(local, http://localhost:1234)\x1b[0m")?;
+    writeln!(
+        out,
+        "   \x1b[1m[1]\x1b[0m LM Studio  \x1b[90m(local, http://localhost:1234)\x1b[0m"
+    )?;
     writeln!(out, "   \x1b[1m[2]\x1b[0m Work / custom proxy")?;
-    writeln!(out, "   \x1b[1m[3]\x1b[0m Skip — write a template I'll edit manually\n")?;
+    writeln!(
+        out,
+        "   \x1b[1m[3]\x1b[0m Skip — write a template I'll edit manually\n"
+    )?;
 
     let choice = prompt_line(&mut out, " Choice [1]: ", "1")?;
 
@@ -37,7 +47,10 @@ pub fn run_wizard(config_path: &Path) -> Result<String> {
         " \x1b[32m✓\x1b[0m Config written to \x1b[33m{}\x1b[0m",
         config_path.display()
     )?;
-    writeln!(out, " Edit it any time to change providers or add aliases.\n")?;
+    writeln!(
+        out,
+        " Edit it any time to change providers or add aliases.\n"
+    )?;
 
     Ok(toml)
 }
@@ -93,7 +106,10 @@ fn wizard_custom_proxy(out: &mut impl Write) -> Result<String> {
 
     let endpoint = prompt_line(out, " Endpoint URL: ", "")?;
     if endpoint.trim().is_empty() {
-        writeln!(out, " \x1b[33m(no endpoint entered — writing template)\x1b[0m")?;
+        writeln!(
+            out,
+            " \x1b[33m(no endpoint entered — writing template)\x1b[0m"
+        )?;
         return Ok(template_config());
     }
 

@@ -130,12 +130,18 @@ impl JboshConfig {
             let config: JboshConfig = toml::from_str(&contents)?;
             log::debug!("loaded config from {}", config_path.display());
             let active = config.active_llm();
-            log::debug!("  active provider: {}", config.active_provider.as_deref().unwrap_or("llm"));
+            log::debug!(
+                "  active provider: {}",
+                config.active_provider.as_deref().unwrap_or("llm")
+            );
             log::debug!("  llm endpoint: {}", active.endpoint);
             log::debug!("  llm model: {}", active.model);
             Ok(config)
         } else {
-            log::info!("no config found at {}, running first-time setup", config_path.display());
+            log::info!(
+                "no config found at {}, running first-time setup",
+                config_path.display()
+            );
             let toml = crate::setup::run_wizard(&config_path)?;
             let config: JboshConfig = toml::from_str(&toml)?;
             Ok(config)

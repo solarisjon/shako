@@ -5,8 +5,23 @@ use std::path::PathBuf;
 use crate::smart_defaults;
 
 pub const BUILTINS: &[&str] = &[
-    "cd", "exit", "export", "unset", "set", "source", "alias", "unalias",
-    "history", "type", "z", "zi", "jobs", "fg", "bg", "function", "functions",
+    "cd",
+    "exit",
+    "export",
+    "unset",
+    "set",
+    "source",
+    "alias",
+    "unalias",
+    "history",
+    "type",
+    "z",
+    "zi",
+    "jobs",
+    "fg",
+    "bg",
+    "function",
+    "functions",
 ];
 
 /// A background job tracked by the shell.
@@ -97,7 +112,10 @@ pub fn is_builtin(token: &str) -> bool {
 
 /// Run a shell builtin command.
 pub fn run_builtin(input: &str, state: &mut ShellState) {
-    let parts: Vec<&str> = input.split_whitespace().collect();
+    // Use parse_args so builtins get glob expansion, tilde expansion,
+    // env var expansion, and quoting — same as regular commands.
+    let parsed = crate::parser::parse_args(input);
+    let parts: Vec<&str> = parsed.iter().map(|s| s.as_str()).collect();
     if parts.is_empty() {
         return;
     }
@@ -166,12 +184,7 @@ pub fn try_define_function(input: &str, state: &mut ShellState) -> bool {
         return true;
     };
 
-    state.functions.insert(
-        name.clone(),
-        ShellFunction {
-            body,
-        },
-    );
+    state.functions.insert(name.clone(), ShellFunction { body });
     true
 }
 
@@ -220,9 +233,15 @@ fn builtin_cd(args: &[&str]) {
         }
     } else {
         let path = args[0];
+        // If the path still contains glob metacharacters, it means the glob
+        // expansion found no matches and returned the pattern literally.
+        if path.chars().any(|c| c == '*' || c == '?' || c == '[') {
+            eprintln!("shako: cd: {path}: no matches found");
+            return;
+        }
         if path.starts_with('~') {
             match dirs::home_dir() {
-                Some(home) => home.join(&path[1..].trim_start_matches('/')),
+                Some(home) => home.join(path.trim_start_matches('~').trim_start_matches('/')),
                 None => {
                     eprintln!("shako: cd: HOME not set");
                     return;
@@ -293,7 +312,7 @@ fn builtin_zi() {
             if smart_defaults::has_fzf() {
                 if let Some(selected) = smart_defaults::fzf_select(&list, "z>") {
                     // zoxide output format: "  score /path/to/dir"
-                    let path = selected.trim().split_whitespace().last().unwrap_or("");
+                    let path = selected.split_whitespace().last().unwrap_or("");
                     if !path.is_empty() {
                         builtin_cd(&[path]);
                     }
@@ -351,8 +370,7 @@ fn builtin_set(args: &[&str]) {
     let mut var_start = 0;
 
     for (i, arg) in args.iter().enumerate() {
-        if arg.starts_with('-') {
-            let flags = &arg[1..];
+        if let Some(flags) = arg.strip_prefix('-') {
             for ch in flags.chars() {
                 match ch {
                     'x' => export = true,
@@ -399,9 +417,7 @@ fn builtin_set(args: &[&str]) {
 }
 
 fn builtin_history(args: &[&str], state: &ShellState) {
-    let limit: usize = args.first()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(25);
+    let limit: usize = args.first().and_then(|s| s.parse().ok()).unwrap_or(25);
 
     if !state.history_path.exists() {
         eprintln!("shako: history: no history file");
@@ -490,7 +506,9 @@ fn builtin_source(args: &[&str], state: &mut ShellState) {
             if let Some(rest) = line.strip_prefix("alias ") {
                 if let Some((name, value)) = rest.split_once('=') {
                     let value = value.trim_matches('\'').trim_matches('"');
-                    state.aliases.insert(name.trim().to_string(), value.to_string());
+                    state
+                        .aliases
+                        .insert(name.trim().to_string(), value.to_string());
                 }
             } else if let Some(rest) = line.strip_prefix("export ") {
                 if let Some((key, value)) = rest.split_once('=') {

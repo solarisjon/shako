@@ -31,7 +31,9 @@ const SMART_ALIASES: &[(&str, &str, &str)] = &[
 
 /// Detect installed modern tools and return aliases to apply.
 /// Skips aliases the user has already defined (user config wins).
-pub fn detect_smart_defaults(existing_aliases: &HashMap<String, String>) -> HashMap<String, String> {
+pub fn detect_smart_defaults(
+    existing_aliases: &HashMap<String, String>,
+) -> HashMap<String, String> {
     let mut aliases = HashMap::new();
 
     // Direct tool upgrades: ls → eza, cat → bat, etc.

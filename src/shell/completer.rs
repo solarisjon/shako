@@ -4,28 +4,87 @@ use std::fs;
 use std::path::PathBuf;
 
 const GIT_SUBCOMMANDS: &[&str] = &[
-    "add", "bisect", "blame", "branch", "checkout", "cherry-pick", "clone",
-    "commit", "config", "diff", "fetch", "init", "log", "merge", "mv",
-    "pull", "push", "rebase", "reflog", "remote", "reset", "restore",
-    "revert", "rm", "show", "stash", "status", "switch", "tag", "worktree",
+    "add",
+    "bisect",
+    "blame",
+    "branch",
+    "checkout",
+    "cherry-pick",
+    "clone",
+    "commit",
+    "config",
+    "diff",
+    "fetch",
+    "init",
+    "log",
+    "merge",
+    "mv",
+    "pull",
+    "push",
+    "rebase",
+    "reflog",
+    "remote",
+    "reset",
+    "restore",
+    "revert",
+    "rm",
+    "show",
+    "stash",
+    "status",
+    "switch",
+    "tag",
+    "worktree",
 ];
 
 const CARGO_SUBCOMMANDS: &[&str] = &[
-    "bench", "build", "check", "clean", "clippy", "doc", "fetch", "fix",
-    "fmt", "init", "install", "new", "publish", "run", "search", "test",
-    "tree", "update", "vendor",
+    "bench", "build", "check", "clean", "clippy", "doc", "fetch", "fix", "fmt", "init", "install",
+    "new", "publish", "run", "search", "test", "tree", "update", "vendor",
 ];
 
 const DOCKER_SUBCOMMANDS: &[&str] = &[
-    "build", "compose", "container", "cp", "create", "exec", "image",
-    "images", "inspect", "kill", "logs", "network", "ps", "pull", "push",
-    "rm", "rmi", "run", "start", "stop", "system", "volume",
+    "build",
+    "compose",
+    "container",
+    "cp",
+    "create",
+    "exec",
+    "image",
+    "images",
+    "inspect",
+    "kill",
+    "logs",
+    "network",
+    "ps",
+    "pull",
+    "push",
+    "rm",
+    "rmi",
+    "run",
+    "start",
+    "stop",
+    "system",
+    "volume",
 ];
 
 const KUBECTL_SUBCOMMANDS: &[&str] = &[
-    "apply", "attach", "create", "delete", "describe", "edit", "exec",
-    "expose", "get", "label", "logs", "patch", "port-forward", "rollout",
-    "run", "scale", "set", "top",
+    "apply",
+    "attach",
+    "create",
+    "delete",
+    "describe",
+    "edit",
+    "exec",
+    "expose",
+    "get",
+    "label",
+    "logs",
+    "patch",
+    "port-forward",
+    "rollout",
+    "run",
+    "scale",
+    "set",
+    "top",
 ];
 
 const MAKE_SUBCOMMANDS: &[&str] = &[];
@@ -231,16 +290,15 @@ impl Completer for JboshCompleter {
         }
 
         // Subcommand completions for known tools
-        let is_second_token =
-            (parts.len() == 2 && !line_to_cursor.ends_with(' '))
+        let is_second_token = (parts.len() == 2 && !line_to_cursor.ends_with(' '))
             || (parts.len() == 1 && line_to_cursor.ends_with(' '));
 
         if is_second_token {
             let subcommands = match first_cmd {
-                "git" => Some(&GIT_SUBCOMMANDS[..]),
-                "cargo" => Some(&CARGO_SUBCOMMANDS[..]),
-                "docker" | "podman" => Some(&DOCKER_SUBCOMMANDS[..]),
-                "kubectl" | "k" => Some(&KUBECTL_SUBCOMMANDS[..]),
+                "git" => Some(GIT_SUBCOMMANDS),
+                "cargo" => Some(CARGO_SUBCOMMANDS),
+                "docker" | "podman" => Some(DOCKER_SUBCOMMANDS),
+                "kubectl" | "k" => Some(KUBECTL_SUBCOMMANDS),
                 "make" | "gmake" => {
                     let targets = self.makefile_targets(partial);
                     if !targets.is_empty() {
@@ -258,7 +316,7 @@ impl Completer for JboshCompleter {
                             })
                             .collect();
                     }
-                    Some(&MAKE_SUBCOMMANDS[..])
+                    Some(MAKE_SUBCOMMANDS)
                 }
                 _ => None,
             };
