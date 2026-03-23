@@ -23,6 +23,8 @@ use config::JboshConfig;
 use shell::prompt::{self, CommandTimer, StarshipPrompt};
 
 fn main() -> Result<()> {
+    let quiet = std::env::args().any(|a| a == "--quiet" || a == "-q");
+
     env_logger::init();
     // Tell Starship which shell is running so its shell module displays correctly.
     // Safety: called at startup before any threads exist.
@@ -48,6 +50,11 @@ fn main() -> Result<()> {
     }
 
     let config = JboshConfig::load()?;
+
+    if !quiet {
+        print_banner(&config);
+    }
+
     let classifier = Classifier::new();
 
     let highlighter = shell::highlighter::JboshHighlighter::new();
@@ -414,4 +421,28 @@ fn needs_continuation(input: &str) -> bool {
     }
 
     in_single || in_double
+}
+
+fn print_banner(config: &JboshConfig) {
+    let version = env!("CARGO_PKG_VERSION");
+    let llm = config.active_llm();
+
+    let provider_name = config
+        .active_provider
+        .as_deref()
+        .unwrap_or("llm");
+
+    // Truncate long endpoints so the banner stays on one line.
+    let endpoint = &llm.endpoint;
+    let endpoint_display = if endpoint.len() > 50 {
+        format!("{}…", &endpoint[..50])
+    } else {
+        endpoint.clone()
+    };
+
+    eprintln!(
+        "\x1b[1;36mjbosh\x1b[0m \x1b[90mv{version}\x1b[0m  \x1b[90m·\x1b[0m  \
+         \x1b[33m{provider_name}\x1b[0m  {model}  \x1b[90m{endpoint_display}\x1b[0m",
+        model = llm.model,
+    );
 }
