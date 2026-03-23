@@ -423,12 +423,12 @@ fn print_banner(config: &JboshConfig) {
 
     let provider_name = config.active_provider.as_deref().unwrap_or("llm");
 
-    // Truncate long endpoints so the banner stays on one line.
-    let endpoint = &llm.endpoint;
-    let endpoint_display = if endpoint.len() > 50 {
-        format!("{}…", &endpoint[..50])
+    // Show the normalized endpoint so users see what URL will actually be used.
+    let endpoint = ai::client::normalize_endpoint(&llm.endpoint);
+    let endpoint_display = if endpoint.len() > 60 {
+        format!("{}…", &endpoint[..60])
     } else {
-        endpoint.clone()
+        endpoint
     };
 
     eprintln!(

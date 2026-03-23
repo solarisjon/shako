@@ -4,6 +4,18 @@ A fish-inspired shell with transparent AI command translation and modern CLI too
 
 Type `ls` — it runs (via `eza` if installed). Type `list all python files modified today` — the AI translates it, shows you the command, and runs it after confirmation. Type `gti status` — it asks "did you mean `git status`?"
 
+## Demo
+
+![shako demo](demo.gif)
+
+<details>
+<summary>Play interactively with asciinema</summary>
+
+```bash
+asciinema play shako-demo.cast
+```
+</details>
+
 ## Quick Start
 
 ```bash

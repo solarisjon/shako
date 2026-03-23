@@ -104,6 +104,10 @@ fn wizard_custom_proxy(out: &mut impl Write) -> Result<String> {
     writeln!(out)?;
     writeln!(out, "\x1b[1m Custom / work proxy setup\x1b[0m\n")?;
 
+    writeln!(
+        out,
+        " \x1b[90m(full URL, e.g. https://proxy.company.com/v1/chat/completions)\x1b[0m"
+    )?;
     let endpoint = prompt_line(out, " Endpoint URL: ", "")?;
     if endpoint.trim().is_empty() {
         writeln!(
@@ -111,6 +115,25 @@ fn wizard_custom_proxy(out: &mut impl Write) -> Result<String> {
             " \x1b[33m(no endpoint entered — writing template)\x1b[0m"
         )?;
         return Ok(template_config());
+    }
+
+    // Normalize: add scheme if missing, warn about bare hostnames
+    let mut endpoint = endpoint.trim().to_string();
+    if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+        endpoint = format!("https://{endpoint}");
+        writeln!(
+            out,
+            " \x1b[90m(added https:// → {endpoint})\x1b[0m"
+        )?;
+    }
+    if let Ok(parsed) = reqwest::Url::parse(&endpoint) {
+        if parsed.path() == "/" || parsed.path().is_empty() {
+            endpoint = format!("{}/v1/chat/completions", endpoint.trim_end_matches('/'));
+            writeln!(
+                out,
+                " \x1b[90m(added API path → {endpoint})\x1b[0m"
+            )?;
+        }
     }
 
     let model = prompt_line(out, " Model name: ", "gpt-4")?;
