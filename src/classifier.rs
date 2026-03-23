@@ -77,8 +77,14 @@ impl Classifier {
             return Classification::Command(trimmed.to_string());
         }
 
-        // Check if first token resolves to a binary in $PATH
+        // Check if first token resolves to a binary in $PATH.
+        // Even if it does, the rest of the input might be prose rather than
+        // shell arguments (e.g. "find all the .md files in this directory").
         if which(first_token).is_ok() {
+            let args: Vec<&str> = trimmed.split_whitespace().skip(1).collect();
+            if looks_like_natural_language(&args) {
+                return Classification::NaturalLanguage(trimmed.to_string());
+            }
             return Classification::Command(trimmed.to_string());
         }
 
@@ -133,6 +139,47 @@ impl Classifier {
 
         best.map(|(cmd, _)| cmd)
     }
+}
+
+/// Returns true if the argument list looks like English prose rather than shell arguments.
+///
+/// Rules (any one of these means "real command, not NL"):
+///   - Any arg starts with `-`            → flags present → real command
+///   - Any arg contains `/` or starts with `.` followed by more chars → path → real command
+///
+/// If none of those apply and at least one arg is a common prose word
+/// (article, preposition, etc.), it's natural language.
+fn looks_like_natural_language(args: &[&str]) -> bool {
+    // Need at least two args for this heuristic to be reliable.
+    if args.len() < 2 {
+        return false;
+    }
+
+    // Any flag or path-like arg → treat as a real shell invocation.
+    if args.iter().any(|a| {
+        a.starts_with('-')          // flag: -n, --name, etc.
+            || a.contains('/')      // path separator: ./foo, /tmp, ../bar
+            || *a == ".."           // parent dir
+    }) {
+        return false;
+    }
+
+    // Common words that appear in English prose but never as shell arguments.
+    const NL_WORDS: &[&str] = &[
+        "the", "a", "an",
+        "all", "every", "each", "any", "some",
+        "in", "on", "at", "to", "for", "of", "by", "with", "from", "into",
+        "this", "that", "these", "those",
+        "my", "me", "i",
+        "file", "files", "directory", "folder", "folders",
+        "which", "what", "how", "where", "when",
+        "modified", "created", "changed", "named", "called",
+        "today", "yesterday", "recent", "latest",
+        "largest", "smallest", "biggest", "newest", "oldest",
+    ];
+
+    args.iter()
+        .any(|a| NL_WORDS.contains(&a.to_ascii_lowercase().as_str()))
 }
 
 /// Collect all executable names from $PATH (cached at startup).
@@ -200,10 +247,43 @@ mod tests {
     #[test]
     fn test_natural_language() {
         let c = Classifier::new();
-        // Multi-word phrases that don't look like commands
         assert!(matches!(
             c.classify("show me the largest files in this directory"),
             Classification::NaturalLanguage(_)
+        ));
+    }
+
+    #[test]
+    fn test_known_command_with_nl_args_routes_to_ai() {
+        let c = Classifier::new();
+        // "find" is in PATH but the rest is prose — should go to AI.
+        assert!(matches!(
+            c.classify("find all the .md files in this directory"),
+            Classification::NaturalLanguage(_)
+        ));
+        // "ls" with prose args.
+        assert!(matches!(
+            c.classify("ls all the files modified today"),
+            Classification::NaturalLanguage(_)
+        ));
+    }
+
+    #[test]
+    fn test_known_command_with_real_args_stays_command() {
+        let c = Classifier::new();
+        // Flags present → real command.
+        assert!(matches!(
+            c.classify("find . -name '*.md'"),
+            Classification::Command(_)
+        ));
+        assert!(matches!(
+            c.classify("ls -la /tmp"),
+            Classification::Command(_)
+        ));
+        // Path arg → real command.
+        assert!(matches!(
+            c.classify("cat README.md"),
+            Classification::Command(_)
         ));
     }
 
