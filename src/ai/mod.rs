@@ -11,7 +11,7 @@ pub async fn translate_and_execute(input: &str, config: &JboshConfig) -> Result<
     let ctx = context::build_context()?;
     let system_prompt = prompt::system_prompt(&ctx);
 
-    let response = client::query_llm(&system_prompt, input, &config.llm).await?;
+    let response = client::query_llm(&system_prompt, input, &config.active_llm()).await?;
 
     let command = response.trim();
 
@@ -68,5 +68,5 @@ pub async fn diagnose_error(
         "Command: {command}\nExit code: {exit_code}\n{stderr_hint}"
     );
 
-    client::query_llm(&system_prompt, &user_msg, &config.llm).await
+    client::query_llm(&system_prompt, &user_msg, &config.active_llm()).await
 }

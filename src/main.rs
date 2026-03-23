@@ -13,6 +13,7 @@ mod config;
 mod executor;
 mod parser;
 mod safety;
+mod setup;
 mod shell;
 mod smart_defaults;
 
@@ -23,7 +24,28 @@ use shell::prompt::{self, CommandTimer, StarshipPrompt};
 
 fn main() -> Result<()> {
     env_logger::init();
+    // Tell Starship which shell is running so its shell module displays correctly.
+    // Safety: called at startup before any threads exist.
     unsafe { std::env::set_var("STARSHIP_SHELL", "jbosh") };
+    // Ensure PWD reflects the real cwd at startup — Starship and subprocesses read it.
+    if let Ok(cwd) = std::env::current_dir() {
+        unsafe { std::env::set_var("PWD", cwd) };
+    }
+
+    // Create ~/.config/jbosh/starship.toml (merging user's global config) so Starship's
+    // shell module shows "jbosh" instead of nothing/generic. Set STARSHIP_CONFIG so
+    // all starship invocations from this session use it.
+    let jbosh_config_dir = std::env::var("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+        .map(|d| d.join("jbosh"));
+    if let Some(ref dir) = jbosh_config_dir {
+        if let Some(starship_cfg) = setup::ensure_starship_config(dir) {
+            // Safety: called at startup before any threads exist.
+            unsafe { std::env::set_var("STARSHIP_CONFIG", starship_cfg) };
+        }
+    }
 
     let config = JboshConfig::load()?;
     let classifier = Classifier::new();
@@ -116,6 +138,7 @@ fn main() -> Result<()> {
     loop {
         // Reap finished background jobs before each prompt
         state.reap_jobs();
+        prompt::set_job_count(state.jobs.len());
 
         let sig = line_editor.read_line(&prompt);
         match sig {

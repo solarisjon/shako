@@ -239,8 +239,11 @@ fn builtin_cd(args: &[&str]) {
 
     if let Err(e) = env::set_current_dir(&target) {
         eprintln!("jbosh: cd: {}: {e}", target.display());
-    } else if smart_defaults::has_zoxide() {
-        if let Ok(cwd) = env::current_dir() {
+    } else if let Ok(cwd) = env::current_dir() {
+        // Keep PWD in sync — Starship and most Unix tools read PWD rather than
+        // resolving the kernel cwd, so without this the prompt stays stale.
+        unsafe { env::set_var("PWD", &cwd) };
+        if smart_defaults::has_zoxide() {
             smart_defaults::zoxide_add(&cwd.display().to_string());
         }
     }

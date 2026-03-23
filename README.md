@@ -95,16 +95,45 @@ Your `[aliases]` in config.toml always take priority over smart defaults.
 
 ## Configuration
 
-Create `~/.config/jbosh/config.toml`:
+On first launch jbosh runs an interactive setup wizard that creates `~/.config/jbosh/config.toml` for you. You can also create or edit it manually.
+
+### LLM Providers
+
+jbosh supports multiple named providers. Set `active_provider` to switch between them:
 
 ```toml
-[llm]
+active_provider = "lm_studio"   # switch to "work_proxy" to use that instead
+
+[providers.lm_studio]
+endpoint = "http://localhost:1234/v1/chat/completions"
+model = "your-model-name"       # model loaded in LM Studio
+# no api_key_env needed — LM Studio doesn't require auth
+
+[providers.work_proxy]
 endpoint = "https://your-llm-proxy.company.com/v1/chat/completions"
 model = "claude-sonnet-4.5"
-api_key_env = "JBOSH_LLM_KEY"      # name of env var holding your API key
+api_key_env = "JBOSH_LLM_KEY"  # name of env var holding your API key
+verify_ssl = false              # set false for internal/self-signed CAs
+```
+
+Any OpenAI-compatible endpoint works. The legacy `[llm]` block is still supported as a fallback when `active_provider` is not set.
+
+### Full Config Reference
+
+```toml
+active_provider = "lm_studio"
+
+[providers.lm_studio]
+endpoint = "http://localhost:1234/v1/chat/completions"
+model = "your-model-name"
+
+[providers.work_proxy]
+endpoint = "https://your-llm-proxy.company.com/v1/chat/completions"
+model = "claude-sonnet-4.5"
+api_key_env = "JBOSH_LLM_KEY"
 timeout_secs = 30
 max_tokens = 512
-verify_ssl = true                   # set false for internal/self-signed CAs
+verify_ssl = false
 
 [behavior]
 confirm_ai_commands = true          # show translated command before executing
@@ -121,9 +150,6 @@ gs = "git status"
 gd = "git diff"
 gl = "git log --oneline -20"
 ```
-
-Default LLM endpoint points to local Ollama (`http://localhost:11434/v1/chat/completions`).
-Any OpenAI-compatible API works.
 
 ### Init File
 
@@ -204,11 +230,15 @@ function deploy() { git push && ssh prod "cd /app && git pull" }
 
 ### Prompt
 
-jbosh integrates with [Starship](https://starship.rs/) for prompt rendering. It passes:
-- Last command exit code
-- Command duration
-- Terminal width
-- Shell name (`jbosh` shown in starship's shell module)
+jbosh integrates with [Starship](https://starship.rs/) for prompt rendering:
+
+- Last command exit code, duration, and terminal width
+- Background job count (drives Starship's jobs module)
+- Current keymap (`emacs`)
+- `STARSHIP_SESSION_KEY` set at startup for stateful modules
+- Left and right prompts rendered in parallel (two `starship prompt` calls run simultaneously)
+
+On first launch jbosh creates `~/.config/jbosh/starship.toml` — a copy of your global Starship config with the `[shell]` module enabled and `unknown_indicator = "jbosh"` so your prompt shows **jbosh** as the shell name. Edit that file to customise Starship specifically for jbosh.
 
 If Starship isn't installed, a minimal `❯` prompt is used.
 
@@ -237,6 +267,7 @@ src/
 ├── parser.rs            # Tokenizer: quoting, expansion, globs, command substitution
 ├── builtins.rs          # Shell builtins, ShellState, job tracking, functions
 ├── safety.rs            # Dangerous command pattern matching
+├── setup.rs             # First-run wizard: config + Starship setup
 ├── smart_defaults.rs    # Modern tool detection and auto-aliasing
 ├── ai/
 │   ├── mod.rs           # AI orchestrator: translate, confirm, execute, diagnose
@@ -246,13 +277,13 @@ src/
 │   └── confirm.rs       # Confirmation UX: [Y]es / [n]o / [e]dit
 ├── shell/
 │   ├── mod.rs           # Re-exports
-│   ├── prompt.rs        # Starship integration, exit code + duration tracking
+│   ├── prompt.rs        # Starship integration, parallel rendering, job count
 │   ├── highlighter.rs   # Syntax highlighting (green/cyan/purple/red)
 │   ├── completer.rs     # Smart tab completion (git, cargo, docker, make, etc.)
 │   └── hinter.rs        # History-based autosuggestions
 └── config/
     ├── mod.rs           # Re-exports
-    └── schema.rs        # Config types, XDG-aware loading, serde defaults
+    └── schema.rs        # Config types, multi-provider LLM, XDG-aware loading
 ```
 
 ## Roadmap

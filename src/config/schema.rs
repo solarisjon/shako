@@ -5,12 +5,32 @@ use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct JboshConfig {
+    /// Legacy single-provider config. Used when no `active_provider` is set.
     #[serde(default)]
     pub llm: LlmConfig,
+    /// Named provider configs. Example: `[providers.lm_studio]` or `[providers.work_proxy]`.
+    #[serde(default)]
+    pub providers: HashMap<String, LlmConfig>,
+    /// Which named provider to use. If unset, falls back to `[llm]`.
+    pub active_provider: Option<String>,
     #[serde(default)]
     pub behavior: BehaviorConfig,
     #[serde(default)]
     pub aliases: HashMap<String, String>,
+}
+
+impl JboshConfig {
+    /// Returns the active LLM config: the named provider if `active_provider` is set,
+    /// otherwise the legacy `[llm]` block.
+    pub fn active_llm(&self) -> &LlmConfig {
+        if let Some(ref name) = self.active_provider {
+            if let Some(provider) = self.providers.get(name) {
+                return provider;
+            }
+            log::warn!("active_provider '{name}' not found in [providers], falling back to [llm]");
+        }
+        &self.llm
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -109,16 +129,16 @@ impl JboshConfig {
             let contents = std::fs::read_to_string(&config_path)?;
             let config: JboshConfig = toml::from_str(&contents)?;
             log::debug!("loaded config from {}", config_path.display());
-            log::debug!("  llm endpoint: {}", config.llm.endpoint);
-            log::debug!("  llm model: {}", config.llm.model);
+            let active = config.active_llm();
+            log::debug!("  active provider: {}", config.active_provider.as_deref().unwrap_or("llm"));
+            log::debug!("  llm endpoint: {}", active.endpoint);
+            log::debug!("  llm model: {}", active.model);
             Ok(config)
         } else {
-            log::info!("no config found at {}, using defaults", config_path.display());
-            Ok(Self {
-                llm: LlmConfig::default(),
-                behavior: BehaviorConfig::default(),
-                aliases: HashMap::new(),
-            })
+            log::info!("no config found at {}, running first-time setup", config_path.display());
+            let toml = crate::setup::run_wizard(&config_path)?;
+            let config: JboshConfig = toml::from_str(&toml)?;
+            Ok(config)
         }
     }
 
