@@ -24,9 +24,20 @@ use config::JboshConfig;
 use shell::prompt::{self, CommandTimer, StarshipPrompt};
 
 fn main() -> Result<()> {
-    let quiet = std::env::args().any(|a| a == "--quiet" || a == "-q");
+    let args: Vec<String> = std::env::args().collect();
+    let quiet = args.iter().any(|a| a == "--quiet" || a == "-q");
+    let init = args.iter().any(|a| a == "--init");
 
     env_logger::init();
+
+    if init {
+        eprintln!("\x1b[1;36mshako:\x1b[0m reinitializing...");
+        if let Err(e) = JboshConfig::reset() {
+            eprintln!("shako: reset failed: {e}");
+            std::process::exit(1);
+        }
+        eprintln!();
+    }
     // Tell Starship which shell is running so its shell module displays correctly.
     // Safety: called at startup before any threads exist.
     unsafe { std::env::set_var("STARSHIP_SHELL", "shako") };

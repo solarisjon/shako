@@ -764,9 +764,42 @@ pub fn source_fish_string(contents: &str, state: &mut ShellState) {
         }
 
         // abbr --add name 'expansion' (or -a, or shorthand)
+        // Parse with quote-awareness and strip inline comments so values
+        // like `abbr ls "eza --icons"  # comment` work correctly.
+        // We insert directly into state.abbreviations (no output during source).
         if line.starts_with("abbr ") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            builtin_abbr(&parts[1..], state);
+            let cleaned = strip_inline_comment(line);
+            let parsed = crate::parser::parse_args(&cleaned);
+            // parsed[0] = "abbr", rest = flags + positional args
+            let args: Vec<&str> = parsed.iter().skip(1).map(|s| s.as_str()).collect();
+            // Determine mode and collect positional args (skip flags)
+            let mut mode = "add";
+            let mut positional = Vec::new();
+            for arg in &args {
+                match *arg {
+                    "-a" | "--add" => mode = "add",
+                    "-e" | "--erase" => mode = "erase",
+                    "-l" | "--list" => mode = "list",
+                    "--" => {}
+                    _ if arg.starts_with('-') => {}
+                    _ => positional.push(*arg),
+                }
+            }
+            match mode {
+                "erase" => {
+                    for name in &positional {
+                        state.abbreviations.remove(*name);
+                    }
+                }
+                "add" | _ if !positional.is_empty() => {
+                    if positional.len() >= 2 {
+                        let name = positional[0].to_string();
+                        let value = positional[1..].join(" ");
+                        state.abbreviations.insert(name, value);
+                    }
+                }
+                _ => {}
+            }
             continue;
         }
 
@@ -853,6 +886,27 @@ fn handle_path_set(parts: &[&str]) {
         }
         prepend_path(v);
     }
+}
+
+/// Strip an inline comment from a shell line, respecting quotes.
+/// `abbr rg rg # comment` → `abbr rg rg`
+/// `abbr ls "eza --icons"  # comment` → `abbr ls "eza --icons"`
+fn strip_inline_comment(line: &str) -> String {
+    let mut in_single = false;
+    let mut in_double = false;
+    let chars: Vec<char> = line.chars().collect();
+
+    for (i, &c) in chars.iter().enumerate() {
+        if c == '\'' && !in_double {
+            in_single = !in_single;
+        } else if c == '"' && !in_single {
+            in_double = !in_double;
+        } else if c == '#' && !in_single && !in_double {
+            return line[..i].trim_end().to_string();
+        }
+    }
+
+    line.to_string()
 }
 
 /// Prepend a directory to $PATH if not already present.

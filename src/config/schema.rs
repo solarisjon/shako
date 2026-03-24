@@ -157,6 +157,47 @@ impl JboshConfig {
         }
     }
 
+    /// Return the shako config directory (e.g. `~/.config/shako`).
+    pub fn config_dir() -> PathBuf {
+        std::env::var("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .ok()
+            .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("shako")
+    }
+
+    /// Remove shako config files so the next `load()` triggers the first-run wizard.
+    /// Removes config.toml, config.shako, starship.toml, conf.d/, and functions/.
+    pub fn reset() -> Result<()> {
+        let dir = Self::config_dir();
+        if !dir.exists() {
+            return Ok(());
+        }
+
+        let removals = [
+            ("config.toml", false),
+            ("config.shako", false),
+            ("starship.toml", false),
+            ("conf.d", true),
+            ("functions", true),
+        ];
+
+        for (name, is_dir) in &removals {
+            let path = dir.join(name);
+            if path.exists() {
+                if *is_dir {
+                    std::fs::remove_dir_all(&path)?;
+                } else {
+                    std::fs::remove_file(&path)?;
+                }
+                eprintln!("  removed {}", path.display());
+            }
+        }
+
+        Ok(())
+    }
+
     fn config_path() -> PathBuf {
         // Prefer XDG-style ~/.config on all platforms (matches README docs).
         // Fall back to dirs::config_dir() (~/Library/Application Support on macOS).

@@ -1,4 +1,4 @@
-.PHONY: build test run clean release check fmt
+.PHONY: build test run clean release check fmt install-tools
 
 build:
 	cargo build
@@ -35,3 +35,6 @@ register-shell:
 		echo "shako added to /etc/shells"; \
 		echo "run: chsh -s $(HOME)/.local/bin/shako"; \
 	fi
+
+install-tools:
+	@bash scripts/install-tools.sh
