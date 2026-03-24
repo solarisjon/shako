@@ -115,6 +115,32 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     let mut state = ShellState::new(history_path);
 
+    // Interactive shell signal setup.
+    //
+    // The shell ignores the keyboard/job-control signals so that:
+    //   • Ctrl-C  doesn't kill the shell while it's waiting on a child
+    //   • Ctrl-\  doesn't dump core from the shell
+    //   • Ctrl-Z  doesn't suspend the shell itself
+    //   • SIGTTOU/SIGTTIN don't stop the shell when it calls tcsetpgrp
+    //
+    // Children have their signal dispositions reset to SIG_DFL in
+    // setup_child_signals() (executor.rs), and the terminal is handed to each
+    // foreground process group via tcsetpgrp so that the signals reach them.
+    //
+    // SIGTERM keeps its default disposition so that `kill <shell_pid>` still
+    // terminates the shell cleanly.
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::{SigHandler, Signal, signal};
+        unsafe {
+            signal(Signal::SIGINT, SigHandler::SigIgn).ok();
+            signal(Signal::SIGQUIT, SigHandler::SigIgn).ok();
+            signal(Signal::SIGTSTP, SigHandler::SigIgn).ok();
+            signal(Signal::SIGTTOU, SigHandler::SigIgn).ok();
+            signal(Signal::SIGTTIN, SigHandler::SigIgn).ok();
+        }
+    }
+
     // Resolve the shako config directory (used for conf.d, functions, init)
     let shako_config_dir = std::env::var("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)

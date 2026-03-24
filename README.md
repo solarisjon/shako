@@ -124,7 +124,7 @@ model = "your-model-name"       # model loaded in LM Studio
 [providers.work_proxy]
 endpoint = "https://your-llm-proxy.company.com/v1/chat/completions"
 model = "claude-sonnet-4.5"
-api_key_env = "SHAKO_LLM_KEY"  # name of env var holding your API key
+api_key_env = "LLMPROXY_KEY"  # name of env var holding your API key
 verify_ssl = false              # set false for internal/self-signed CAs
 ```
 
@@ -142,7 +142,7 @@ model = "your-model-name"
 [providers.work_proxy]
 endpoint = "https://your-llm-proxy.company.com/v1/chat/completions"
 model = "claude-sonnet-4.5"
-api_key_env = "SHAKO_LLM_KEY"
+api_key_env = "LLMPROXY_KEY"
 timeout_secs = 30
 max_tokens = 512
 verify_ssl = false
@@ -258,7 +258,7 @@ If Starship isn't installed, a minimal `❯` prompt is used.
 
 ```bash
 make build          # cargo build
-make test           # cargo test (36 tests)
+make test           # cargo test (42 tests)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt

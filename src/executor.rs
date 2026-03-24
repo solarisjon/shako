@@ -7,38 +7,71 @@ use crate::parser;
 use std::os::unix::process::CommandExt;
 
 /// Set up a command for proper signal handling on Unix.
-/// Puts the child in its own process group so Ctrl-C goes to the child,
-/// not the shell.
+///
+/// `pgid` controls the process group:
+///   - `0`  → child becomes its own process-group leader (`setpgid(0, 0)`)
+///   - `N`  → child joins an existing process group N (`setpgid(0, N)`)
+///
+/// This, combined with `tcsetpgrp` in the parent, ensures keyboard signals
+/// (Ctrl-C / Ctrl-\ / Ctrl-Z) are delivered to the child, not the shell.
 #[cfg(unix)]
-fn setup_child_signals(cmd: &mut Command) {
+fn setup_child_signals(cmd: &mut Command, pgid: i32) {
     unsafe {
-        cmd.pre_exec(|| {
-            // Put this process into its own process group
-            let _ =
-                nix::unistd::setpgid(nix::unistd::Pid::from_raw(0), nix::unistd::Pid::from_raw(0));
-            // Reset signal handlers to defaults (shell may have ignored them)
-            nix::sys::signal::signal(
-                nix::sys::signal::Signal::SIGINT,
-                nix::sys::signal::SigHandler::SigDfl,
+        cmd.pre_exec(move || {
+            // Join or create the target process group.
+            nix::unistd::setpgid(
+                nix::unistd::Pid::from_raw(0),
+                nix::unistd::Pid::from_raw(pgid),
             )
             .ok();
-            nix::sys::signal::signal(
-                nix::sys::signal::Signal::SIGQUIT,
-                nix::sys::signal::SigHandler::SigDfl,
-            )
-            .ok();
-            nix::sys::signal::signal(
-                nix::sys::signal::Signal::SIGTSTP,
-                nix::sys::signal::SigHandler::SigDfl,
-            )
-            .ok();
+            // Reset all job-control and interrupt signals to their defaults.
+            // The interactive shell ignores these; children must not inherit that.
+            use nix::sys::signal::{SigHandler, Signal, signal};
+            for sig in [
+                Signal::SIGINT,
+                Signal::SIGQUIT,
+                Signal::SIGTSTP,
+                Signal::SIGTTOU,
+                Signal::SIGTTIN,
+            ] {
+                signal(sig, SigHandler::SigDfl).ok();
+            }
             Ok(())
         });
     }
 }
 
 #[cfg(not(unix))]
-fn setup_child_signals(_cmd: &mut Command) {}
+fn setup_child_signals(_cmd: &mut Command, _pgid: i32) {}
+
+/// Run a foreground child: hand the terminal to the child's process group,
+/// wait for it to finish, then reclaim the terminal for the shell.
+///
+/// On non-Unix the function just waits normally.
+#[cfg(unix)]
+fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
+    let child_pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let shell_pgid = nix::unistd::getpgrp();
+
+    // Close the TOCTOU race: set the child's pgid in the parent too.
+    // (The child also does this in pre_exec; whichever runs first wins.)
+    let _ = nix::unistd::setpgid(child_pid, child_pid);
+
+    // Give the terminal to the child so Ctrl-C/Ctrl-Z reach it.
+    let _ = nix::unistd::tcsetpgrp(std::io::stdin(), child_pid);
+
+    let status = child.wait().unwrap_or_else(|_| fake_status(1));
+
+    // Restore terminal ownership to the shell.
+    let _ = nix::unistd::tcsetpgrp(std::io::stdin(), shell_pgid);
+
+    status
+}
+
+#[cfg(not(unix))]
+fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
+    child.wait().unwrap_or_else(|_| fake_status(1))
+}
 
 /// Spawn a command in the background, returning the Child.
 pub fn spawn_background(input: &str) -> Option<std::process::Child> {
@@ -58,7 +91,9 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
 
     let mut cmd = Command::new(program);
     cmd.args(cmd_args);
-    setup_child_signals(&mut cmd);
+    // Background jobs get their own process group (pgid=0) but are never
+    // handed terminal control, so signals from Ctrl-C don't reach them.
+    setup_child_signals(&mut cmd, 0);
 
     if let Some(ref path) = stdin_redirect {
         match File::open(path) {
@@ -152,7 +187,7 @@ fn execute_single(input: &str) -> ExitStatus {
 
     let mut cmd = Command::new(program);
     cmd.args(cmd_args);
-    setup_child_signals(&mut cmd);
+    setup_child_signals(&mut cmd, 0);
 
     if let Some(ref path) = stdin_redirect {
         match File::open(path) {
@@ -183,8 +218,9 @@ fn execute_single(input: &str) -> ExitStatus {
         }
     }
 
-    match cmd.status() {
-        Ok(status) => {
+    match cmd.spawn() {
+        Ok(child) => {
+            let status = foreground_wait(child);
             if !status.success() {
                 if let Some(code) = status.code() {
                     log::debug!("command exited with status {code}");
@@ -200,9 +236,16 @@ fn execute_single(input: &str) -> ExitStatus {
 }
 
 /// Execute a pipeline of commands connected by pipes.
+///
+/// All processes in the pipeline share a single process group (the first
+/// child's pid becomes the pgid for the rest), and the terminal is handed
+/// to that group for the duration of the pipeline so that Ctrl-C/Ctrl-Z
+/// are delivered to every process in the pipe, not to the shell.
 fn execute_pipeline(segments: &[String]) -> ExitStatus {
     let mut children = Vec::new();
     let mut prev_stdout: Option<std::process::ChildStdout> = None;
+    // pid of the first child; all subsequent children join this process group.
+    let mut pipeline_pgid: i32 = 0;
 
     for (i, segment) in segments.iter().enumerate() {
         let is_last = i == segments.len() - 1;
@@ -219,7 +262,9 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
 
         let mut cmd = Command::new(program);
         cmd.args(cmd_args);
-        setup_child_signals(&mut cmd);
+        // First child creates a new process group (pgid=0 → own pid as leader).
+        // Subsequent children join the first child's group.
+        setup_child_signals(&mut cmd, pipeline_pgid);
 
         if let Some(prev) = prev_stdout.take() {
             cmd.stdin(Stdio::from(prev));
@@ -256,6 +301,24 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
 
         match cmd.spawn() {
             Ok(mut child) => {
+                let child_pid = child.id() as i32;
+                #[cfg(unix)]
+                {
+                    // Parent-side setpgid closes the TOCTOU race with the
+                    // child's own pre_exec setpgid call.
+                    if pipeline_pgid == 0 {
+                        pipeline_pgid = child_pid;
+                        let _ = nix::unistd::setpgid(
+                            nix::unistd::Pid::from_raw(child_pid),
+                            nix::unistd::Pid::from_raw(child_pid),
+                        );
+                    } else {
+                        let _ = nix::unistd::setpgid(
+                            nix::unistd::Pid::from_raw(child_pid),
+                            nix::unistd::Pid::from_raw(pipeline_pgid),
+                        );
+                    }
+                }
                 if !is_last {
                     prev_stdout = child.stdout.take();
                 }
@@ -268,6 +331,18 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
         }
     }
 
+    // Hand the terminal to the pipeline's process group so Ctrl-C/Ctrl-Z
+    // reach all processes in the pipe.
+    #[cfg(unix)]
+    let shell_pgid = nix::unistd::getpgrp();
+    #[cfg(unix)]
+    if pipeline_pgid != 0 {
+        let _ = nix::unistd::tcsetpgrp(
+            std::io::stdin(),
+            nix::unistd::Pid::from_raw(pipeline_pgid),
+        );
+    }
+
     let mut last_status = fake_status(0);
     for mut child in children {
         match child.wait() {
@@ -278,6 +353,11 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
             }
         }
     }
+
+    // Restore terminal ownership to the shell.
+    #[cfg(unix)]
+    let _ = nix::unistd::tcsetpgrp(std::io::stdin(), shell_pgid);
+
     last_status
 }
 

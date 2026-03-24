@@ -81,7 +81,7 @@ fn default_model() -> String {
 }
 
 fn default_api_key_env() -> String {
-    "SHAKO_LLM_KEY".to_string()
+    "LLMPROXY_KEY".to_string()
 }
 
 fn default_timeout() -> u64 {

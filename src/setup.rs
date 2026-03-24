@@ -181,7 +181,7 @@ fn wizard_custom_proxy(out: &mut impl Write) -> Result<String> {
     }
 
     let model = prompt_line(out, " Model name: ", "gpt-4")?;
-    let api_key_env = prompt_line(out, " API key env var [SHAKO_LLM_KEY]: ", "SHAKO_LLM_KEY")?;
+    let api_key_env = prompt_line(out, " API key env var [LLMPROXY_KEY]: ", "LLMPROXY_KEY")?;
 
     let verify_ssl_ans = prompt_line(out, " Verify SSL? [Y/n]: ", "y")?;
     let verify_ssl = !matches!(verify_ssl_ans.trim().to_lowercase().as_str(), "n" | "no");
@@ -234,7 +234,7 @@ fn template_config() -> String {
 # [providers.work_proxy]
 # endpoint = "https://your-proxy.company.com/v1/chat/completions"
 # model = "claude-sonnet-4.5"
-# api_key_env = "SHAKO_LLM_KEY"
+# api_key_env = "LLMPROXY_KEY"
 # verify_ssl = false
 
 [behavior]
