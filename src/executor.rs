@@ -80,30 +80,13 @@ fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
 /// Programs like vim/neovim send terminal queries (OSC 11 for background
 /// color, DCS for capabilities) whose responses arrive asynchronously.
 /// If the response arrives after the program exits, it appears as typed
-/// input in the next prompt. This drains those stale responses.
+/// input in the next prompt. This uses `tcflush(TCIFLUSH)` to discard
+/// the terminal driver's input buffer at the kernel level.
 #[cfg(unix)]
 pub fn drain_pending_input() {
-    use std::io::Read;
     use std::os::unix::io::AsRawFd;
-
     let fd = std::io::stdin().as_raw_fd();
-
-    // Get current flags
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags == -1 {
-        return;
-    }
-
-    // Set non-blocking
-    unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
-
-    // Read and discard all pending bytes
-    let mut buf = [0u8; 1024];
-    let mut stdin = std::io::stdin();
-    while stdin.read(&mut buf).is_ok_and(|n| n > 0) {}
-
-    // Restore original flags
-    unsafe { libc::fcntl(fd, libc::F_SETFL, flags) };
+    unsafe { libc::tcflush(fd, libc::TCIFLUSH) };
 }
 
 #[cfg(not(unix))]
