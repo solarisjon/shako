@@ -393,8 +393,14 @@ fn main() -> Result<()> {
                             io::stdin().read_line(&mut answer).ok();
                             let answer = answer.trim().to_lowercase();
                             if answer.is_empty() || answer == "y" || answer == "yes" {
-                                let status = executor::execute_command(&suggestion);
-                                set_exit_code(status);
+                                let first = suggestion.split_whitespace().next().unwrap_or("");
+                                if builtins::is_builtin(first) {
+                                    builtins::run_builtin(&suggestion, &mut state);
+                                    prompt::set_last_status(0);
+                                } else {
+                                    let status = executor::execute_command(&suggestion);
+                                    set_exit_code(status);
+                                }
                             }
                         } else {
                             rt.block_on(async {
