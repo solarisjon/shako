@@ -10,7 +10,7 @@
 
 ```bash
 make build          # cargo build
-make test           # cargo test (36 tests)
+make test           # cargo test (54 tests)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt
@@ -46,16 +46,20 @@ src/
 ├── setup.rs             # First-run wizard (interactive provider config)
 │                        #   Starship config merging (ensure_starship_config)
 ├── smart_defaults.rs    # Modern tool detection (eza, bat, fd, rg, dust, procs, sd, delta,
-│                        #   btop, bottom, zoxide, fzf) + auto-aliasing
+│                        #   btop, bottom, duf, doggo, xh, tokei, zoxide, fzf) + auto-aliasing
+│                        #   git shortcuts (gs, gl, gd, gp, gco, gcm), docker shortcuts
 ├── path_cache.rs        # Shared PATH command cache (Arc<PathCache>) used by classifier,
 │                        #   completer, and highlighter — scanned once at startup
 ├── ai/
-│   ├── mod.rs           # Orchestrator: translate_and_execute(), diagnose_error()
+│   ├── mod.rs           # Orchestrator: translate_and_execute(), diagnose_error(),
+│   │                    #   explain_command()
 │   ├── client.rs        # OpenAI-compatible LLM HTTP client (rustls-tls-native-roots)
 │   │                    #   single retry with 2s delay on transient errors
 │   ├── context.rs       # Shell context (OS, arch, cwd, user, dir listings, tool preferences)
 │   │                    #   builds directory context (cwd + home) for AI grounding
-│   ├── prompt.rs        # System prompts: translation + error recovery
+│   │                    #   git context (branch, status, recent commits)
+│   │                    #   per-project .shako.toml context
+│   ├── prompt.rs        # System prompts: translation, error recovery, explain
 │   └── confirm.rs       # Confirmation UX: [Y]es / [n]o / [e]dit
 ├── shell/
 │   ├── mod.rs           # Re-exports
@@ -67,7 +71,7 @@ src/
 │   │                    #   variables (green), comments (gray) — uses PathCache
 │   ├── completer.rs     # Smart tab completion (git, cargo, docker, kubectl, make targets,
 │   │                    #   sudo, dirs, path commands) — uses PathCache, escapes spaces
-│   └── hinter.rs        # History-based autosuggestions (gray inline hints)
+│   └── hinter.rs        # Autosuggestions via reedline DefaultHinter (gray inline hints)
 └── config/
     ├── mod.rs           # Re-exports JboshConfig, LlmConfig
     └── schema.rs        # Config types, XDG-aware path resolution, serde defaults,
@@ -86,9 +90,10 @@ User Input → Reedline → Multiline continuation (if trailing \ or unclosed qu
   ├── Classification::Command(...)       → executor::execute_command()
   │                                        → on failure (exit ≥2): offer_ai_recovery()
   ├── Classification::Builtin(...)       → builtins::run_builtin()
-  ├── Classification::Typo{suggestion}   → prompt "did you mean X?" → execute if yes
+  ├── Classification::Typo{suggestion}   → prompt "did you mean X?" → run as builtin or command
   ├── Classification::NaturalLanguage(.) → ai::translate_and_execute()
-  ├── Classification::ForcedAI(...)      → ai::translate_and_execute()
+  ├── Classification::ForcedAI(...)      → explain if bare command, else translate_and_execute()
+  ├── Classification::ExplainCommand(.)  → ai::explain_command() (trailing ? syntax)
   └── Classification::Empty              → (skip)
 ```
 
@@ -98,7 +103,8 @@ Order matters:
 
 1. Empty input → `Empty`
 2. Starts with `? ` or `ai:` or `?<text>` → `ForcedAI`
-3. First token is in `BUILTINS` list → `Builtin`
+3. Ends with `?` → `ExplainCommand` (explain without executing)
+4. First token is in `BUILTINS` list → `Builtin`
 4. First token starts with `/` or `./` (explicit path) → `Command`
 5. First token found via `which` (in `$PATH`) → `Command` **unless** remaining args look like natural language (`looks_like_natural_language()` detects prose words like "the", "all", "in", "files", "modified", "today", etc. — requires ≥2 args and no flags/paths)
 6. First token is within edit distance 2 of a known command AND input is ≤3 words → `Typo`
@@ -106,7 +112,7 @@ Order matters:
 
 ### AI Pipeline (ai/)
 
-1. `context::build_context()` — gathers OS, arch, cwd, user, directory listings (cwd + home subtree), detected modern tools with syntax guidance
+1. `context::build_context()` — gathers OS, arch, cwd, user, directory listings (cwd + home subtree), detected modern tools with syntax guidance, git state (branch, status, recent commits), per-project .shako.toml instructions, recent command history
 2. `prompt::system_prompt()` — formats system prompt with context, tool preferences, and directory context
 3. `client::query_llm()` — sends to OpenAI-compatible endpoint (temperature 0.1)
 4. If response is `SHAKO_CANNOT_TRANSLATE` or empty → error message
@@ -266,7 +272,7 @@ lto = "thin"         # thin link-time optimization
 ## Testing
 
 ```bash
-cargo test                      # all 36 tests
+cargo test                      # all 54 tests
 cargo test classifier           # classifier + typo + NL detection tests
 cargo test executor             # redirect parsing + chain tests
 cargo test parser               # tokenizer, expansion, command substitution tests
