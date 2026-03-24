@@ -29,7 +29,9 @@ shako
 ```
 $ ls -la                          # runs immediately (via eza if installed)
 $ show me disk usage by folder    # → AI translates → "dust" (not du!) → [Y/n/e] → runs
-$ ? grep                          # forced AI mode → explains what grep does
+$ ? grep                          # explains what grep does (bare command → explain)
+$ grep -rn?                       # explains what -rn flags do (trailing ? → explain)
+$ ? how do I find large files     # AI translates → fd/find command → [Y/n/e]
 $ gti status                      # typo → "did you mean git status? [Y/n]"
 $ gcc bad.c                       # fails → "ask AI for help? [y/N]" → suggests fix
 $ z projects                      # zoxide smart jump
@@ -198,7 +200,8 @@ function deploy() { git push && ssh prod "cd /app && git pull" }
 
 ### AI Integration
 - **Natural language → command** — type what you want, AI translates, you confirm
-- **Forced AI mode** — `? grep` or `ai: how do I find large files`
+- **Explain mode** — `? grep` explains a command; `git rebase -i?` explains flags (no execution)
+- **Forced AI mode** — `? how do I find large files` or `ai: list open ports`
 - **Tool-aware** — AI knows which modern tools you have and prefers them (fd over find, rg over grep, etc.)
 - **Error recovery** — when a command fails (exit ≥2), shako offers AI diagnosis with a suggested fix
 - **Safety layer** — dangerous AI-generated commands are blocked (`rm -rf /`) or warned (`sudo`, `chmod`)

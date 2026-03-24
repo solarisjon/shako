@@ -348,16 +348,40 @@ fn main() -> Result<()> {
                         });
                     }
                     Classification::ForcedAI(text) => {
-                        let history = read_recent_history(&history_path, config.behavior.history_context_lines);
-                        rt.block_on(async {
-                            match ai::translate_and_execute(&text, &config, history).await {
-                                Ok(_) => prompt::set_last_status(0),
-                                Err(e) => {
-                                    eprintln!("shako: ai error: {e}");
-                                    prompt::set_last_status(1);
+                        let words: Vec<&str> = text.split_whitespace().collect();
+                        let is_bare_command = words.len() == 1
+                            && (which::which(words[0]).is_ok()
+                                || builtins::is_builtin(words[0]));
+
+                        if is_bare_command {
+                            print!("\x1b[90mexplaining...\x1b[0m");
+                            io::stdout().flush().ok();
+                            rt.block_on(async {
+                                match ai::explain_command(&text, &config).await {
+                                    Ok(explanation) => {
+                                        print!("\r\x1b[K");
+                                        eprintln!("\x1b[36m{text}\x1b[0m");
+                                        eprintln!("{explanation}");
+                                    }
+                                    Err(e) => {
+                                        print!("\r\x1b[K");
+                                        eprintln!("shako: ai error: {e}");
+                                        prompt::set_last_status(1);
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        } else {
+                            let history = read_recent_history(&history_path, config.behavior.history_context_lines);
+                            rt.block_on(async {
+                                match ai::translate_and_execute(&text, &config, history).await {
+                                    Ok(_) => prompt::set_last_status(0),
+                                    Err(e) => {
+                                        eprintln!("shako: ai error: {e}");
+                                        prompt::set_last_status(1);
+                                    }
+                                }
+                            });
+                        }
                     }
                     Classification::Typo { suggestion, .. } => {
                         if config.behavior.auto_correct_typos {
