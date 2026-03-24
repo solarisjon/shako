@@ -68,7 +68,42 @@ fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
     // Restore terminal ownership to the shell.
     let _ = nix::unistd::tcsetpgrp(std::io::stdin(), shell_pgid);
 
+    // Drain any pending terminal responses (e.g. vim's OSC background color
+    // query) so they don't leak into the next reedline prompt as garbage text.
+    drain_pending_input();
+
     status
+}
+
+/// Discard any bytes waiting on stdin after a foreground process exits.
+///
+/// Programs like vim/neovim send terminal queries (OSC 11 for background
+/// color, DCS for capabilities) whose responses arrive asynchronously.
+/// If the response arrives after the program exits, it appears as typed
+/// input in the next prompt. This drains those stale responses.
+#[cfg(unix)]
+fn drain_pending_input() {
+    use std::io::Read;
+    use std::os::unix::io::AsRawFd;
+
+    let fd = std::io::stdin().as_raw_fd();
+
+    // Get current flags
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 {
+        return;
+    }
+
+    // Set non-blocking
+    unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+
+    // Read and discard all pending bytes
+    let mut buf = [0u8; 1024];
+    let mut stdin = std::io::stdin();
+    while stdin.read(&mut buf).is_ok_and(|n| n > 0) {}
+
+    // Restore original flags
+    unsafe { libc::fcntl(fd, libc::F_SETFL, flags) };
 }
 
 #[cfg(not(unix))]
@@ -491,6 +526,9 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
     // Restore terminal ownership to the shell.
     #[cfg(unix)]
     let _ = nix::unistd::tcsetpgrp(std::io::stdin(), shell_pgid);
+
+    #[cfg(unix)]
+    drain_pending_input();
 
     last_status
 }
