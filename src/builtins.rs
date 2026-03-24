@@ -678,9 +678,22 @@ pub fn source_fish_string(contents: &str, state: &mut ShellState) {
             let mut depth = 1;
             while i < lines.len() && depth > 0 {
                 let inner = lines[i].trim();
-                if inner.starts_with("function ") {
+                // Track ALL fish block openers, not just `function`, so that
+                // inner switch/if/for/while/begin blocks don't prematurely
+                // terminate the function body and leak their contents as
+                // top-level statements (which caused `atuin search -i` to run
+                // at startup when _atuin_search was being collected).
+                if inner.starts_with("function ")
+                    || inner.starts_with("if ")
+                    || inner == "if"
+                    || inner.starts_with("switch ")
+                    || inner.starts_with("for ")
+                    || inner.starts_with("while ")
+                    || inner == "begin"
+                    || inner.starts_with("begin ")
+                {
                     depth += 1;
-                } else if inner == "end" {
+                } else if inner == "end" || inner.starts_with("end ") || inner.starts_with("end\t") {
                     depth -= 1;
                     if depth == 0 {
                         i += 1;
