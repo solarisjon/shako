@@ -19,6 +19,8 @@ pub enum Classification {
     ForcedAI(String),
     /// Likely typo — suggested correction.
     Typo { suggestion: String },
+    /// Command ending with `?` — explain what it does without executing.
+    ExplainCommand(String),
     /// Empty input.
     Empty,
 }
@@ -60,6 +62,15 @@ impl Classifier {
         // Single `?` with no space = also forced AI for everything after
         if trimmed.starts_with('?') && trimmed.len() > 1 {
             return Classification::ForcedAI(trimmed[1..].trim().to_string());
+        }
+
+        // Trailing `?` on a command — explain it without executing.
+        // e.g. `git rebase -i?` or `tar xzf?` or `chmod 755?`
+        if trimmed.ends_with('?') && trimmed.len() > 1 {
+            let cmd = trimmed.trim_end_matches('?').trim();
+            if !cmd.is_empty() {
+                return Classification::ExplainCommand(cmd.to_string());
+            }
         }
 
         // Extract first token

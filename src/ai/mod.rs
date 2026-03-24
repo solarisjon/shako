@@ -77,3 +77,14 @@ pub async fn diagnose_error(
 
     client::query_llm(&system_prompt, &user_msg, config.active_llm()).await
 }
+
+/// Explain what a command does without executing it.
+pub async fn explain_command(
+    command: &str,
+    config: &JboshConfig,
+) -> Result<String> {
+    let ctx = context::build_context(vec![])?;
+    let system_prompt = prompt::explain_prompt(&ctx);
+
+    client::query_llm(&system_prompt, command, config.active_llm()).await
+}

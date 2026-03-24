@@ -14,6 +14,10 @@ const TOOL_UPGRADES: &[(&str, &str, &str)] = &[
     ("delta", "diff", ""),
     ("btop", "top", ""),
     ("bottom", "top", ""),
+    ("duf", "df", ""),
+    ("doggo", "dig", ""),
+    ("xh", "curl", ""),
+    ("tokei", "cloc", ""),
 ];
 
 /// Compound aliases that use modern tools with specific flags.
@@ -27,6 +31,20 @@ const SMART_ALIASES: &[(&str, &str, &str)] = &[
     // fd-powered aliases
     ("fd", "ff", "fd --type f"),
     ("fd", "fdir", "fd --type d"),
+    // rg-powered aliases
+    ("rg", "rgf", "rg -l"),
+    // git shortcuts
+    ("git", "gs", "git status"),
+    ("git", "gl", "git log --oneline -20"),
+    ("git", "gd", "git diff"),
+    ("git", "gp", "git push"),
+    ("git", "gpl", "git pull"),
+    ("git", "gco", "git checkout"),
+    ("git", "gcm", "git commit -m"),
+    // docker shortcuts
+    ("docker", "dps", "docker ps"),
+    ("docker", "dex", "docker exec -it"),
+    ("docker", "dlog", "docker logs -f"),
 ];
 
 /// Detect installed modern tools and return aliases to apply.

@@ -14,6 +14,8 @@ pub struct ShellContext {
     pub available_tools: Vec<(&'static str, &'static str)>,
     pub dir_context: String,
     pub recent_history: Vec<String>,
+    pub git_context: String,
+    pub project_context: String,
 }
 
 /// Modern tools the AI should prefer when available, with concrete syntax guidance.
@@ -87,6 +89,8 @@ pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
         .collect();
 
     let dir_context = build_dir_context();
+    let git_context = build_git_context();
+    let project_context = read_project_context();
 
     Ok(ShellContext {
         os: env::consts::OS.to_string(),
@@ -97,6 +101,8 @@ pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
         available_tools,
         dir_context,
         recent_history,
+        git_context,
+        project_context,
     })
 }
 
@@ -173,4 +179,87 @@ fn list_dir_names(path: impl Into<PathBuf>) -> Result<Vec<String>> {
     // Cap at 50 entries to avoid bloating the prompt
     names.truncate(50);
     Ok(names)
+}
+
+/// Build git context: branch, dirty/clean, recent log.
+fn build_git_context() -> String {
+    use std::process::Command;
+
+    let branch = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+    let branch = match branch {
+        Some(b) => b,
+        None => return String::new(),
+    };
+
+    let mut ctx = format!("Git branch: {branch}");
+
+    let status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+    if let Some(ref s) = status {
+        if s.is_empty() {
+            ctx.push_str(" (clean)");
+        } else {
+            let changed = s.lines().count();
+            ctx.push_str(&format!(" ({changed} changed files)"));
+        }
+    }
+
+    let log = Command::new("git")
+        .args(["log", "--oneline", "-5"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+    if let Some(ref log) = log {
+        if !log.is_empty() {
+            ctx.push_str(&format!("\nRecent commits:\n{log}"));
+        }
+    }
+
+    ctx
+}
+
+/// Read per-project AI context from `.shako.toml` in the current directory.
+fn read_project_context() -> String {
+    let path = std::path::Path::new(".shako.toml");
+    if !path.exists() {
+        return String::new();
+    }
+
+    let contents = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    #[derive(serde::Deserialize)]
+    struct ProjectConfig {
+        #[serde(default)]
+        ai: ProjectAiConfig,
+    }
+
+    #[derive(serde::Deserialize, Default)]
+    struct ProjectAiConfig {
+        #[serde(default)]
+        context: String,
+    }
+
+    match toml::from_str::<ProjectConfig>(&contents) {
+        Ok(config) if !config.ai.context.is_empty() => config.ai.context,
+        _ => String::new(),
+    }
 }

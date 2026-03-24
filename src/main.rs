@@ -386,6 +386,23 @@ fn main() -> Result<()> {
                         }
                     }
                     Classification::Empty => {}
+                    Classification::ExplainCommand(cmd) => {
+                        print!("\x1b[90mexplaining...\x1b[0m");
+                        io::stdout().flush().ok();
+                        rt.block_on(async {
+                            match ai::explain_command(&cmd, &config).await {
+                                Ok(explanation) => {
+                                    print!("\r\x1b[K");
+                                    eprintln!("\x1b[36m{cmd}\x1b[0m");
+                                    eprintln!("{explanation}");
+                                }
+                                Err(e) => {
+                                    print!("\r\x1b[K");
+                                    eprintln!("shako: ai error: {e}");
+                                }
+                            }
+                        });
+                    }
                 }
 
                 last_command = input.to_string();

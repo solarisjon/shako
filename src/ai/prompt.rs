@@ -35,6 +35,14 @@ Rules:
         ));
     }
 
+    if !ctx.git_context.is_empty() {
+        prompt.push_str(&format!("\n\nGit context:\n{}", ctx.git_context));
+    }
+
+    if !ctx.project_context.is_empty() {
+        prompt.push_str(&format!("\n\nProject instructions:\n{}", ctx.project_context));
+    }
+
     if !ctx.recent_history.is_empty() {
         prompt.push_str("\n\nRecent command history (most recent last):\n");
         for cmd in &ctx.recent_history {
@@ -88,6 +96,14 @@ Rules:
         ));
     }
 
+    if !ctx.git_context.is_empty() {
+        prompt.push_str(&format!("\n\nGit context:\n{}", ctx.git_context));
+    }
+
+    if !ctx.project_context.is_empty() {
+        prompt.push_str(&format!("\n\nProject instructions:\n{}", ctx.project_context));
+    }
+
     if !ctx.recent_history.is_empty() {
         prompt.push_str("\n\nRecent command history (most recent last):\n");
         for cmd in &ctx.recent_history {
@@ -103,4 +119,23 @@ Rules:
     }
 
     prompt
+}
+
+/// Build the system prompt for explaining a command.
+pub fn explain_prompt(ctx: &ShellContext) -> String {
+    format!(
+        r#"You are a shell command expert. Explain what the given command does.
+
+Environment:
+- OS: {} ({})
+- Shell: {}
+
+Rules:
+1. Be concise — 2-4 lines max.
+2. Explain what each flag/argument does.
+3. Mention any risks or side effects (e.g. "this modifies files in-place").
+4. If the command has a common alias or modern alternative, mention it briefly.
+5. Use plain language, not man page jargon."#,
+        ctx.os, ctx.arch, ctx.shell,
+    )
 }
