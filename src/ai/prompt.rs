@@ -22,7 +22,9 @@ Rules:
    the user explicitly describing destruction.
 5. If you cannot translate the intent, respond with exactly: SHAKO_CANNOT_TRANSLATE
 6. Always quote glob patterns in arguments (e.g. '*.md', not *.md) so the shell
-   does not expand them before the tool receives them."#,
+   does not expand them before the tool receives them.
+7. NEVER invent CLI flags. Only use flags you are certain the tool supports.
+   If unsure, fall back to a simpler tool (e.g. find/grep) rather than guessing flags."#,
         ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user,
     );
 
