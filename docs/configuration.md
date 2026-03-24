@@ -84,6 +84,7 @@ confirm_ai_commands = true               # show command before executing (defaul
 auto_correct_typos = true                # suggest corrections for near-miss commands
 history_context_lines = 20               # recent commands included in AI context
 safety_mode = "warn"                     # "warn" | "block" | "off"
+edit_mode = "emacs"                      # "emacs" (default) or "vi"
 
 # --- Fish compatibility ---
 
@@ -119,6 +120,7 @@ gs = "git status -sb"
 | `auto_correct_typos` | boolean | `true` | Offer typo corrections for near-miss commands |
 | `history_context_lines` | integer | `20` | Number of recent commands sent to AI for context |
 | `safety_mode` | string | `"warn"` | `"warn"` shows warnings, `"block"` prevents execution, `"off"` disables |
+| `edit_mode` | string | `"emacs"` | `"emacs"` (default) or `"vi"` for vi-style keybindings |
 
 ## Per-Project Config (`.shako.toml`)
 

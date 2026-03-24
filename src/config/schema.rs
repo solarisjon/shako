@@ -63,6 +63,8 @@ pub struct BehaviorConfig {
     pub history_context_lines: usize,
     #[serde(default = "default_safety_mode")]
     pub safety_mode: String,
+    #[serde(default = "default_edit_mode")]
+    pub edit_mode: String,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -109,6 +111,10 @@ fn default_safety_mode() -> String {
     "warn".to_string()
 }
 
+fn default_edit_mode() -> String {
+    "emacs".to_string()
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
@@ -130,6 +136,7 @@ impl Default for BehaviorConfig {
             auto_correct_typos: true,
             history_context_lines: 20,
             safety_mode: "warn".to_string(),
+            edit_mode: "emacs".to_string(),
         }
     }
 }
