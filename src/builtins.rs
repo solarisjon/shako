@@ -791,7 +791,7 @@ pub fn source_fish_string(contents: &str, state: &mut ShellState) {
                         state.abbreviations.remove(*name);
                     }
                 }
-                "add" | _ if !positional.is_empty() => {
+                _ if !positional.is_empty() => {
                     if positional.len() >= 2 {
                         let name = positional[0].to_string();
                         let value = positional[1..].join(" ");

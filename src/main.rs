@@ -13,6 +13,7 @@ mod config;
 mod executor;
 mod fish_import;
 mod parser;
+mod path_cache;
 mod safety;
 mod setup;
 mod shell;
@@ -71,10 +72,11 @@ fn main() -> Result<()> {
         setup::check_recommended_tools();
     }
 
-    let classifier = Classifier::new();
+    let path_cache = path_cache::PathCache::new();
+    let classifier = Classifier::new(path_cache.clone());
 
-    let highlighter = shell::highlighter::JboshHighlighter::new();
-    let completer = shell::completer::JboshCompleter::new();
+    let highlighter = shell::highlighter::JboshHighlighter::new(path_cache.clone());
+    let completer = shell::completer::JboshCompleter::new(path_cache);
     let hinter = shell::hinter::JboshHinter::new();
 
     let history_path = dirs::data_dir()
@@ -240,6 +242,8 @@ fn main() -> Result<()> {
         }
     }
 
+    let mut last_command = String::new();
+
     loop {
         // Reap finished background jobs before each prompt
         state.reap_jobs();
@@ -270,6 +274,9 @@ fn main() -> Result<()> {
                         _ => break,
                     }
                 }
+
+                // History expansion: !! (last command), !$ (last arg)
+                let input = expand_history_bangs(&input, &last_command);
 
                 // Expand aliases before classification
                 let input = state.expand_alias(&input).unwrap_or(input);
@@ -370,6 +377,7 @@ fn main() -> Result<()> {
                     Classification::Empty => {}
                 }
 
+                last_command = input.to_string();
                 timer.stop();
             }
             Ok(Signal::CtrlC) => {
@@ -542,4 +550,25 @@ fn print_banner(config: &JboshConfig) {
          \x1b[33m{provider_name}\x1b[0m  {model}  \x1b[90m{endpoint_display}\x1b[0m",
         model = llm.model,
     );
+}
+
+/// Expand `!!` (last command) and `!$` (last arg of last command) in the input.
+fn expand_history_bangs(input: &str, last_command: &str) -> String {
+    if !input.contains('!') || last_command.is_empty() {
+        return input.to_string();
+    }
+
+    let last_arg = last_command
+        .split_whitespace()
+        .last()
+        .unwrap_or("");
+
+    let mut result = input.replace("!!", last_command);
+    result = result.replace("!$", last_arg);
+
+    if result != input {
+        eprintln!("\x1b[90m{result}\x1b[0m");
+    }
+
+    result
 }

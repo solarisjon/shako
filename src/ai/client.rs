@@ -50,6 +50,7 @@ pub fn normalize_endpoint(endpoint: &str) -> String {
 }
 
 /// Query the configured LLM endpoint with OpenAI-compatible API.
+/// Retries once on transient network errors with a short delay.
 pub async fn query_llm(
     system_prompt: &str,
     user_input: &str,
@@ -78,38 +79,53 @@ pub async fn query_llm(
             },
         ],
         max_tokens: config.max_tokens,
-        temperature: 0.1,
+        temperature: config.temperature,
     };
 
-    let mut req = client.post(&endpoint).json(&request);
+    let mut last_err = None;
 
-    if !api_key.is_empty() {
-        req = req.bearer_auth(&api_key);
-    }
-
-    let response = req.send().await.map_err(|e| {
-        let mut msg = format!("{e}");
-        let mut source = e.source();
-        while let Some(cause) = source {
-            msg.push_str(&format!("\n  caused by: {cause}"));
-            source = cause.source();
+    for attempt in 0..2 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            log::debug!("LLM retry attempt {attempt}");
         }
-        anyhow::anyhow!("{msg}")
-    })?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("LLM API {endpoint} returned {status}: {body}");
+        let mut req = client.post(&endpoint).json(&request);
+        if !api_key.is_empty() {
+            req = req.bearer_auth(&api_key);
+        }
+
+        match req.send().await {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let body = response.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!("LLM API {endpoint} returned {status}: {body}"));
+                }
+
+                let chat_response: ChatResponse = response.json().await?;
+                return chat_response
+                    .choices
+                    .first()
+                    .map(|c| c.message.content.clone())
+                    .ok_or_else(|| anyhow::anyhow!("no response from LLM"));
+            }
+            Err(e) => {
+                let mut msg = format!("{e}");
+                let mut source = e.source();
+                while let Some(cause) = source {
+                    msg.push_str(&format!("\n  caused by: {cause}"));
+                    source = cause.source();
+                }
+                last_err = Some(msg);
+            }
+        }
     }
 
-    let chat_response: ChatResponse = response.json().await?;
-
-    chat_response
-        .choices
-        .first()
-        .map(|c| c.message.content.clone())
-        .ok_or_else(|| anyhow::anyhow!("no response from LLM"))
+    Err(anyhow::anyhow!(
+        "could not reach LLM at {endpoint}: {}",
+        last_err.unwrap_or_default()
+    ))
 }
 
 #[cfg(test)]

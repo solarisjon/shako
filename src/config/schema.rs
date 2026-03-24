@@ -49,6 +49,8 @@ pub struct LlmConfig {
     pub max_tokens: u32,
     #[serde(default = "default_true")]
     pub verify_ssl: bool,
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -96,6 +98,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_temperature() -> f32 {
+    0.1
+}
+
 fn default_history_lines() -> usize {
     20
 }
@@ -113,6 +119,7 @@ impl Default for LlmConfig {
             timeout_secs: default_timeout(),
             max_tokens: default_max_tokens(),
             verify_ssl: true,
+            temperature: default_temperature(),
         }
     }
 }

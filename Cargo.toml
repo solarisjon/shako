@@ -1,6 +1,6 @@
 [package]
 name = "shako"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A fish-inspired shell with transparent AI command translation"
 license = "MIT"
@@ -57,6 +57,7 @@ nu-ansi-term = "0.50"
 # Nix (Unix process control, signals)
 [target.'cfg(target_family = "unix")'.dependencies]
 nix = { version = "0.30", features = ["signal", "process", "fs", "term"] }
+libc = "0.2"
 
 [profile.release]
 opt-level = "s"

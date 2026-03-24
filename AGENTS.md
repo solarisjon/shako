@@ -32,12 +32,12 @@ make clean          # cargo clean
 ```
 src/
 ├── main.rs              # Entry point, REPL loop, signal handling, multiline input,
-│                        #   AI error recovery UX, startup banner
+│                        #   AI error recovery UX, startup banner, !! and !$ history expansion
 ├── classifier.rs        # Input classification with typo detection (strsim/Damerau-Levenshtein)
-│                        #   caches PATH commands at startup
-│                        #   detects NL-looking args on valid commands (looks_like_natural_language)
-├── executor.rs          # Process execution: pipes, redirects, chains, background spawning
-│                        #   child process groups via pre_exec/setpgid
+│                        #   uses shared PathCache; detects NL-looking args (looks_like_natural_language)
+├── executor.rs          # Process execution: pipes, redirects (stdout, stderr, 2>&1), chains,
+│                        #   background spawning, child process groups via pre_exec/setpgid
+│                        #   pipeline child cleanup on spawn failure
 ├── parser.rs            # Tokenizer: quoting, env expansion, globs, tilde, command substitution
 │                        #   handles $(), backticks, nested substitution, chain/pipe splitting
 ├── builtins.rs          # Builtins, ShellState (aliases, functions, jobs), job control
@@ -47,9 +47,12 @@ src/
 │                        #   Starship config merging (ensure_starship_config)
 ├── smart_defaults.rs    # Modern tool detection (eza, bat, fd, rg, dust, procs, sd, delta,
 │                        #   btop, bottom, zoxide, fzf) + auto-aliasing
+├── path_cache.rs        # Shared PATH command cache (Arc<PathCache>) used by classifier,
+│                        #   completer, and highlighter — scanned once at startup
 ├── ai/
 │   ├── mod.rs           # Orchestrator: translate_and_execute(), diagnose_error()
 │   ├── client.rs        # OpenAI-compatible LLM HTTP client (rustls-tls-native-roots)
+│   │                    #   single retry with 2s delay on transient errors
 │   ├── context.rs       # Shell context (OS, arch, cwd, user, dir listings, tool preferences)
 │   │                    #   builds directory context (cwd + home) for AI grounding
 │   ├── prompt.rs        # System prompts: translation + error recovery
@@ -58,10 +61,12 @@ src/
 │   ├── mod.rs           # Re-exports
 │   ├── prompt.rs        # Starship integration, exit code + duration tracking (atomics)
 │   │                    #   right prompt rendered in background thread
-│   ├── highlighter.rs   # Syntax highlighting (green=valid cmd, cyan=builtin,
-│   │                    #   purple=AI prefix, yellow=path, red=unknown)
+│   ├── highlighter.rs   # Rich syntax highlighting: command (green), builtin (cyan),
+│   │                    #   AI prefix (purple), path (yellow), unknown (red),
+│   │                    #   flags (blue), pipes/redirects (cyan), strings (yellow),
+│   │                    #   variables (green), comments (gray) — uses PathCache
 │   ├── completer.rs     # Smart tab completion (git, cargo, docker, kubectl, make targets,
-│   │                    #   sudo, dirs, path commands)
+│   │                    #   sudo, dirs, path commands) — uses PathCache, escapes spaces
 │   └── hinter.rs        # History-based autosuggestions (gray inline hints)
 └── config/
     ├── mod.rs           # Re-exports JboshConfig, LlmConfig
@@ -287,6 +292,6 @@ Tests use `assert!(matches!(...))` for enum variants and direct equality for str
 12. **Starship shell name** — `STARSHIP_SHELL=shako` is set at startup so starship shows the correct shell.
 13. **Starship config merging** — `setup::ensure_starship_config()` creates `~/.config/shako/starship.toml` once, merging the user's global config with `[shell] unknown_indicator = "shako"`. `STARSHIP_CONFIG` env var points to this file.
 14. **Right prompt threading** — `StarshipPrompt::render_prompt_left()` spawns a background thread for the right prompt render, joining it in `render_prompt_right()`. This parallelizes the two starship subprocess calls.
-15. **No CI config** — no `.github/workflows` or CI configuration exists yet.
+15. **CI** — `.github/workflows/ci.yml` runs `cargo test` + `cargo clippy` on push/PR (ubuntu + macOS).
 16. **First-run wizard** — if no config file exists, the shell launches an interactive setup wizard before the REPL starts.
-17. **LLM temperature** — hardcoded to `0.1` in `ai/client.rs` for deterministic command translation.
+17. **LLM temperature** — configurable via `temperature` field in `LlmConfig` (default `0.1`). LLM client retries once with 2s delay on transient network errors.

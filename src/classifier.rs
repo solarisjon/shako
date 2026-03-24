@@ -1,10 +1,10 @@
-use std::env;
-use std::fs;
+use std::sync::Arc;
 
 use strsim::damerau_levenshtein;
 use which::which;
 
 use crate::builtins::BUILTINS;
+use crate::path_cache::PathCache;
 
 /// How user input was classified.
 #[derive(Debug)]
@@ -24,14 +24,12 @@ pub enum Classification {
 }
 
 pub struct Classifier {
-    path_commands: Vec<String>,
+    cache: Arc<PathCache>,
 }
 
 impl Classifier {
-    pub fn new() -> Self {
-        Self {
-            path_commands: collect_path_commands(),
-        }
+    pub fn new(cache: Arc<PathCache>) -> Self {
+        Self { cache }
     }
 
     /// Classify user input into command, builtin, typo, or natural language.
@@ -127,7 +125,7 @@ impl Classifier {
         }
 
         // Check PATH commands
-        for cmd in &self.path_commands {
+        for cmd in &self.cache.commands {
             let dist = damerau_levenshtein(token, cmd);
             if dist > 0 && dist <= 2
                 && best.as_ref().is_none_or(|(_, d)| dist < *d) {
@@ -196,40 +194,24 @@ fn looks_like_natural_language(args: &[&str]) -> bool {
     false
 }
 
-/// Collect all executable names from $PATH (cached at startup).
-fn collect_path_commands() -> Vec<String> {
-    let path_var = env::var("PATH").unwrap_or_default();
-    let mut commands = Vec::new();
-
-    for dir in path_var.split(':') {
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                if let Ok(name) = entry.file_name().into_string() {
-                    commands.push(name);
-                }
-            }
-        }
-    }
-
-    commands.sort();
-    commands.dedup();
-    commands
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn test_classifier() -> Classifier {
+        Classifier::new(PathCache::new())
+    }
+
     #[test]
     fn test_empty_input() {
-        let c = Classifier::new();
+        let c = test_classifier();
         assert!(matches!(c.classify(""), Classification::Empty));
         assert!(matches!(c.classify("   "), Classification::Empty));
     }
 
     #[test]
     fn test_forced_ai() {
-        let c = Classifier::new();
+        let c = test_classifier();
         assert!(matches!(
             c.classify("? list all files"),
             Classification::ForcedAI(_)
@@ -242,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_builtins() {
-        let c = Classifier::new();
+        let c = test_classifier();
         assert!(matches!(c.classify("cd /tmp"), Classification::Builtin(_)));
         assert!(matches!(c.classify("exit"), Classification::Builtin(_)));
         assert!(matches!(
@@ -253,14 +235,14 @@ mod tests {
 
     #[test]
     fn test_known_commands() {
-        let c = Classifier::new();
+        let c = test_classifier();
         // ls should be in PATH on any system
         assert!(matches!(c.classify("ls -la"), Classification::Command(_)));
     }
 
     #[test]
     fn test_natural_language() {
-        let c = Classifier::new();
+        let c = test_classifier();
         assert!(matches!(
             c.classify("show me the largest files in this directory"),
             Classification::NaturalLanguage(_)
@@ -269,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_known_command_with_nl_args_routes_to_ai() {
-        let c = Classifier::new();
+        let c = test_classifier();
         // "find" is in PATH but the rest is prose — should go to AI.
         assert!(matches!(
             c.classify("find all the .md files in this directory"),
@@ -294,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_known_command_with_real_args_stays_command() {
-        let c = Classifier::new();
+        let c = test_classifier();
         // Flags present → real command.
         assert!(matches!(
             c.classify("find . -name '*.md'"),
@@ -313,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_typo_detection() {
-        let c = Classifier::new();
+        let c = test_classifier();
         // "gti" is 1 transposition from "git"
         let result = c.classify("gti");
         assert!(
@@ -325,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_typo_preserves_args() {
-        let c = Classifier::new();
+        let c = test_classifier();
         let result = c.classify("gti status");
         assert!(
             matches!(result, Classification::Typo { ref suggestion, .. } if suggestion == "git status"),

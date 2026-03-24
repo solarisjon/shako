@@ -1,7 +1,9 @@
 use reedline::{Completer, Span, Suggestion};
-use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::path_cache::PathCache;
 
 const GIT_SUBCOMMANDS: &[&str] = &[
     "add",
@@ -89,30 +91,17 @@ const KUBECTL_SUBCOMMANDS: &[&str] = &[
 
 const MAKE_SUBCOMMANDS: &[&str] = &[];
 
-pub struct JboshCompleter;
+pub struct JboshCompleter {
+    cache: Arc<PathCache>,
+}
 
 impl JboshCompleter {
-    pub fn new() -> Self {
-        Self
+    pub fn new(cache: Arc<PathCache>) -> Self {
+        Self { cache }
     }
 
-    fn path_commands(&self) -> Vec<String> {
-        let path_var = env::var("PATH").unwrap_or_default();
-        let mut commands = Vec::new();
-
-        for dir in path_var.split(':') {
-            if let Ok(entries) = fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    if let Ok(name) = entry.file_name().into_string() {
-                        commands.push(name);
-                    }
-                }
-            }
-        }
-
-        commands.sort();
-        commands.dedup();
-        commands
+    fn path_commands(&self) -> &[String] {
+        &self.cache.commands
     }
 
     fn path_completions(
@@ -152,7 +141,7 @@ impl JboshCompleter {
                         if ft.is_dir() {
                             true
                         } else if ft.is_symlink() {
-                            entry.path().metadata().ok().map_or(false, |m| m.is_dir())
+                            entry.path().metadata().ok().is_some_and(|m| m.is_dir())
                         } else {
                             false
                         }
@@ -165,15 +154,16 @@ impl JboshCompleter {
 
                 if let Ok(name) = entry.file_name().into_string() {
                     if name.starts_with(&prefix) {
-                        // Directories get a trailing `/` so the next Tab press
-                        // descends into the directory instead of appending a space.
                         let mut value = format!("{dir_prefix}{name}");
-                        let append_whitespace;
-                        if is_dir {
+                        let append_whitespace = if is_dir {
                             value.push('/');
-                            append_whitespace = false;
+                            false
                         } else {
-                            append_whitespace = true;
+                            true
+                        };
+                        // Escape spaces in filenames with backslash
+                        if value.contains(' ') {
+                            value = value.replace(' ', "\\ ");
                         }
                         completions.push(Suggestion {
                             value,
@@ -275,7 +265,7 @@ impl Completer for JboshCompleter {
 
         // First token: complete commands from PATH + builtins
         if completing_first_token {
-            let mut commands = self.path_commands();
+            let mut commands: Vec<String> = self.path_commands().to_vec();
             for &b in crate::builtins::BUILTINS {
                 commands.push(b.to_string());
             }
@@ -301,12 +291,11 @@ impl Completer for JboshCompleter {
 
         // After `sudo`, complete like a first token
         if first_cmd == "sudo" && parts.len() == 2 && !line_to_cursor.ends_with(' ') {
-            let commands = self.path_commands();
-            return commands
-                .into_iter()
+            return self.path_commands()
+                .iter()
                 .filter(|cmd| cmd.starts_with(partial))
                 .map(|cmd| Suggestion {
-                    value: cmd,
+                    value: cmd.clone(),
                     display_override: None,
                     description: None,
                     style: None,
@@ -367,9 +356,13 @@ mod tests {
     use super::*;
     use reedline::Completer;
 
+    fn test_completer() -> JboshCompleter {
+        JboshCompleter::new(PathCache::new())
+    }
+
     #[test]
     fn test_cd_with_trailing_space_returns_dirs() {
-        let mut c = JboshCompleter::new();
+        let mut c = test_completer();
         let suggestions = c.complete("cd ", 3);
         assert!(!suggestions.is_empty(), "expected directory completions for 'cd '");
         for s in &suggestions {
@@ -382,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_path_partial_name_gets_slash() {
-        let mut c = JboshCompleter::new();
+        let mut c = test_completer();
         // repo root contains src/ — "cat sr" should complete to "src/"
         let suggestions = c.complete("cat sr", 6);
         let src = suggestions.iter().find(|s| s.value == "src/");
@@ -395,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_path_trailing_slash_descends() {
-        let mut c = JboshCompleter::new();
+        let mut c = test_completer();
         let suggestions = c.complete("cat src/", 8);
         assert!(!suggestions.is_empty(), "expected completions inside src/");
         for s in &suggestions {
@@ -407,21 +400,21 @@ mod tests {
 
     #[test]
     fn test_first_token_completion() {
-        let mut c = JboshCompleter::new();
+        let mut c = test_completer();
         let suggestions = c.complete("gi", 2);
         assert!(suggestions.iter().any(|s| s.value == "git"), "expected 'git' in command completions");
     }
 
     #[test]
     fn test_git_subcommand_completion() {
-        let mut c = JboshCompleter::new();
+        let mut c = test_completer();
         let suggestions = c.complete("git stat", 8);
         assert!(suggestions.iter().any(|s| s.value == "status"), "expected 'status' in git subcommand completions");
     }
 
     #[test]
     fn test_tilde_path_completion() {
-        let mut c = JboshCompleter::new();
+        let mut c = test_completer();
         // "ls ~/" — should return entries from the real home directory, not "NO RECORDS FOUND"
         if let Some(home) = dirs::home_dir() {
             if home.is_dir() {
