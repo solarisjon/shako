@@ -60,7 +60,6 @@ pub struct BehaviorConfig {
     #[serde(default = "default_true")]
     pub auto_correct_typos: bool,
     #[serde(default = "default_history_lines")]
-    #[allow(dead_code)] // reserved for AI context window
     pub history_context_lines: usize,
     #[serde(default = "default_safety_mode")]
     pub safety_mode: String,

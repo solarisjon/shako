@@ -126,7 +126,7 @@ fn main() -> Result<()> {
 
     let prompt = StarshipPrompt::new();
     let rt = tokio::runtime::Runtime::new()?;
-    let mut state = ShellState::new(history_path);
+    let mut state = ShellState::new(history_path.clone());
 
     // Interactive shell signal setup.
     //
@@ -326,6 +326,7 @@ fn main() -> Result<()> {
                                     &stderr_output,
                                     &config,
                                     &rt,
+                                    &history_path,
                                 );
                             }
                         }
@@ -335,8 +336,9 @@ fn main() -> Result<()> {
                         prompt::set_last_status(0);
                     }
                     Classification::NaturalLanguage(text) => {
+                        let history = read_recent_history(&history_path, config.behavior.history_context_lines);
                         rt.block_on(async {
-                            match ai::translate_and_execute(&text, &config).await {
+                            match ai::translate_and_execute(&text, &config, history).await {
                                 Ok(_) => prompt::set_last_status(0),
                                 Err(e) => {
                                     eprintln!("shako: ai error: {e}");
@@ -346,8 +348,9 @@ fn main() -> Result<()> {
                         });
                     }
                     Classification::ForcedAI(text) => {
+                        let history = read_recent_history(&history_path, config.behavior.history_context_lines);
                         rt.block_on(async {
-                            match ai::translate_and_execute(&text, &config).await {
+                            match ai::translate_and_execute(&text, &config, history).await {
                                 Ok(_) => prompt::set_last_status(0),
                                 Err(e) => {
                                     eprintln!("shako: ai error: {e}");
@@ -371,7 +374,8 @@ fn main() -> Result<()> {
                             }
                         } else {
                             rt.block_on(async {
-                                match ai::translate_and_execute(&suggestion, &config).await {
+                                let history = read_recent_history(&history_path, config.behavior.history_context_lines);
+                                match ai::translate_and_execute(&suggestion, &config, history).await {
                                     Ok(_) => prompt::set_last_status(0),
                                     Err(e) => {
                                         eprintln!("shako: ai error: {e}");
@@ -415,6 +419,7 @@ fn offer_ai_recovery(
     stderr_output: &str,
     config: &JboshConfig,
     rt: &tokio::runtime::Runtime,
+    history_path: &std::path::Path,
 ) {
     // Don't offer for signals (128+) or trivial failures like grep no-match (1)
     if exit_code == 1 || exit_code > 128 {
@@ -436,7 +441,8 @@ fn offer_ai_recovery(
     io::stdout().flush().ok();
 
     rt.block_on(async {
-        match ai::diagnose_error(command, exit_code, stderr_output, config).await {
+        let history = read_recent_history(history_path, config.behavior.history_context_lines);
+        match ai::diagnose_error(command, exit_code, stderr_output, config, history).await {
             Ok(response) => {
                 // Clear the "thinking..." text
                 print!("\r\x1b[K");
@@ -579,4 +585,22 @@ fn expand_history_bangs(input: &str, last_command: &str) -> String {
     }
 
     result
+}
+
+/// Read the last N lines from the history file for AI context.
+fn read_recent_history(history_path: &std::path::Path, n: usize) -> Vec<String> {
+    if n == 0 {
+        return Vec::new();
+    }
+    match std::fs::read_to_string(history_path) {
+        Ok(contents) => {
+            let lines: Vec<&str> = contents.lines().collect();
+            let start = lines.len().saturating_sub(n);
+            lines[start..]
+                .iter()
+                .map(|l| l.to_string())
+                .collect()
+        }
+        Err(_) => Vec::new(),
+    }
 }

@@ -7,8 +7,12 @@ use crate::config::JboshConfig;
 use anyhow::Result;
 
 /// Translate natural language to a shell command via LLM, confirm, and execute.
-pub async fn translate_and_execute(input: &str, config: &JboshConfig) -> Result<()> {
-    let ctx = context::build_context()?;
+pub async fn translate_and_execute(
+    input: &str,
+    config: &JboshConfig,
+    recent_history: Vec<String>,
+) -> Result<()> {
+    let ctx = context::build_context(recent_history)?;
     let system_prompt = prompt::system_prompt(&ctx);
 
     let response = client::query_llm(&system_prompt, input, config.active_llm()).await?;
@@ -61,8 +65,9 @@ pub async fn diagnose_error(
     exit_code: i32,
     stderr_hint: &str,
     config: &JboshConfig,
+    recent_history: Vec<String>,
 ) -> Result<String> {
-    let ctx = context::build_context()?;
+    let ctx = context::build_context(recent_history)?;
     let system_prompt = prompt::error_recovery_prompt(&ctx);
     let user_msg = if stderr_hint.is_empty() {
         format!("Command: {command}\nExit code: {exit_code}")

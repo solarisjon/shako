@@ -35,6 +35,14 @@ Rules:
         ));
     }
 
+    if !ctx.recent_history.is_empty() {
+        prompt.push_str("\n\nRecent command history (most recent last):\n");
+        for cmd in &ctx.recent_history {
+            prompt.push_str(&format!("  $ {cmd}\n"));
+        }
+        prompt.push_str("Use this context to understand follow-up requests like \"do that again\" or \"same but with...\".");
+    }
+
     if !ctx.available_tools.is_empty() {
         prompt.push_str("\n6. The user has modern CLI tools installed. ALWAYS prefer them:");
         for (tool, instruction) in &ctx.available_tools {
@@ -78,6 +86,13 @@ Rules:
             "\n\nIMPORTANT — Filesystem context (use these EXACT names in your fix):\n{}",
             ctx.dir_context
         ));
+    }
+
+    if !ctx.recent_history.is_empty() {
+        prompt.push_str("\n\nRecent command history (most recent last):\n");
+        for cmd in &ctx.recent_history {
+            prompt.push_str(&format!("  $ {cmd}\n"));
+        }
     }
 
     if !ctx.available_tools.is_empty() {

@@ -13,6 +13,7 @@ pub struct ShellContext {
     pub user: String,
     pub available_tools: Vec<(&'static str, &'static str)>,
     pub dir_context: String,
+    pub recent_history: Vec<String>,
 }
 
 /// Modern tools the AI should prefer when available, with concrete syntax guidance.
@@ -70,7 +71,7 @@ const TOOL_PREFERENCES: &[(&str, &str)] = &[
 ];
 
 /// Build context from the current environment.
-pub fn build_context() -> Result<ShellContext> {
+pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
     let cwd = env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
@@ -95,6 +96,7 @@ pub fn build_context() -> Result<ShellContext> {
         user,
         available_tools,
         dir_context,
+        recent_history,
     })
 }
 
