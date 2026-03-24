@@ -2,8 +2,8 @@ use std::io::{self, Write};
 
 use anyhow::Result;
 use reedline::{
-    ColumnarMenu, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
-    ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
+    ColumnarMenu, EditMode, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
+    ReedlineEvent, ReedlineMenu, Signal, Vi, default_emacs_keybindings,
 };
 
 mod ai;
@@ -99,22 +99,25 @@ fn main() -> Result<()> {
             .with_column_padding(2),
     );
 
-    let mut keybindings = default_emacs_keybindings();
-    keybindings.add_binding(
-        KeyModifiers::NONE,
-        KeyCode::Tab,
-        ReedlineEvent::UntilFound(vec![
-            ReedlineEvent::Menu("completion_menu".to_string()),
-            ReedlineEvent::MenuNext,
-        ]),
-    );
-    keybindings.add_binding(
-        KeyModifiers::SHIFT,
-        KeyCode::BackTab,
-        ReedlineEvent::MenuPrevious,
-    );
-
-    let edit_mode = Box::new(Emacs::new(keybindings));
+    let edit_mode: Box<dyn EditMode> = if config.behavior.edit_mode == "vi" {
+        Box::new(Vi::default())
+    } else {
+        let mut keybindings = default_emacs_keybindings();
+        keybindings.add_binding(
+            KeyModifiers::NONE,
+            KeyCode::Tab,
+            ReedlineEvent::UntilFound(vec![
+                ReedlineEvent::Menu("completion_menu".to_string()),
+                ReedlineEvent::MenuNext,
+            ]),
+        );
+        keybindings.add_binding(
+            KeyModifiers::SHIFT,
+            KeyCode::BackTab,
+            ReedlineEvent::MenuPrevious,
+        );
+        Box::new(Emacs::new(keybindings))
+    };
 
     let mut line_editor = Reedline::create()
         .with_history(history)
