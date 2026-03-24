@@ -115,53 +115,73 @@ impl JboshCompleter {
         commands
     }
 
-    fn path_completions(&self, partial: &str, dirs_only: bool) -> Vec<String> {
-        let (dir, prefix) = if partial.contains('/') {
-            let path = PathBuf::from(partial);
-            let default_dir = PathBuf::from(".");
-            let dir = path.parent().unwrap_or(&default_dir).to_path_buf();
-            let prefix = path
-                .file_name()
-                .and_then(|f| f.to_str())
-                .unwrap_or("")
-                .to_string();
-            (dir, prefix)
+    fn path_completions(
+        &self,
+        partial: &str,
+        dirs_only: bool,
+        start: usize,
+        pos: usize,
+    ) -> Vec<Suggestion> {
+        // Split on the last `/` so that trailing-slash partials like `src/`
+        // work correctly.  `PathBuf::parent` + `file_name` cannot handle them.
+        let (dir, prefix, dir_prefix) = if let Some(slash) = partial.rfind('/') {
+            let dir_str = &partial[..=slash]; // includes the trailing '/'
+            let file_prefix = &partial[slash + 1..];
+            (PathBuf::from(dir_str), file_prefix.to_string(), dir_str.to_string())
         } else {
-            (PathBuf::from("."), partial.to_string())
+            (PathBuf::from("."), partial.to_string(), String::new())
         };
 
         let mut completions = Vec::new();
         if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
-                if dirs_only {
-                    if let Ok(ft) = entry.file_type() {
-                        if !ft.is_dir() && !ft.is_symlink() {
-                            continue;
+                // Resolve whether this entry is a directory (follow symlinks).
+                let is_dir = entry
+                    .file_type()
+                    .ok()
+                    .map(|ft| {
+                        if ft.is_dir() {
+                            true
+                        } else if ft.is_symlink() {
+                            entry.path().metadata().ok().map_or(false, |m| m.is_dir())
+                        } else {
+                            false
                         }
-                        // For symlinks, check if target is a dir
-                        if ft.is_symlink() {
-                            if let Ok(meta) = entry.path().metadata() {
-                                if !meta.is_dir() {
-                                    continue;
-                                }
-                            }
-                        }
-                    }
+                    })
+                    .unwrap_or(false);
+
+                if dirs_only && !is_dir {
+                    continue;
                 }
+
                 if let Ok(name) = entry.file_name().into_string() {
                     if name.starts_with(&prefix) {
-                        let full = if partial.contains('/') {
-                            format!("{}/{}", dir.display(), name)
+                        // Directories get a trailing `/` so the next Tab press
+                        // descends into the directory instead of appending a space.
+                        let mut value = format!("{dir_prefix}{name}");
+                        let append_whitespace;
+                        if is_dir {
+                            value.push('/');
+                            append_whitespace = false;
                         } else {
-                            name
-                        };
-                        completions.push(full);
+                            append_whitespace = true;
+                        }
+                        completions.push(Suggestion {
+                            value,
+                            display_override: None,
+                            description: None,
+                            style: None,
+                            extra: None,
+                            span: Span::new(start, pos),
+                            append_whitespace,
+                            match_indices: None,
+                        });
                     }
                 }
             }
         }
 
-        completions.sort();
+        completions.sort_by(|a, b| a.value.cmp(&b.value));
         completions
     }
 
@@ -329,18 +349,64 @@ impl Completer for JboshCompleter {
         // `cd` and `z` — directories only
         let dirs_only = matches!(first_cmd, "cd" | "z" | "pushd" | "mkdir" | "rmdir");
 
-        self.path_completions(partial, dirs_only)
-            .into_iter()
-            .map(|path| Suggestion {
-                value: path,
-                display_override: None,
-                description: None,
-                style: None,
-                extra: None,
-                span: Span::new(start, pos),
-                append_whitespace: true,
-                match_indices: None,
-            })
-            .collect()
+        self.path_completions(partial, dirs_only, start, pos)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reedline::Completer;
+
+    #[test]
+    fn test_cd_with_trailing_space_returns_dirs() {
+        let mut c = JboshCompleter::new();
+        let suggestions = c.complete("cd ", 3);
+        assert!(!suggestions.is_empty(), "expected directory completions for 'cd '");
+        for s in &suggestions {
+            assert!(s.value.ends_with('/'), "dir completion '{}' should end with '/'", s.value);
+            assert!(!s.append_whitespace, "dir completion should not append whitespace");
+        }
+        assert_eq!(suggestions[0].span.start, 3);
+        assert_eq!(suggestions[0].span.end, 3);
+    }
+
+    #[test]
+    fn test_path_partial_name_gets_slash() {
+        let mut c = JboshCompleter::new();
+        // repo root contains src/ — "cat sr" should complete to "src/"
+        let suggestions = c.complete("cat sr", 6);
+        let src = suggestions.iter().find(|s| s.value == "src/");
+        assert!(src.is_some(), "expected 'src/' in completions, got: {:?}", suggestions.iter().map(|s| &s.value).collect::<Vec<_>>());
+        let src = src.unwrap();
+        assert!(!src.append_whitespace);
+        assert_eq!(src.span.start, 4);
+        assert_eq!(src.span.end, 6);
+    }
+
+    #[test]
+    fn test_path_trailing_slash_descends() {
+        let mut c = JboshCompleter::new();
+        let suggestions = c.complete("cat src/", 8);
+        assert!(!suggestions.is_empty(), "expected completions inside src/");
+        for s in &suggestions {
+            assert!(s.value.starts_with("src/"), "completion '{}' should start with 'src/'", s.value);
+        }
+        assert_eq!(suggestions[0].span.start, 4);
+        assert_eq!(suggestions[0].span.end, 8);
+    }
+
+    #[test]
+    fn test_first_token_completion() {
+        let mut c = JboshCompleter::new();
+        let suggestions = c.complete("gi", 2);
+        assert!(suggestions.iter().any(|s| s.value == "git"), "expected 'git' in command completions");
+    }
+
+    #[test]
+    fn test_git_subcommand_completion() {
+        let mut c = JboshCompleter::new();
+        let suggestions = c.complete("git stat", 8);
+        assert!(suggestions.iter().any(|s| s.value == "status"), "expected 'status' in git subcommand completions");
     }
 }
