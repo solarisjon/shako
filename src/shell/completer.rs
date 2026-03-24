@@ -127,7 +127,16 @@ impl JboshCompleter {
         let (dir, prefix, dir_prefix) = if let Some(slash) = partial.rfind('/') {
             let dir_str = &partial[..=slash]; // includes the trailing '/'
             let file_prefix = &partial[slash + 1..];
-            (PathBuf::from(dir_str), file_prefix.to_string(), dir_str.to_string())
+            // Expand a leading `~/` to the real home directory so that paths
+            // like `~/.co` resolve correctly for fs::read_dir.
+            let expanded_dir = if dir_str.starts_with("~/") {
+                dirs::home_dir()
+                    .map(|h| h.join(&dir_str[2..]))
+                    .unwrap_or_else(|| PathBuf::from(dir_str))
+            } else {
+                PathBuf::from(dir_str)
+            };
+            (expanded_dir, file_prefix.to_string(), dir_str.to_string())
         } else {
             (PathBuf::from("."), partial.to_string(), String::new())
         };
@@ -408,5 +417,21 @@ mod tests {
         let mut c = JboshCompleter::new();
         let suggestions = c.complete("git stat", 8);
         assert!(suggestions.iter().any(|s| s.value == "status"), "expected 'status' in git subcommand completions");
+    }
+
+    #[test]
+    fn test_tilde_path_completion() {
+        let mut c = JboshCompleter::new();
+        // "ls ~/" — should return entries from the real home directory, not "NO RECORDS FOUND"
+        if let Some(home) = dirs::home_dir() {
+            if home.is_dir() {
+                let suggestions = c.complete("ls ~/", 5);
+                assert!(!suggestions.is_empty(), "tilde path '~/' should expand to home dir and return entries");
+                // All values should be prefixed with "~/"
+                for s in &suggestions {
+                    assert!(s.value.starts_with("~/"), "completion '{}' should start with '~/'", s.value);
+                }
+            }
+        }
     }
 }
