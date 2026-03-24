@@ -77,7 +77,7 @@ fn main() -> Result<()> {
 
     let highlighter = shell::highlighter::JboshHighlighter::new(path_cache.clone());
     let completer = shell::completer::JboshCompleter::new(path_cache);
-    let hinter = shell::hinter::JboshHinter::new();
+    let hinter = shell::hinter::create_hinter();
 
     let history_path = dirs::data_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join(".local/share")))
