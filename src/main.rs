@@ -28,6 +28,8 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let quiet = args.iter().any(|a| a == "--quiet" || a == "-q");
     let init = args.iter().any(|a| a == "--init");
+    let cmd_mode = args.iter().position(|a| a == "-c")
+        .map(|i| args.get(i + 1).cloned().unwrap_or_default());
 
     env_logger::init();
 
@@ -63,6 +65,17 @@ fn main() -> Result<()> {
     }
 
     let (config, first_run) = JboshConfig::load()?;
+
+    // Non-interactive mode: shako -c "command"
+    if let Some(cmd_str) = cmd_mode {
+        if cmd_str.is_empty() {
+            eprintln!("shako: -c: option requires an argument");
+            std::process::exit(2);
+        }
+        let status = executor::execute_command(&cmd_str);
+        let code = status.and_then(|s| s.code()).unwrap_or(0);
+        std::process::exit(code);
+    }
 
     if !quiet {
         print_banner(&config);

@@ -63,3 +63,7 @@ libc = "0.2"
 opt-level = "s"
 strip = "debuginfo"
 lto = "thin"
+
+[dev-dependencies]
+tempfile = "3"
+dirs = "6"
