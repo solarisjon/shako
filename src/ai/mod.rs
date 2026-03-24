@@ -64,7 +64,11 @@ pub async fn diagnose_error(
 ) -> Result<String> {
     let ctx = context::build_context()?;
     let system_prompt = prompt::error_recovery_prompt(&ctx);
-    let user_msg = format!("Command: {command}\nExit code: {exit_code}\n{stderr_hint}");
+    let user_msg = if stderr_hint.is_empty() {
+        format!("Command: {command}\nExit code: {exit_code}")
+    } else {
+        format!("Command: {command}\nExit code: {exit_code}\nStderr:\n{stderr_hint}")
+    };
 
     client::query_llm(&system_prompt, &user_msg, config.active_llm()).await
 }

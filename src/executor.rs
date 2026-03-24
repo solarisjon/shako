@@ -1,4 +1,5 @@
 use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader};
 use std::process::{Command, ExitStatus, Stdio};
 
 use crate::parser;
@@ -6,29 +7,25 @@ use crate::parser;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
-#[cfg(unix)]
-extern crate libc;
-
 /// Set up a command for proper signal handling on Unix.
 ///
 /// `pgid` controls the process group:
 ///   - `0`  → child becomes its own process-group leader (`setpgid(0, 0)`)
 ///   - `N`  → child joins an existing process group N (`setpgid(0, N)`)
 ///
-/// This, combined with `tcsetpgrp` in the parent, ensures keyboard signals
-/// (Ctrl-C / Ctrl-\ / Ctrl-Z) are delivered to the child, not the shell.
+/// `dup_stderr_to_stdout` merges stderr into stdout (for `2>&1`).
+///
+/// Both operations are combined in a single `pre_exec` closure because
+/// calling `pre_exec` multiple times replaces the previous closure.
 #[cfg(unix)]
-fn setup_child_signals(cmd: &mut Command, pgid: i32) {
+fn setup_child_signals(cmd: &mut Command, pgid: i32, dup_stderr_to_stdout: bool) {
     unsafe {
         cmd.pre_exec(move || {
-            // Join or create the target process group.
             nix::unistd::setpgid(
                 nix::unistd::Pid::from_raw(0),
                 nix::unistd::Pid::from_raw(pgid),
             )
             .ok();
-            // Reset all job-control and interrupt signals to their defaults.
-            // The interactive shell ignores these; children must not inherit that.
             use nix::sys::signal::{SigHandler, Signal, signal};
             for sig in [
                 Signal::SIGINT,
@@ -39,13 +36,16 @@ fn setup_child_signals(cmd: &mut Command, pgid: i32) {
             ] {
                 signal(sig, SigHandler::SigDfl).ok();
             }
+            if dup_stderr_to_stdout && libc::dup2(1, 2) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
             Ok(())
         });
     }
 }
 
 #[cfg(not(unix))]
-fn setup_child_signals(_cmd: &mut Command, _pgid: i32) {}
+fn setup_child_signals(_cmd: &mut Command, _pgid: i32, _dup_stderr_to_stdout: bool) {}
 
 /// Run a foreground child: hand the terminal to the child's process group,
 /// wait for it to finish, then reclaim the terminal for the shell.
@@ -94,7 +94,7 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
 
     let mut cmd = Command::new(program);
     cmd.args(cmd_args);
-    setup_child_signals(&mut cmd, 0);
+    setup_child_signals(&mut cmd, 0, redir.stderr_to_stdout);
 
     if let Some(ref path) = redir.stdin_path {
         match File::open(path) {
@@ -165,6 +165,110 @@ pub fn execute_command(input: &str) -> Option<ExitStatus> {
     last_status
 }
 
+/// Like `execute_command` but captures stderr (last 20 lines) while still
+/// printing it to the terminal in real time. Returns (exit_status, stderr_tail).
+pub fn execute_command_with_stderr(input: &str) -> (Option<ExitStatus>, String) {
+    let input = input.trim();
+    if input.is_empty() {
+        return (None, String::new());
+    }
+
+    let chains = parser::split_chains(input);
+    if chains.len() > 1 {
+        return (execute_command(input), String::new());
+    }
+
+    let segments = parser::split_pipes(input);
+    if segments.len() > 1 {
+        return (execute_command(input), String::new());
+    }
+
+    let redir = parse_redirects(input);
+
+    if redir.stderr_path.is_some() || redir.stderr_to_stdout {
+        return (execute_command(input), String::new());
+    }
+
+    let args = parser::parse_args(&redir.cmd);
+    if args.is_empty() {
+        return (Some(fake_status(1)), String::new());
+    }
+
+    let program = &args[0];
+    let cmd_args = &args[1..];
+
+    let mut cmd = Command::new(program);
+    cmd.args(cmd_args);
+    setup_child_signals(&mut cmd, 0, false);
+
+    if let Some(ref path) = redir.stdin_path {
+        match File::open(path) {
+            Ok(f) => { cmd.stdin(Stdio::from(f)); }
+            Err(e) => {
+                eprintln!("shako: {path}: {e}");
+                return (Some(fake_status(1)), String::new());
+            }
+        }
+    }
+
+    if let Some(ref path) = redir.stdout_path {
+        let file = if redir.stdout_append {
+            OpenOptions::new().create(true).append(true).open(path)
+        } else {
+            File::create(path)
+        };
+        match file {
+            Ok(f) => { cmd.stdout(Stdio::from(f)); }
+            Err(e) => {
+                eprintln!("shako: {path}: {e}");
+                return (Some(fake_status(1)), String::new());
+            }
+        }
+    }
+
+    cmd.stderr(Stdio::piped());
+
+    match cmd.spawn() {
+        Ok(mut child) => {
+            let stderr_pipe = child.stderr.take();
+
+            let stderr_thread = std::thread::spawn(move || {
+                let mut collected = Vec::new();
+                if let Some(pipe) = stderr_pipe {
+                    let reader = BufReader::new(pipe);
+                    for line in reader.lines() {
+                        match line {
+                            Ok(line) => {
+                                eprintln!("{line}");
+                                collected.push(line);
+                                if collected.len() > 20 {
+                                    collected.remove(0);
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+                collected.join("\n")
+            });
+
+            let status = foreground_wait(child);
+            let stderr_output = stderr_thread.join().unwrap_or_default();
+
+            if !status.success() {
+                if let Some(code) = status.code() {
+                    log::debug!("command exited with status {code}");
+                }
+            }
+            (Some(status), stderr_output)
+        }
+        Err(e) => {
+            eprintln!("shako: {program}: {e}");
+            (Some(fake_status(127)), format!("{e}"))
+        }
+    }
+}
+
 /// Execute a single chain segment (may contain pipes).
 fn execute_chain_segment(input: &str) -> ExitStatus {
     let segments = parser::split_pipes(input);
@@ -176,21 +280,10 @@ fn execute_chain_segment(input: &str) -> ExitStatus {
     }
 }
 
-/// Apply stderr redirect to a Command.
-/// For `2>&1`, we use pre_exec to dup2 stdout to stderr on Unix.
-/// For `2>file` / `2>>file`, we open the file and set cmd.stderr.
+/// Apply stderr file redirects (`2>file` / `2>>file`) to a Command.
+/// Note: `2>&1` is handled in `setup_child_signals` via `dup_stderr_to_stdout`
+/// to avoid the pre_exec collision.
 fn apply_stderr_redirect(cmd: &mut Command, redir: &Redirects) {
-    if redir.stderr_to_stdout {
-        #[cfg(unix)]
-        unsafe {
-            cmd.pre_exec(|| {
-                if libc::dup2(1, 2) == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-    }
     if let Some(ref path) = redir.stderr_path {
         let file = if redir.stderr_append {
             OpenOptions::new().create(true).append(true).open(path)
@@ -222,7 +315,7 @@ fn execute_single(input: &str) -> ExitStatus {
 
     let mut cmd = Command::new(program);
     cmd.args(cmd_args);
-    setup_child_signals(&mut cmd, 0);
+    setup_child_signals(&mut cmd, 0, redir.stderr_to_stdout);
 
     if let Some(ref path) = redir.stdin_path {
         match File::open(path) {
@@ -299,7 +392,7 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
 
         let mut cmd = Command::new(program);
         cmd.args(cmd_args);
-        setup_child_signals(&mut cmd, pipeline_pgid);
+        setup_child_signals(&mut cmd, pipeline_pgid, redir.stderr_to_stdout);
 
         if let Some(prev) = prev_stdout.take() {
             cmd.stdin(Stdio::from(prev));

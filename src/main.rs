@@ -315,11 +315,18 @@ fn main() -> Result<()> {
 
                 match classifier.classify(&input) {
                     Classification::Command(cmd) => {
-                        let status = executor::execute_command(&cmd);
+                        let (status, stderr_output) =
+                            executor::execute_command_with_stderr(&cmd);
                         set_exit_code(status);
                         if let Some(s) = status {
                             if !s.success() {
-                                offer_ai_recovery(&cmd, s.code().unwrap_or(1), &config, &rt);
+                                offer_ai_recovery(
+                                    &cmd,
+                                    s.code().unwrap_or(1),
+                                    &stderr_output,
+                                    &config,
+                                    &rt,
+                                );
                             }
                         }
                     }
@@ -405,6 +412,7 @@ fn set_exit_code(status: Option<std::process::ExitStatus>) {
 fn offer_ai_recovery(
     command: &str,
     exit_code: i32,
+    stderr_output: &str,
     config: &JboshConfig,
     rt: &tokio::runtime::Runtime,
 ) {
@@ -428,7 +436,7 @@ fn offer_ai_recovery(
     io::stdout().flush().ok();
 
     rt.block_on(async {
-        match ai::diagnose_error(command, exit_code, "", config).await {
+        match ai::diagnose_error(command, exit_code, stderr_output, config).await {
             Ok(response) => {
                 // Clear the "thinking..." text
                 print!("\r\x1b[K");
