@@ -68,11 +68,30 @@ fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
     // Restore terminal ownership to the shell.
     let _ = nix::unistd::tcsetpgrp(std::io::stdin(), shell_pgid);
 
-    // Drain any pending terminal responses (e.g. vim's OSC background color
-    // query) so they don't leak into the next reedline prompt as garbage text.
+    // Immediately disable echo to prevent late-arriving terminal responses
+    // (vim's OSC/DCS queries) from being displayed during prompt rendering.
+    suppress_echo();
+
     drain_pending_input();
 
     status
+}
+
+/// Temporarily disable terminal echo so late-arriving escape sequences
+/// from programs like vim aren't displayed during prompt rendering.
+/// reedline sets its own terminal mode when read_line() is called,
+/// so this is only active during the prompt rendering window.
+#[cfg(unix)]
+fn suppress_echo() {
+    use std::os::unix::io::AsRawFd;
+    let fd = std::io::stdin().as_raw_fd();
+    unsafe {
+        let mut termios: libc::termios = std::mem::zeroed();
+        if libc::tcgetattr(fd, &mut termios) == 0 {
+            termios.c_lflag &= !libc::ECHO;
+            libc::tcsetattr(fd, libc::TCSANOW, &termios);
+        }
+    }
 }
 
 /// Discard any bytes waiting on stdin after a foreground process exits.
@@ -509,6 +528,9 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
     // Restore terminal ownership to the shell.
     #[cfg(unix)]
     let _ = nix::unistd::tcsetpgrp(std::io::stdin(), shell_pgid);
+
+    #[cfg(unix)]
+    suppress_echo();
 
     #[cfg(unix)]
     drain_pending_input();
