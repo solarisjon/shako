@@ -259,6 +259,7 @@ fn main() -> Result<()> {
     }
 
     let mut last_command = String::new();
+    let mut ran_foreground = false;
 
     loop {
         // Reap finished background jobs before each prompt
@@ -266,7 +267,11 @@ fn main() -> Result<()> {
         prompt::set_job_count(state.jobs.len());
 
         #[cfg(unix)]
-        executor::drain_pending_input();
+        if ran_foreground {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            executor::drain_pending_input();
+            ran_foreground = false;
+        }
 
         let sig = line_editor.read_line(&prompt);
         match sig {
@@ -334,6 +339,7 @@ fn main() -> Result<()> {
 
                 match classifier.classify(&input) {
                     Classification::Command(cmd) => {
+                        ran_foreground = true;
                         let (status, stderr_output) =
                             executor::execute_command_with_stderr(&cmd);
                         set_exit_code(status);
