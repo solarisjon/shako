@@ -26,6 +26,7 @@ clean:
 	rm ~/.local/bin/shako
 
 install: release
+	rm ~/.local/bin/shako
 	cp target/release/shako ~/.local/bin/shako
 
 register-shell:

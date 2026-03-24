@@ -82,7 +82,7 @@ fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
 /// If the response arrives after the program exits, it appears as typed
 /// input in the next prompt. This drains those stale responses.
 #[cfg(unix)]
-fn drain_pending_input() {
+pub fn drain_pending_input() {
     use std::io::Read;
     use std::os::unix::io::AsRawFd;
 

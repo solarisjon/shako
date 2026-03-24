@@ -265,6 +265,9 @@ fn main() -> Result<()> {
         state.reap_jobs();
         prompt::set_job_count(state.jobs.len());
 
+        #[cfg(unix)]
+        executor::drain_pending_input();
+
         let sig = line_editor.read_line(&prompt);
         match sig {
             Ok(Signal::Success(input)) => {
