@@ -141,82 +141,59 @@ impl Classifier {
 
 /// Returns true if the argument list looks like English prose rather than shell arguments.
 ///
-/// Rules (any one of these means "real command, not NL"):
-///   - Any arg starts with `-`            → flags present → real command
-///   - Any arg contains `/` or starts with `.` followed by more chars → path → real command
-///
-/// If none of those apply and at least one arg is a common prose word
-/// (article, preposition, etc.), it's natural language.
+/// Rules:
+///   - If any arg is a common prose word → natural language (takes priority)
+///   - Any arg starts with `-`           → flags present → real command
+///   - Any arg is a clear path (absolute, relative, or multi-segment tilde) → real command
+///   - Simple `~/dir` (one slash) is ambiguous and does NOT signal a real command,
+///     so that "find me files in ~/Documents" routes to AI correctly.
 fn looks_like_natural_language(args: &[&str]) -> bool {
     // Need at least two args for this heuristic to be reliable.
     if args.len() < 2 {
         return false;
     }
 
-    // Any flag or path-like arg → treat as a real shell invocation.
+    // Common words that appear in English prose but never as shell arguments.
+    const NL_WORDS: &[&str] = &[
+        "the", "a", "an", "all", "every", "each", "any", "some",
+        "in", "on", "at", "to", "for", "of", "by", "with", "from", "into",
+        "this", "that", "these", "those",
+        "my", "me", "i",
+        "file", "files", "directory", "folder", "folders",
+        "which", "what", "how", "where", "when",
+        "are", "is", "was", "were", "be", "been", "have", "has",
+        "over", "under", "above", "below", "than", "between",
+        "larger", "smaller", "bigger", "size", "sized",
+        "modified", "created", "changed", "named", "called",
+        "today", "yesterday", "recent", "latest",
+        "largest", "smallest", "biggest", "newest", "oldest",
+    ];
+
+    // NL words take priority: prose words in the args mean it's natural language
+    // even if a path like ~/Documents is also present.
+    if args.iter().any(|a| NL_WORDS.contains(&a.to_ascii_lowercase().as_str())) {
+        return true;
+    }
+
+    // Flags → real shell invocation.
+    if args.iter().any(|a| a.starts_with('-')) {
+        return false;
+    }
+
+    // Clear path indicators → real shell invocation.
+    // Exclude simple ~/dir (one slash) which is ambiguous in prose queries.
     if args.iter().any(|a| {
-        a.starts_with('-')          // flag: -n, --name, etc.
-            || a.contains('/')      // path separator: ./foo, /tmp, ../bar
-            || *a == ".." // parent dir
+        *a == ".."
+            || a.starts_with('/')        // absolute path
+            || a.starts_with("./")       // explicit relative path
+            || a.starts_with("../")      // parent-relative path
+            || (a.contains('/') && !a.starts_with("~/"))  // embedded slash (not tilde-home)
+            || (a.starts_with("~/") && a[2..].contains('/')) // multi-segment tilde: ~/a/b
     }) {
         return false;
     }
 
-    // Common words that appear in English prose but never as shell arguments.
-    const NL_WORDS: &[&str] = &[
-        "the",
-        "a",
-        "an",
-        "all",
-        "every",
-        "each",
-        "any",
-        "some",
-        "in",
-        "on",
-        "at",
-        "to",
-        "for",
-        "of",
-        "by",
-        "with",
-        "from",
-        "into",
-        "this",
-        "that",
-        "these",
-        "those",
-        "my",
-        "me",
-        "i",
-        "file",
-        "files",
-        "directory",
-        "folder",
-        "folders",
-        "which",
-        "what",
-        "how",
-        "where",
-        "when",
-        "modified",
-        "created",
-        "changed",
-        "named",
-        "called",
-        "today",
-        "yesterday",
-        "recent",
-        "latest",
-        "largest",
-        "smallest",
-        "biggest",
-        "newest",
-        "oldest",
-    ];
-
-    args.iter()
-        .any(|a| NL_WORDS.contains(&a.to_ascii_lowercase().as_str()))
+    false
 }
 
 /// Collect all executable names from $PATH (cached at startup).
@@ -301,6 +278,16 @@ mod tests {
         // "ls" with prose args.
         assert!(matches!(
             c.classify("ls all the files modified today"),
+            Classification::NaturalLanguage(_)
+        ));
+        // Tilde path should NOT block NL detection when prose words are present.
+        assert!(matches!(
+            c.classify("find me files in ~/Documents that are over 41GB"),
+            Classification::NaturalLanguage(_)
+        ));
+        // Size queries.
+        assert!(matches!(
+            c.classify("find files over 100mb in ~/Downloads"),
             Classification::NaturalLanguage(_)
         ));
     }
