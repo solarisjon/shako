@@ -23,6 +23,7 @@ lint:
 
 clean:
 	cargo clean
+	rm ~/.local/bin/shako
 
 install: release
 	cp target/release/shako ~/.local/bin/shako
