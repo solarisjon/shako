@@ -5,13 +5,14 @@ pub enum ConfirmAction {
     Execute,
     Edit(String),
     Cancel,
+    Why,
 }
 
 /// Show the AI-translated command and ask user to confirm, edit, or cancel.
 pub fn confirm_command(command: &str) -> Result<ConfirmAction> {
     // Show the translated command with color
     println!("\x1b[36m❯\x1b[0m \x1b[1m{command}\x1b[0m");
-    print!("\x1b[90m[Y]es / [n]o / [e]dit:\x1b[0m ");
+    print!("\x1b[90m[Y]es / [n]o / [e]dit / [w]hy:\x1b[0m ");
     io::stdout().flush()?;
 
     let mut input = String::new();
@@ -33,6 +34,7 @@ pub fn confirm_command(command: &str) -> Result<ConfirmAction> {
                 Ok(ConfirmAction::Edit(edited))
             }
         }
+        "w" | "why" => Ok(ConfirmAction::Why),
         _ => Ok(ConfirmAction::Cancel),
     }
 }

@@ -16,8 +16,8 @@ A concise cheat sheet for daily use. Print it, pin it, paste it somewhere handy.
 | `chmod 755?` | Explain what `chmod 755` means |
 | `? squash the last 3 commits` | AI translates → `git rebase -i HEAD~3` → confirm |
 
-**Confirmation prompt:** `[Y]es / [n]o / [e]dit`  
-Press `Y` or Enter to run, `n` to cancel, `e` to edit the command first.
+**Confirmation prompt:** `[Y]es / [n]o / [e]dit / [w]hy`  
+Press `Y` or Enter to run, `n` to cancel, `e` to edit the command first, `w` to get an explanation before deciding.
 
 ---
 
@@ -226,7 +226,7 @@ error: unexpected argument '--featurse'
 shako: command failed (exit 2). ask AI for help? [y/N] y
   cause: Typo — '--featurse' should be '--features'
   fix:   cargo build --features serde
-  [Y]es / [n]o / [e]dit:
+  [Y]es / [n]o / [e]dit / [w]hy:
 ```
 
 Note: exit code 1 is skipped (too common — grep no-match, test failure). Press **Enter at the `[y/N]`** to skip (default is no).
