@@ -58,6 +58,10 @@ Rules:
         }
     }
 
+    if !ctx.user_preferences.is_empty() {
+        prompt.push_str(&format!("\n\n{}", ctx.user_preferences));
+    }
+
     prompt
 }
 

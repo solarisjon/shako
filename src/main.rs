@@ -12,6 +12,7 @@ mod classifier;
 mod config;
 mod executor;
 mod fish_import;
+mod learned_prefs;
 mod parser;
 mod path_cache;
 mod proactive;

@@ -16,6 +16,8 @@ pub struct ShellContext {
     pub recent_history: Vec<String>,
     pub git_context: String,
     pub project_context: String,
+    /// Learned user preferences injected from ~/.config/shako/learned_prefs.toml
+    pub user_preferences: String,
 }
 
 /// Modern tools the AI should prefer when available, with concrete syntax guidance.
@@ -91,6 +93,7 @@ pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
     let dir_context = build_dir_context();
     let git_context = build_git_context();
     let project_context = read_project_context();
+    let user_preferences = crate::learned_prefs::context_hint();
 
     Ok(ShellContext {
         os: env::consts::OS.to_string(),
@@ -103,6 +106,7 @@ pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
         recent_history,
         git_context,
         project_context,
+        user_preferences,
     })
 }
 

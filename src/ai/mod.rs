@@ -48,6 +48,7 @@ pub async fn translate_and_execute(
                     break;
                 }
                 confirm::ConfirmAction::Edit(edited) => {
+                    crate::learned_prefs::record_edit(command, &edited);
                     crate::executor::execute_command(&edited);
                     break;
                 }
