@@ -14,6 +14,7 @@ mod executor;
 mod fish_import;
 mod parser;
 mod path_cache;
+mod proactive;
 mod safety;
 mod setup;
 mod shell;
@@ -353,6 +354,8 @@ fn main() -> Result<()> {
                                     &rt,
                                     &history_path,
                                 );
+                            } else {
+                                proactive::check(&cmd, &config, &rt);
                             }
                         }
                     }

@@ -94,6 +94,18 @@ pub async fn diagnose_error(
     client::query_llm(&system_prompt, &user_msg, config.active_llm()).await
 }
 
+/// Generate a git commit message for the currently staged changes.
+///
+/// `stat` is the output of `git diff --staged --stat`.
+/// `diff` is the output of `git diff --staged` (may be truncated).
+pub async fn suggest_commit(stat: &str, diff: &str, config: &ShakoConfig) -> Result<String> {
+    let system_prompt = prompt::commit_message_prompt();
+    let user_msg = format!("Staged changes summary:\n{stat}\nFull diff:\n{diff}");
+    let raw = client::query_llm(&system_prompt, &user_msg, config.active_llm()).await?;
+    // Strip any wrapping quotes the model might add
+    Ok(raw.trim().trim_matches('"').trim_matches('\'').to_string())
+}
+
 /// Explain what a command does without executing it.
 pub async fn explain_command(
     command: &str,

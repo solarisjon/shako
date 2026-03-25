@@ -121,6 +121,28 @@ Rules:
     prompt
 }
 
+/// Build the system prompt for generating a git commit message.
+pub fn commit_message_prompt() -> String {
+    r#"You are a git commit message generator.
+
+Given a staged diff summary and the actual diff, write a single concise commit message.
+
+Rules:
+1. Use conventional commits format: type(scope): description
+   Valid types: feat, fix, refactor, docs, test, chore, style, perf, ci, build
+2. The description must be ≤72 characters total, imperative mood ("add" not "added")
+3. Return ONLY the commit message. No quotes, no explanation, no markdown, no code fences.
+4. Omit the scope if it would be too generic (e.g. do not write "chore(misc):")
+5. If changes span multiple unrelated concerns, summarize the most significant one.
+6. Good examples:
+   feat(auth): add OAuth2 login flow
+   fix(parser): handle empty input without panic
+   refactor: extract ShellState into separate module
+   docs: update README with new CLI flags
+   test: add integration tests for pipe chains"#
+        .to_string()
+}
+
 /// Build the system prompt for explaining a command.
 pub fn explain_prompt(ctx: &ShellContext) -> String {
     format!(
