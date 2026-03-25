@@ -752,7 +752,20 @@ fn print_banner(config: &ShakoConfig) {
     let version = env!("CARGO_PKG_VERSION");
     let llm = config.active_llm();
 
-    let provider_name = config.active_provider.as_deref().unwrap_or("llm");
+    // Derive a display name for the provider.
+    let provider_name: String = if let Some(name) = &config.active_provider {
+        if !config.providers.contains_key(name.as_str()) {
+            eprintln!(
+                "\x1b[33mwarning:\x1b[0m active_provider '{}' not found in config — using defaults.\
+                 \n         Add a [providers.{}] block or remove active_provider.",
+                name, name
+            );
+        }
+        name.clone()
+    } else {
+        // No named provider — infer a friendly label from the endpoint.
+        endpoint_label(&llm.endpoint)
+    };
 
     // Show the normalized endpoint so users see what URL will actually be used.
     let endpoint = ai::client::normalize_endpoint(&llm.endpoint);
@@ -767,6 +780,31 @@ fn print_banner(config: &ShakoConfig) {
          \x1b[33m{provider_name}\x1b[0m  {model}  \x1b[90m{endpoint_display}\x1b[0m",
         model = llm.model,
     );
+}
+
+/// Infer a friendly backend label from an endpoint URL.
+/// Maps well-known localhost ports to backend names; falls back to host:port.
+fn endpoint_label(endpoint: &str) -> String {
+    let url = endpoint.trim();
+    let host = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or(url);
+
+    if host.contains("openai.com") {
+        "openai".to_string()
+    } else if host.ends_with(":11434") || host == "localhost:11434" {
+        "ollama".to_string()
+    } else if host.ends_with(":1234") {
+        "lm-studio".to_string()
+    } else if host.ends_with(":8080") {
+        "llama.cpp".to_string()
+    } else {
+        host.to_string()
+    }
 }
 
 /// Expand `!!` (last command) and `!$` (last arg of last command) in the input.
