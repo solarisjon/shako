@@ -10,7 +10,7 @@
 
 ```bash
 make build          # cargo build
-make test           # cargo test (54 tests)
+make test           # cargo test (84 tests: 54 unit + 30 integration)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt
@@ -40,8 +40,15 @@ src/
 │                        #   pipeline child cleanup on spawn failure
 ├── parser.rs            # Tokenizer: quoting, env expansion, globs, tilde, command substitution
 │                        #   handles $(), backticks, nested substitution, chain/pipe splitting
-├── builtins.rs          # Builtins, ShellState (aliases, functions, jobs), job control
-│                        #   fish-compatible `set` builtin with -x/-g/-U/-e flags
+├── builtins/
+│   ├── mod.rs           # Dispatch (run_builtin, is_builtin, BUILTINS, try_define_function,
+│   │                    #   run_function), and remaining builtins: cd, z, zi, alias, unalias,
+│   │                    #   abbr, export, unset, history, type, functions
+│   ├── state.rs         # ShellState, Job, ShellFunction structs and impl
+│   ├── jobs.rs          # builtin_jobs, builtin_fg, builtin_bg
+│   ├── set.rs           # fish-compatible `set` builtin (-x/-g/-U/-e flags), PATH helpers
+│   └── source.rs        # source_fish_string, source_conf_d, load_functions_dir,
+│                        #   fish parsing helpers (fish_cmdsub_to_posix, parse_fish_function_file)
 ├── safety.rs            # Dangerous command pattern matching (wired into AI pipeline)
 ├── setup.rs             # First-run wizard (interactive provider config)
 │                        #   Starship config merging (ensure_starship_config)
@@ -73,7 +80,7 @@ src/
 │   │                    #   sudo, dirs, path commands) — uses PathCache, escapes spaces
 │   └── hinter.rs        # Autosuggestions via reedline DefaultHinter (gray inline hints)
 └── config/
-    ├── mod.rs           # Re-exports JboshConfig, LlmConfig
+    ├── mod.rs           # Re-exports ShakoConfig, LlmConfig
     └── schema.rs        # Config types, XDG-aware path resolution, serde defaults,
                          #   multi-provider support ([providers.*] + active_provider)
 ```
@@ -155,7 +162,7 @@ Full tokenizer and expansion engine:
 
 ### First-Run Setup (setup.rs)
 
-When no config file exists, `JboshConfig::load()` launches an interactive wizard:
+When no config file exists, `ShakoConfig::load()` launches an interactive wizard:
 1. LM Studio (local, `localhost:1234`)
 2. Custom/work proxy (endpoint, model, API key env var, SSL verify)
 3. Template for manual editing
@@ -223,17 +230,17 @@ The AI receives rich context:
 
 ### Naming Conventions
 
-- Structs: `PascalCase`; reedline trait impls use `Jbosh` prefix (`JboshHighlighter`, `JboshCompleter`, `JboshHinter`)
+- Structs: `PascalCase`; reedline trait impls use `Shako` prefix (`ShakoHighlighter`, `ShakoCompleter`)
 - Functions: `snake_case`
-- Builtin handlers: `builtin_cd()`, `builtin_export()`, etc.
+- Builtin handlers: `builtin_cd()`, `builtin_export()`, etc. (module-private in `builtins/mod.rs` or submodules)
 - Constants: `SCREAMING_SNAKE_CASE`
-- Single source of truth: `pub const BUILTINS` in `builtins.rs`
-- Config struct still named `JboshConfig` (historical, pre-rename)
+- Single source of truth: `pub const BUILTINS` in `builtins/mod.rs`
+- Config struct: `ShakoConfig` (in `config/schema.rs`)
 
 ### Shell Builtins
 
 Full list (`builtins::BUILTINS`):
-`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`
+`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `abbr`, `fish-import`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`
 
 Notable:
 - `set` is fish-compatible: `set -x VAR val` (export), `set -gx VAR val`, `set -e VAR` (erase), `set` (list all)
@@ -272,21 +279,25 @@ lto = "thin"         # thin link-time optimization
 ## Testing
 
 ```bash
-cargo test                      # all 54 tests
+cargo test                      # all 84 tests (54 unit + 30 integration)
+cargo test --lib                # 54 unit tests only
+cargo test --test integration   # 30 integration tests only
 cargo test classifier           # classifier + typo + NL detection tests
 cargo test executor             # redirect parsing + chain tests
 cargo test parser               # tokenizer, expansion, command substitution tests
 ```
 
-Test modules are inline (`#[cfg(test)] mod tests`) in `classifier.rs`, `executor.rs`, and `parser.rs`.
+Unit test modules are inline (`#[cfg(test)] mod tests`) in `classifier.rs`, `executor.rs`, `parser.rs`, `ai/client.rs`, and `shell/completer.rs`.
+
+Integration tests live in `tests/integration.rs` and exercise the compiled binary via `shako -c "..."`. They cover: basic execution, pipes, chains (`&&`/`||`/`;`), redirects, env var expansion, glob expansion, quoting, command substitution, and type-checking builtins. **Note**: builtins that require `ShellState` (cd, alias, export, set) cannot be tested via `-c` mode because that path calls `executor::execute_command` directly, bypassing the REPL's builtin dispatch. Those are best tested at the unit level.
 
 Tests use `assert!(matches!(...))` for enum variants and direct equality for strings. Some parser tests use `unsafe { env::set_var() }` to set up test env vars (cleaned up after).
 
 ## Gotchas
 
 1. **Edition 2024** — `env::set_var`/`remove_var` require `unsafe`. This is correct and intentional throughout the codebase.
-2. **Config struct naming** — `JboshConfig`, `JboshHighlighter`, `JboshCompleter`, `JboshHinter` still use the pre-rename `Jbosh` prefix. Not yet renamed to `Shako*`.
-3. **Config path on macOS** — `dirs::config_dir()` returns `~/Library/Application Support`. The loader checks `~/.config` first for XDG consistency.
+2. **Config path on macOS** — `dirs::config_dir()` returns `~/Library/Application Support`. The loader checks `~/.config` first for XDG consistency.
+3. **`-c` mode bypasses builtins** — `shako -c "..."` calls `executor::execute_command` directly. Builtins that need `ShellState` (cd, alias, export, set, source) are not dispatched; they fail as if they were unknown external commands. Only the interactive REPL loop handles builtins correctly.
 4. **reqwest uses native roots** — `rustls-tls-native-roots` loads system CA store. Required for corporate proxies. `verify_ssl = false` disables cert verification.
 5. **Typo vs NL heuristic** — typo detection only fires for ≤3 word inputs. Prevents `list all files` matching `lint`.
 6. **Command + NL args** — even valid commands like `find` get routed to AI if args look like prose (detected by `looks_like_natural_language()`). Flags or path-like args override this.

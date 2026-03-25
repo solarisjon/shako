@@ -21,7 +21,7 @@ mod smart_defaults;
 
 use builtins::ShellState;
 use classifier::{Classification, Classifier};
-use config::JboshConfig;
+use config::ShakoConfig;
 use shell::prompt::{self, CommandTimer, StarshipPrompt};
 
 fn main() -> Result<()> {
@@ -35,7 +35,7 @@ fn main() -> Result<()> {
 
     if init {
         eprintln!("\x1b[1;36mshako:\x1b[0m reinitializing...");
-        if let Err(e) = JboshConfig::reset() {
+        if let Err(e) = ShakoConfig::reset() {
             eprintln!("shako: reset failed: {e}");
             std::process::exit(1);
         }
@@ -64,7 +64,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let (config, first_run) = JboshConfig::load()?;
+    let (config, first_run) = ShakoConfig::load()?;
 
     // Non-interactive mode: shako -c "command"
     if let Some(cmd_str) = cmd_mode {
@@ -88,8 +88,8 @@ fn main() -> Result<()> {
     let path_cache = path_cache::PathCache::new();
     let classifier = Classifier::new(path_cache.clone());
 
-    let highlighter = shell::highlighter::JboshHighlighter::new(path_cache.clone());
-    let completer = shell::completer::JboshCompleter::new(path_cache);
+    let highlighter = shell::highlighter::ShakoHighlighter::new(path_cache.clone());
+    let completer = shell::completer::ShakoCompleter::new(path_cache);
     let hinter = shell::hinter::create_hinter();
 
     let history_path = dirs::data_dir()
@@ -489,7 +489,7 @@ fn offer_ai_recovery(
     command: &str,
     exit_code: i32,
     stderr_output: &str,
-    config: &JboshConfig,
+    config: &ShakoConfig,
     rt: &tokio::runtime::Runtime,
     history_path: &std::path::Path,
 ) {
@@ -617,7 +617,7 @@ fn needs_continuation(input: &str) -> bool {
     in_single || in_double
 }
 
-fn print_banner(config: &JboshConfig) {
+fn print_banner(config: &ShakoConfig) {
     let version = env!("CARGO_PKG_VERSION");
     let llm = config.active_llm();
 

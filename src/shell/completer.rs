@@ -152,11 +152,11 @@ const TERRAFORM_SUBCOMMANDS: &[&str] = &[
 
 const MAKE_SUBCOMMANDS: &[&str] = &[];
 
-pub struct JboshCompleter {
+pub struct ShakoCompleter {
     cache: Arc<PathCache>,
 }
 
-impl JboshCompleter {
+impl ShakoCompleter {
     pub fn new(cache: Arc<PathCache>) -> Self {
         Self { cache }
     }
@@ -348,7 +348,7 @@ impl JboshCompleter {
     }
 }
 
-impl Completer for JboshCompleter {
+impl Completer for ShakoCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let line_to_cursor = &line[..pos];
         let parts: Vec<&str> = line_to_cursor.split_whitespace().collect();
@@ -486,8 +486,8 @@ mod tests {
     use super::*;
     use reedline::Completer;
 
-    fn test_completer() -> JboshCompleter {
-        JboshCompleter::new(PathCache::new())
+    fn test_completer() -> ShakoCompleter {
+        ShakoCompleter::new(PathCache::new())
     }
 
     #[test]

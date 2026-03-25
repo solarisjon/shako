@@ -3,13 +3,13 @@ pub mod confirm;
 pub mod context;
 pub mod prompt;
 
-use crate::config::JboshConfig;
+use crate::config::ShakoConfig;
 use anyhow::Result;
 
 /// Translate natural language to a shell command via LLM, confirm, and execute.
 pub async fn translate_and_execute(
     input: &str,
-    config: &JboshConfig,
+    config: &ShakoConfig,
     recent_history: Vec<String>,
 ) -> Result<()> {
     let ctx = context::build_context(recent_history)?;
@@ -80,7 +80,7 @@ pub async fn diagnose_error(
     command: &str,
     exit_code: i32,
     stderr_hint: &str,
-    config: &JboshConfig,
+    config: &ShakoConfig,
     recent_history: Vec<String>,
 ) -> Result<String> {
     let ctx = context::build_context(recent_history)?;
@@ -97,7 +97,7 @@ pub async fn diagnose_error(
 /// Explain what a command does without executing it.
 pub async fn explain_command(
     command: &str,
-    config: &JboshConfig,
+    config: &ShakoConfig,
 ) -> Result<String> {
     let ctx = context::build_context(vec![])?;
     let system_prompt = prompt::explain_prompt(&ctx);

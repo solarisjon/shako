@@ -232,3 +232,47 @@ fn test_c_flag_missing_argument() {
     assert!(!out.status.success());
     assert!(stderr(&out).contains("-c: option requires an argument"));
 }
+
+// ── Builtin commands ─────────────────────────────────────────────
+//
+// Note: the `-c` flag routes through `executor::execute_command`, which
+// handles pipes, chains, and redirects but does NOT dispatch builtins
+// (cd, alias, export, set, etc.) — those require the interactive REPL loop
+// where ShellState is available. Tests here cover only what is observable
+// from the executor path or via inherited environment.
+
+#[test]
+fn test_env_var_inherited_by_subprocess() {
+    // An env var set in the parent environment is visible to commands spawned
+    // by shako without any explicit export builtin.
+    let out = Command::new(env!("CARGO_BIN_EXE_shako"))
+        .args(["-c", "sh -c 'echo $SHAKO_INHERIT_TEST'"])
+        .env("SHAKO_INHERIT_TEST", "inherited")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "inherited");
+}
+
+#[test]
+fn test_builtin_type_builtin() {
+    // /usr/bin/type is available on macOS/Linux and reports shell builtins.
+    let out = shako("type cd");
+    assert!(out.status.success());
+    assert!(stdout(&out).contains("builtin"));
+}
+
+#[test]
+fn test_builtin_type_external() {
+    let out = shako("type sh");
+    assert!(out.status.success());
+    let s = stdout(&out);
+    assert!(s.contains("sh"), "expected path to sh, got: {s}");
+}
+
+#[test]
+fn test_builtin_type_not_found() {
+    let out = shako("type definitely_not_a_real_command_xyz_123");
+    // /usr/bin/type exits non-zero and prints "not found" style message
+    assert!(!out.status.success() || stderr(&out).contains("not found") || stdout(&out).contains("not found"));
+}

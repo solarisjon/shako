@@ -177,10 +177,10 @@ Missing config options for power users:
 
 ## Architecture / Code Health
 
-- [ ] **Split `builtins.rs`** (1,183 lines) — extract `ShellState`, `Job`/job-control, and `set` builtin into separate modules.
-- [ ] **Rename `Jbosh*` → `Shako*`** — `JboshConfig`, `JboshHighlighter`, `JboshCompleter`, `JboshHinter` still use the pre-rename prefix.
+- [x] **Split `builtins.rs`** — split into `builtins/state.rs` (ShellState/Job/ShellFunction), `builtins/jobs.rs` (fg/bg/jobs), `builtins/set.rs` (set + PATH helpers), `builtins/source.rs` (source_fish_string, source_conf_d, load_functions_dir), `builtins/mod.rs` (dispatch + remaining builtins).
+- [x] **Rename `Jbosh*` → `Shako*`** — `ShakoConfig`, `ShakoHighlighter`, `ShakoCompleter` throughout. No more `Jbosh` prefix anywhere.
 - [ ] **Feature-gate `fish_import.rs`** (683 lines) — one-time migration utility; put behind `--features fish-import`.
-- [ ] **Integration tests** — end-to-end tests that pipe input through shako and check output. Currently all 54 tests are unit tests.
+- [x] **Integration tests** — `tests/integration.rs` has 30 end-to-end tests (pipes, chains, redirects, env, glob, quoting, builtins). 54 unit tests + 30 integration = 84 total. Note: builtins (cd, alias, export, set) can only be tested via the interactive REPL loop, not via `-c` mode (which bypasses `ShellState`).
 - [ ] **Startup time instrumentation** — add `--timings` flag or log startup duration at `RUST_LOG=info`.
 
 ---
@@ -222,11 +222,11 @@ Missing config options for power users:
 6. `pushd`/`popd`/`dirs`
 7. ~~Git branch + state in AI context~~ — done
 
-### Phase 3 — UX Polish
+### Phase 3 — UX Polish ✅ Complete
 8. ~~More smart defaults (duf, git shortcuts, docker shortcuts)~~ — done
-9. `npm`/`brew`/`go`/`just` completions
-10. Stream AI responses
-11. `[w]hy` option in AI confirmation
+9. ~~`npm`/`brew`/`go`/`just`/`helm`/`terraform` completions~~ — done (#35)
+10. ~~Stream AI responses~~ — done (#37)
+11. ~~`[w]hy` option in AI confirmation~~ — done (#36)
 
 ### Phase 4 — Differentiators
 12. ~~`?` suffix explain mode~~ — done
