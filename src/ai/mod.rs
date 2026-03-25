@@ -41,15 +41,31 @@ pub async fn translate_and_execute(
         if extra_warning {
             eprintln!("\x1b[33;1m⚠ this command modifies system state\x1b[0m");
         }
-        match confirm::confirm_command(command)? {
-            confirm::ConfirmAction::Execute => {
-                crate::executor::execute_command(command);
-            }
-            confirm::ConfirmAction::Edit(edited) => {
-                crate::executor::execute_command(&edited);
-            }
-            confirm::ConfirmAction::Cancel => {
-                println!("cancelled");
+        loop {
+            match confirm::confirm_command(command)? {
+                confirm::ConfirmAction::Execute => {
+                    crate::executor::execute_command(command);
+                    break;
+                }
+                confirm::ConfirmAction::Edit(edited) => {
+                    crate::executor::execute_command(&edited);
+                    break;
+                }
+                confirm::ConfirmAction::Cancel => {
+                    println!("cancelled");
+                    break;
+                }
+                confirm::ConfirmAction::Why => {
+                    match explain_command(command, config).await {
+                        Ok(explanation) => {
+                            println!("\x1b[90m{explanation}\x1b[0m");
+                        }
+                        Err(e) => {
+                            eprintln!("shako: couldn't explain: {e}");
+                        }
+                    }
+                    // loop continues — re-shows the command and prompt
+                }
             }
         }
     } else {

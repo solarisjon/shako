@@ -9,7 +9,7 @@ Type what you want in plain English. shako translates it to a shell command, sho
 ```
 $ show me the 10 largest files in this directory
 ❯ fd --type f -x stat -f '%z %N' {} | sort -rn | head -10
-[Y]es / [n]o / [e]dit:
+[Y]es / [n]o / [e]dit / [w]hy:
 ```
 
 The AI is **tool-aware** — it knows which modern tools you have installed and prefers them:
@@ -36,6 +36,7 @@ After the AI generates a command:
 - **`Y` or Enter** — execute the command
 - **`n`** — cancel
 - **`e`** — edit the command before executing (type your corrected version)
+- **`w`** — explain what the command does, then re-present the prompt
 
 ### Safety Layer
 
@@ -89,7 +90,7 @@ error: unexpected argument '--featurse'
 shako: command failed (exit 2). ask AI for help? [y/N] y
   cause: Typo in flag name — '--featurse' should be '--features'
   fix: cargo build --features serde
-  [Y]es / [n]o / [e]dit:
+  [Y]es / [n]o / [e]dit / [w]hy:
 ```
 
 The AI receives:
