@@ -79,8 +79,7 @@ fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
 
 /// Temporarily disable terminal echo so late-arriving escape sequences
 /// from programs like vim aren't displayed during prompt rendering.
-/// reedline sets its own terminal mode when read_line() is called,
-/// so this is only active during the prompt rendering window.
+/// Must be paired with restore_echo() before the next read_line() call.
 #[cfg(unix)]
 fn suppress_echo() {
     use std::os::unix::io::AsRawFd;
@@ -89,6 +88,26 @@ fn suppress_echo() {
         let mut termios: libc::termios = std::mem::zeroed();
         if libc::tcgetattr(fd, &mut termios) == 0 {
             termios.c_lflag &= !libc::ECHO;
+            libc::tcsetattr(fd, libc::TCSANOW, &termios);
+        }
+    }
+}
+
+/// Re-enable terminal echo before handing control back to reedline.
+///
+/// `suppress_echo()` disables ECHO so that late-arriving terminal responses
+/// (e.g. vim's OSC queries) don't appear on screen. We must re-enable it
+/// before reedline's `read_line()` — otherwise reedline saves ECHO=0 as its
+/// "normal" baseline and the ColumnarMenu (tab completion) can end up in a
+/// broken state on some terminals.
+#[cfg(unix)]
+pub fn restore_echo() {
+    use std::os::unix::io::AsRawFd;
+    let fd = std::io::stdin().as_raw_fd();
+    unsafe {
+        let mut termios: libc::termios = std::mem::zeroed();
+        if libc::tcgetattr(fd, &mut termios) == 0 {
+            termios.c_lflag |= libc::ECHO | libc::ECHOE | libc::ECHOK | libc::ECHONL;
             libc::tcsetattr(fd, libc::TCSANOW, &termios);
         }
     }

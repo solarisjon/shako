@@ -4,6 +4,7 @@ use anyhow::Result;
 use reedline::{
     ColumnarMenu, EditMode, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
     ReedlineEvent, ReedlineMenu, Signal, Vi, default_emacs_keybindings,
+    default_vi_insert_keybindings, default_vi_normal_keybindings,
 };
 
 mod ai;
@@ -12,8 +13,10 @@ mod classifier;
 mod config;
 mod executor;
 mod fish_import;
+mod learned_prefs;
 mod parser;
 mod path_cache;
+mod proactive;
 mod safety;
 mod setup;
 mod shell;
@@ -112,23 +115,21 @@ fn main() -> Result<()> {
             .with_column_padding(2),
     );
 
+    let tab_completion_binding = ReedlineEvent::UntilFound(vec![
+        ReedlineEvent::Menu("completion_menu".to_string()),
+        ReedlineEvent::MenuNext,
+    ]);
+
     let edit_mode: Box<dyn EditMode> = if config.behavior.edit_mode == "vi" {
-        Box::new(Vi::default())
+        // Add Tab completion to vi insert mode — Vi::default() has no completion binding.
+        let mut insert_kb = default_vi_insert_keybindings();
+        insert_kb.add_binding(KeyModifiers::NONE, KeyCode::Tab, tab_completion_binding.clone());
+        insert_kb.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
+        Box::new(Vi::new(insert_kb, default_vi_normal_keybindings()))
     } else {
         let mut keybindings = default_emacs_keybindings();
-        keybindings.add_binding(
-            KeyModifiers::NONE,
-            KeyCode::Tab,
-            ReedlineEvent::UntilFound(vec![
-                ReedlineEvent::Menu("completion_menu".to_string()),
-                ReedlineEvent::MenuNext,
-            ]),
-        );
-        keybindings.add_binding(
-            KeyModifiers::SHIFT,
-            KeyCode::BackTab,
-            ReedlineEvent::MenuPrevious,
-        );
+        keybindings.add_binding(KeyModifiers::NONE, KeyCode::Tab, tab_completion_binding);
+        keybindings.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
         Box::new(Emacs::new(keybindings))
     };
 
@@ -273,6 +274,12 @@ fn main() -> Result<()> {
             ran_foreground = false;
         }
 
+        // Always restore ECHO before reedline reads — suppress_echo() may have
+        // disabled it, and if reedline saves that as its baseline the tab
+        // completion menu can break on some terminals.
+        #[cfg(unix)]
+        executor::restore_echo();
+
         let sig = line_editor.read_line(&prompt);
         match sig {
             Ok(Signal::Success(input)) => {
@@ -353,6 +360,8 @@ fn main() -> Result<()> {
                                     &rt,
                                     &history_path,
                                 );
+                            } else {
+                                proactive::check(&cmd, &config, &rt);
                             }
                         }
                     }

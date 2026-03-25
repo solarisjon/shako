@@ -16,6 +16,8 @@ pub struct ShellContext {
     pub recent_history: Vec<String>,
     pub git_context: String,
     pub project_context: String,
+    /// Learned user preferences injected from ~/.config/shako/learned_prefs.toml
+    pub user_preferences: String,
 }
 
 /// Modern tools the AI should prefer when available, with concrete syntax guidance.
@@ -51,9 +53,7 @@ const TOOL_PREFERENCES: &[(&str, &str)] = &[
         "dust",
         "use dust instead of du for DISK USAGE SUMMARIES only. \
          Syntax: `dust` (current dir), `dust PATH`, `dust -n N` (top N entries). \
-         IMPORTANT: dust cannot filter by file size — it has no --size flag. \
-         To find files LARGER THAN a given size, use `fd --size +100m` (if fd is available) \
-         or `find . -size +100M -type f` instead.",
+         IMPORTANT: dust has no --size flag and cannot filter by size threshold.",
     ),
     (
         "sd",
@@ -91,6 +91,7 @@ pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
     let dir_context = build_dir_context();
     let git_context = build_git_context();
     let project_context = read_project_context();
+    let user_preferences = crate::learned_prefs::context_hint();
 
     Ok(ShellContext {
         os: env::consts::OS.to_string(),
@@ -103,6 +104,7 @@ pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
         recent_history,
         git_context,
         project_context,
+        user_preferences,
     })
 }
 
