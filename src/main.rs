@@ -11,6 +11,7 @@ mod ai;
 mod builtins;
 mod classifier;
 mod config;
+mod control;
 mod executor;
 mod fish_import;
 mod learned_prefs;
@@ -77,25 +78,36 @@ fn main() -> Result<()> {
             std::process::exit(2);
         }
         let mut state = ShellState::new(std::path::PathBuf::new());
-        let mut last_code = 0i32;
-        let chains = parser::split_chains(&cmd_str);
-        let mut prev_op = parser::ChainOp::None;
-        for (segment, op) in &chains {
-            let should_run = match prev_op {
-                parser::ChainOp::None | parser::ChainOp::Semi => true,
-                parser::ChainOp::And => last_code == 0,
-                parser::ChainOp::Or => last_code != 0,
+        let last_code;
+
+        if control::has_control_flow(&cmd_str) {
+            let stmts = control::parse_body(&cmd_str);
+            let mut locals = Vec::new();
+            last_code = match control::exec_statements(&stmts, &mut locals) {
+                control::ExecSignal::Normal(c) | control::ExecSignal::Return(c) => c,
+                _ => 0,
             };
-            if should_run {
-                let last_code_here = if is_pure_builtin_call(segment) {
-                    builtins::run_builtin(segment, &mut state)
-                } else {
-                    let status = executor::execute_command(segment);
-                    status.and_then(|s| s.code()).unwrap_or(0)
+        } else {
+            let mut code = 0i32;
+            let chains = parser::split_chains(&cmd_str);
+            let mut prev_op = parser::ChainOp::None;
+            for (segment, op) in &chains {
+                let should_run = match prev_op {
+                    parser::ChainOp::None | parser::ChainOp::Semi => true,
+                    parser::ChainOp::And => code == 0,
+                    parser::ChainOp::Or => code != 0,
                 };
-                last_code = last_code_here;
+                if should_run {
+                    code = if is_pure_builtin_call(segment) {
+                        builtins::run_builtin(segment, &mut state)
+                    } else {
+                        let status = executor::execute_command(segment);
+                        status.and_then(|s| s.code()).unwrap_or(0)
+                    };
+                }
+                prev_op = *op;
             }
-            prev_op = *op;
+            last_code = code;
         }
         std::process::exit(last_code);
     }
@@ -358,9 +370,24 @@ fn main() -> Result<()> {
                     continue;
                 }
 
+                // Route control flow (if/for/while) through the control engine
                 let timer = CommandTimer::start();
 
+                if control::has_control_flow(&input) {
+                    let stmts = control::parse_body(&input);
+                    let mut locals = Vec::new();
+                    let code = match control::exec_statements(&stmts, &mut locals) {
+                        control::ExecSignal::Normal(c) | control::ExecSignal::Return(c) => c,
+                        _ => 0,
+                    };
+                    prompt::set_last_status(code);
+                    last_command = input.to_string();
+                    timer.stop();
+                    continue;
+                }
+
                 // Check if first token is a shell function (including autoload)
+                // (timer was already started before the control-flow check above)
                 let first_token = input.split_whitespace().next().unwrap_or("");
                 if state.functions.contains_key(first_token)
                     || state.try_autoload_function(first_token)
@@ -646,7 +673,8 @@ fn offer_ai_recovery(
     });
 }
 
-/// Check if the input line needs continuation (trailing \ or unclosed quotes).
+/// Check if the input line needs continuation (trailing \, unclosed quotes,
+/// or an unclosed if/for/while block).
 fn needs_continuation(input: &str) -> bool {
     if input.ends_with('\\') {
         return true;
@@ -673,7 +701,51 @@ fn needs_continuation(input: &str) -> bool {
         }
     }
 
-    in_single || in_double
+    if in_single || in_double {
+        return true;
+    }
+
+    // Count unclosed control-flow blocks
+    control_depth(input) > 0
+}
+
+/// Count nesting depth of control-flow keywords in a (possibly partial) input.
+/// Positive → needs more `fi`/`done` to close.
+fn control_depth(input: &str) -> i32 {
+    let mut depth = 0i32;
+    // Split on unquoted semicolons and check first word of each segment
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut seg_start = 0usize;
+    let bytes = input.as_bytes();
+    let mut i = 0usize;
+
+    let mut check_seg = |seg: &str| {
+        let first = seg.trim().split_whitespace().next().unwrap_or("");
+        match first {
+            "if" | "for" | "while" => depth += 1,
+            "fi" | "done" => depth -= 1,
+            _ => {}
+        }
+    };
+
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        match c {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            ';' if !in_single && !in_double => {
+                let seg = &input[seg_start..i];
+                check_seg(seg);
+                seg_start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let tail = &input[seg_start..];
+    check_seg(tail);
+    depth
 }
 
 fn print_banner(config: &ShakoConfig) {

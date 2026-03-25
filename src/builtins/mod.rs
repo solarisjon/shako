@@ -42,12 +42,22 @@ pub const BUILTINS: &[&str] = &[
     // Phase 3
     "return",
     "command",
+    // Phase 4 (control flow)
+    "break",
+    "continue",
+    "local",
 ];
 
 // Thread-local signal for early return from user-defined functions.
-// Set by `return [code]`; cleared by `run_function` after the loop.
+// Set by `return [code]`; read and cleared by `take_function_return()`.
 std::thread_local! {
-    static FUNCTION_RETURN: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
+    pub(crate) static FUNCTION_RETURN: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
+}
+
+/// Read and clear the FUNCTION_RETURN signal.  Called by the control-flow
+/// engine after each simple command to detect `return` inside control flow.
+pub fn take_function_return() -> Option<i32> {
+    FUNCTION_RETURN.with(|r| r.take())
 }
 
 /// Check if a token is a builtin command name.
@@ -102,6 +112,14 @@ pub fn run_builtin(input: &str, state: &mut ShellState) -> i32 {
             let code = parts.get(1).and_then(|n| n.parse::<i32>().ok()).unwrap_or(0);
             FUNCTION_RETURN.with(|r| r.set(Some(code)));
             code
+        }
+        "break" | "continue" => {
+            eprintln!("shako: {}: only meaningful inside a loop", parts[0]);
+            1
+        }
+        "local" => {
+            eprintln!("shako: local: only meaningful inside a function");
+            1
         }
         "command" => {
             // Run a command bypassing aliases/functions (like fish's `command`).
@@ -166,7 +184,7 @@ pub fn try_define_function(input: &str, state: &mut ShellState) -> bool {
     true
 }
 
-/// Run a shell function by executing each line of its body.
+/// Run a shell function by parsing its body through the control-flow engine.
 /// Returns the exit code: the argument to `return`, the last command's exit
 /// code, or 0 if the body was empty.
 pub fn run_function(func: &ShellFunction, args: &[&str]) -> i32 {
@@ -178,32 +196,31 @@ pub fn run_function(func: &ShellFunction, args: &[&str]) -> i32 {
     unsafe { env::set_var("@", args.join(" ")) };
     unsafe { env::set_var("#", args.len().to_string()) };
 
-    let mut last_code = 0i32;
+    let stmts = crate::control::parse_body(&func.body);
+    let mut locals: Vec<(String, Option<String>)> = Vec::new();
 
-    'body: for line in func.body.split(';') {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+    let code = match crate::control::exec_statements(&stmts, &mut locals) {
+        crate::control::ExecSignal::Normal(c) => c,
+        crate::control::ExecSignal::Return(c) => c,
+        crate::control::ExecSignal::Break => {
+            eprintln!("shako: break: only meaningful inside a loop");
+            0
         }
-        // Dispatch builtins (including `return`) inside function bodies.
-        let first = line.split_whitespace().next().unwrap_or("");
-        if is_builtin(first) {
-            // `return` signals early exit; the FUNCTION_RETURN cell is set
-            // inside run_builtin, so we just need to check it after.
-            last_code = run_builtin_no_state(first, line);
-        } else {
-            last_code = crate::executor::execute_command(line)
-                .and_then(|s| s.code())
-                .unwrap_or(0);
+        crate::control::ExecSignal::Continue => {
+            eprintln!("shako: continue: only meaningful inside a loop");
+            0
         }
-        // Check for early return signal
-        if let Some(code) = FUNCTION_RETURN.with(|r| r.get()) {
-            last_code = code;
-            break 'body;
+    };
+
+    // Restore local variables (innermost first)
+    for (var, old_val) in locals.iter().rev() {
+        match old_val {
+            Some(v) => unsafe { env::set_var(var, v) },
+            None => unsafe { env::remove_var(var) },
         }
     }
 
-    // Clear any pending return signal
+    // Clear any stale return signal
     FUNCTION_RETURN.with(|r| r.set(None));
 
     // Clean up positional parameters
@@ -213,11 +230,19 @@ pub fn run_function(func: &ShellFunction, args: &[&str]) -> i32 {
     unsafe { env::remove_var("@") };
     unsafe { env::remove_var("#") };
 
-    last_code
+    code
 }
 
 /// Dispatch a builtin that does not need `ShellState` (usable inside function
-/// bodies where we don't have access to the REPL state).
+/// bodies and the control-flow engine where we don't have access to the REPL state).
+/// Public so `control.rs` can call it for conditions and simple statements.
+pub fn run_builtin_stateless(line: &str) -> i32 {
+    let parsed = crate::parser::parse_args(line);
+    let parts: Vec<&str> = parsed.iter().map(|s| s.as_str()).collect();
+    let first = parts.first().copied().unwrap_or("");
+    run_builtin_no_state(first, line)
+}
+
 fn run_builtin_no_state(first: &str, line: &str) -> i32 {
     let parsed = crate::parser::parse_args(line);
     let parts: Vec<&str> = parsed.iter().map(|s| s.as_str()).collect();
@@ -239,6 +264,16 @@ fn run_builtin_no_state(first: &str, line: &str) -> i32 {
         }
         "exit" => std::process::exit(0),
         "cd" => builtin_cd(&parts[1..]),
+        "export" => { builtin_export(&parts[1..]); 0 }
+        "unset" => { builtin_unset(&parts[1..]); 0 }
+        "break" | "continue" => {
+            eprintln!("shako: {first}: only meaningful inside a loop");
+            1
+        }
+        "local" => {
+            eprintln!("shako: local: only meaningful inside a function");
+            1
+        }
         other => {
             eprintln!("shako: {other}: builtin not available inside function body");
             127

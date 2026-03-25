@@ -10,7 +10,7 @@
 
 ```bash
 make build          # cargo build
-make test           # cargo test (150 tests: 78 unit + 72 integration)
+make test           # cargo test (189 tests: 97 unit + 92 integration)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt
@@ -33,6 +33,9 @@ make clean          # cargo clean
 src/
 ├── main.rs              # Entry point, REPL loop, signal handling, multiline input,
 │                        #   AI error recovery UX, startup banner, !! and !$ history expansion
+run_function() → control::parse_body() + control::exec_statements() → ExecSignal
+  │                                        propagates Return/Break/Continue upward
+  └── restores local variables after function exit
 ├── classifier.rs        # Input classification with typo detection (strsim/Damerau-Levenshtein)
 │                        #   uses shared PathCache; detects NL-looking args (looks_like_natural_language)
 ├── executor.rs          # Process execution: pipes, redirects (stdout, stderr, 2>&1), chains,
@@ -52,6 +55,13 @@ src/
 │   ├── set.rs           # fish-compatible `set` builtin (-x/-g/-U/-e flags), PATH helpers
 │   └── source.rs        # source_fish_string, source_conf_d, load_functions_dir,
 │                        #   fish parsing helpers (fish_cmdsub_to_posix, parse_fish_function_file)
+├── control.rs           # Control flow engine: parse_body(), exec_statements(), is/has_control_flow()
+│                        #   Statement enum (Simple, If, For, While, Break, Continue, Local)
+│                        #   ExecSignal enum (Normal, Break, Continue, Return)
+│                        #   Tokenizer: split_semicolons, leading_keyword, emit_segment
+│                        #   Recursive-descent Parser struct; handles nested if/for/while
+│                        #   exec_one dispatches to run_builtin_stateless or executor
+│                        #   local variable save/restore via Vec<(String, Option<String>)>
 ├── safety.rs            # Dangerous command pattern matching (wired into AI pipeline)
 ├── setup.rs             # First-run wizard (interactive provider config)
 │                        #   Starship config merging (ensure_starship_config)
@@ -111,6 +121,9 @@ User Input → Reedline → Multiline continuation (if trailing \ or unclosed qu
   ├── Classification::ForcedAI(...)      → explain if bare command, else translate_and_execute()
   ├── Classification::ExplainCommand(.)  → ai::explain_command() (trailing ? syntax)
   └── Classification::Empty              → (skip)
+
+  Control flow shortcut (before classifier):
+  has_control_flow(input) → control::parse_body() + control::exec_statements()
 ```
 
 ### Classification Logic (classifier.rs)
@@ -298,8 +311,8 @@ lto = "thin"         # thin link-time optimization
 
 ```bash
 cargo test                      # all 150 tests (78 unit + 72 integration)
-cargo test --lib                # 78 unit tests only
-cargo test --test integration   # 72 integration tests only
+cargo test --lib                # 97 unit tests only
+cargo test --test integration   # 92 integration tests only
 cargo test classifier           # classifier + typo + NL detection tests
 cargo test executor             # redirect parsing + chain tests
 cargo test parser               # tokenizer, expansion, command substitution, arithmetic tests

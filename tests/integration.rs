@@ -595,3 +595,154 @@ fn test_command_builtin() {
     assert!(out.status.success());
     assert_eq!(stdout(&out).trim(), "hello");
 }
+
+// ── Phase 4: Control flow (if/for/while/break/continue/local) ──
+
+#[test]
+fn test_if_true_branch() {
+    let out = shako("if true; then echo yes; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "yes");
+}
+
+#[test]
+fn test_if_false_branch_skipped() {
+    let out = shako("if false; then echo yes; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "");
+}
+
+#[test]
+fn test_if_else_true() {
+    let out = shako("if true; then echo yes; else echo no; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "yes");
+}
+
+#[test]
+fn test_if_else_false() {
+    let out = shako("if false; then echo yes; else echo no; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "no");
+}
+
+#[test]
+fn test_if_elif_taken() {
+    let out = shako("if false; then echo a; elif true; then echo b; else echo c; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "b");
+}
+
+#[test]
+fn test_if_elif_else_fallthrough() {
+    let out = shako("if false; then echo a; elif false; then echo b; else echo c; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "c");
+}
+
+#[test]
+fn test_if_test_condition_true() {
+    let out = shako("if [ 1 -eq 1 ]; then echo yes; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "yes");
+}
+
+#[test]
+fn test_if_test_condition_false() {
+    let out = shako("if [ 1 -eq 2 ]; then echo yes; else echo no; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "no");
+}
+
+#[test]
+fn test_for_loop_basic() {
+    let out = shako("for i in a b c; do echo $i; done");
+    assert!(out.status.success());
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["a", "b", "c"]);
+}
+
+#[test]
+fn test_for_loop_single_item() {
+    let out = shako("for x in hello; do echo $x; done");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "hello");
+}
+
+#[test]
+fn test_for_loop_empty_list() {
+    let out = shako("for i in ; do echo $i; done");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "");
+}
+
+#[test]
+fn test_for_loop_break() {
+    let out = shako("for i in 1 2 3; do echo $i; break; done");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "1");
+}
+
+#[test]
+fn test_for_loop_continue() {
+    let out = shako("for i in 1 2 3; do if [ $i -eq 2 ]; then continue; fi; echo $i; done");
+    assert!(out.status.success());
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["1", "3"]);
+}
+
+#[test]
+fn test_while_loop_false_never_runs() {
+    let out = shako("while false; do echo never; done");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "");
+}
+
+#[test]
+fn test_while_loop_with_counter() {
+    // Use a counter via arithmetic: loop 3 times
+    let out = shako(r#"export N=0; while [ $N -lt 3 ]; do echo $N; export N=$(( N + 1 )); done"#);
+    assert!(out.status.success());
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["0", "1", "2"]);
+}
+
+#[test]
+fn test_while_break() {
+    let out = shako(r#"export I=0; while true; do echo $I; export I=$(( I + 1 )); if [ $I -ge 2 ]; then break; fi; done"#);
+    assert!(out.status.success());
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["0", "1"]);
+}
+
+#[test]
+fn test_if_exit_code_zero_on_taken_branch() {
+    let out = shako("if true; then true; fi");
+    assert_eq!(out.status.code(), Some(0));
+}
+
+#[test]
+fn test_if_exit_code_from_else() {
+    let out = shako("if false; then true; else false; fi");
+    assert_eq!(out.status.code(), Some(1));
+}
+
+#[test]
+fn test_nested_if() {
+    let out = shako("if true; then if true; then echo deep; fi; fi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "deep");
+}
+
+#[test]
+fn test_control_flow_multiple_statements_in_body() {
+    let out = shako("for i in 1 2; do echo start; echo $i; echo end; done");
+    assert!(out.status.success());
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["start", "1", "end", "start", "2", "end"]);
+}

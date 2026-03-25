@@ -66,11 +66,11 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### Control Flow
 
-- [ ] **`if` / `else` / `fi`** — interactive and in functions.
-- [ ] **`for` / `while` / `done`** — loops.
+- [x] **`if` / `else` / `elif` / `fi`** — interactive and in functions.
+- [x] **`for` / `while` / `do` / `done`** — loops.
 - [ ] **`case` / `esac`** — pattern matching.
-- [ ] **`break` / `continue`** — loop control.
-- [ ] **Local variables** — `local VAR=value` in functions.
+- [x] **`break` / `continue`** — loop control.
+- [x] **Local variables** — `local VAR=value` in functions.
 
 ### Job Control
 
