@@ -1,6 +1,8 @@
 use std::error::Error;
+use std::io::Write;
 
 use anyhow::Result;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::config::LlmConfig;
@@ -11,6 +13,7 @@ struct ChatRequest {
     messages: Vec<ChatMessage>,
     max_tokens: u32,
     temperature: f32,
+    stream: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -27,6 +30,22 @@ struct ChatResponse {
 #[derive(Deserialize)]
 struct ChatChoice {
     message: ChatMessage,
+}
+
+// Streaming response types (SSE)
+#[derive(Deserialize)]
+struct StreamDelta {
+    content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct StreamChoice {
+    delta: StreamDelta,
+}
+
+#[derive(Deserialize)]
+struct StreamResponse {
+    choices: Vec<StreamChoice>,
 }
 
 /// Normalize an endpoint URL: ensure it has a scheme and the chat completions path.
@@ -50,6 +69,8 @@ pub fn normalize_endpoint(endpoint: &str) -> String {
 }
 
 /// Query the configured LLM endpoint with OpenAI-compatible API.
+/// Streams tokens to stdout as they arrive. Falls back to non-streaming
+/// parse if the server ignores `stream: true` and returns plain JSON.
 /// Retries once on transient network errors with a short delay.
 pub async fn query_llm(
     system_prompt: &str,
@@ -80,6 +101,7 @@ pub async fn query_llm(
         ],
         max_tokens: config.max_tokens,
         temperature: config.temperature,
+        stream: true,
     };
 
     let mut last_err = None;
@@ -103,11 +125,61 @@ pub async fn query_llm(
                     return Err(anyhow::anyhow!("LLM API {endpoint} returned {status}: {body}"));
                 }
 
-                let chat_response: ChatResponse = response.json().await?;
+                // Collect raw bytes while streaming SSE tokens to stdout
+                let mut stream = response.bytes_stream();
+                let mut full_text = String::new();
+                let mut raw_bytes = Vec::new();
+                let mut buf = String::new();
+                let mut done = false;
+
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk?;
+                    raw_bytes.extend_from_slice(&chunk);
+                    buf.push_str(&String::from_utf8_lossy(&chunk));
+
+                    // Process complete lines
+                    while let Some(nl) = buf.find('\n') {
+                        let line = buf[..nl].trim().to_string();
+                        buf = buf[nl + 1..].to_string();
+
+                        if line.starts_with("data: ") {
+                            let data = &line["data: ".len()..];
+                            if data == "[DONE]" {
+                                done = true;
+                                break;
+                            }
+                            if let Ok(chunk_resp) = serde_json::from_str::<StreamResponse>(data) {
+                                if let Some(choice) = chunk_resp.choices.first() {
+                                    if let Some(content) = &choice.delta.content {
+                                        print!("{content}");
+                                        let _ = std::io::stdout().flush();
+                                        full_text.push_str(content);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if done {
+                        break;
+                    }
+                }
+
+                if !full_text.is_empty() {
+                    // Streaming worked — emit trailing newline for the confirm prompt
+                    println!();
+                    return Ok(full_text.trim().to_string());
+                }
+
+                // Fallback: server returned plain JSON instead of SSE
+                log::debug!("stream yielded no content, falling back to non-streaming parse");
+                let body = String::from_utf8_lossy(&raw_bytes);
+                let chat_response: ChatResponse = serde_json::from_str(&body)
+                    .map_err(|e| anyhow::anyhow!("failed to parse LLM response: {e}\nbody: {body}"))?;
                 return chat_response
                     .choices
                     .first()
-                    .map(|c| c.message.content.clone())
+                    .map(|c| c.message.content.trim().to_string())
                     .ok_or_else(|| anyhow::anyhow!("no response from LLM"));
             }
             Err(e) => {
