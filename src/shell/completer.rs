@@ -89,6 +89,67 @@ const KUBECTL_SUBCOMMANDS: &[&str] = &[
     "top",
 ];
 
+const NPM_SUBCOMMANDS: &[&str] = &[
+    "audit", "cache", "ci", "dedupe", "exec", "fund", "help", "init", "install",
+    "link", "list", "login", "logout", "outdated", "pack", "ping", "prefix",
+    "publish", "rebuild", "restart", "root", "run", "set", "start", "stop",
+    "test", "token", "uninstall", "unpublish", "update", "version", "view", "whoami",
+];
+
+const PNPM_SUBCOMMANDS: &[&str] = &[
+    "add", "audit", "ci", "dedupe", "exec", "import", "init", "install", "licenses",
+    "link", "list", "outdated", "pack", "patch", "publish", "rebuild", "remove",
+    "run", "start", "store", "test", "unlink", "update", "why",
+];
+
+const YARN_SUBCOMMANDS: &[&str] = &[
+    "add", "audit", "autoclean", "bin", "cache", "check", "config", "create",
+    "exec", "global", "help", "import", "info", "init", "install", "licenses",
+    "link", "list", "login", "logout", "outdated", "owner", "pack", "policies",
+    "publish", "remove", "run", "tag", "team", "test", "unlink", "upgrade",
+    "upgrade-interactive", "version", "versions", "why", "workspace", "workspaces",
+];
+
+const BUN_SUBCOMMANDS: &[&str] = &[
+    "add", "build", "create", "dev", "exec", "init", "install", "link", "outdated",
+    "patch", "pm", "publish", "remove", "run", "test", "unlink", "update", "upgrade", "x",
+];
+
+const BREW_SUBCOMMANDS: &[&str] = &[
+    "analytics", "audit", "autoremove", "bundle", "cask", "cleanup", "commands",
+    "completions", "config", "deps", "desc", "developer", "doctor", "edit",
+    "fetch", "formulae", "gist-logs", "help", "home", "info", "install", "leaves",
+    "link", "list", "log", "missing", "options", "outdated", "pin", "postinstall",
+    "readall", "reinstall", "search", "services", "shellenv", "style", "tap",
+    "tap-info", "uninstall", "unlink", "unpin", "untap", "update", "upgrade",
+    "uses", "vendor-gems",
+];
+
+const GO_SUBCOMMANDS: &[&str] = &[
+    "build", "clean", "doc", "env", "fix", "fmt", "generate", "get", "help",
+    "install", "list", "mod", "run", "telemetry", "test", "tool", "vet", "version", "work",
+];
+
+const RUSTUP_SUBCOMMANDS: &[&str] = &[
+    "check", "component", "completions", "default", "doc", "help", "man",
+    "override", "run", "self", "set", "show", "target", "toolchain", "uninstall",
+    "update", "which",
+];
+
+const HELM_SUBCOMMANDS: &[&str] = &[
+    "completion", "create", "dependency", "diff", "env", "get", "help", "history",
+    "install", "lint", "list", "package", "plugin", "pull", "push", "registry",
+    "repo", "rollback", "search", "show", "status", "template", "test",
+    "uninstall", "upgrade", "verify", "version",
+];
+
+const TERRAFORM_SUBCOMMANDS: &[&str] = &[
+    "apply", "console", "destroy", "fmt", "force-unlock", "get", "graph", "import",
+    "init", "login", "logout", "metadata", "modules", "output", "plan", "providers",
+    "refresh", "show", "state", "taint", "test", "untaint", "validate", "version",
+    "workspace",
+];
+
 const MAKE_SUBCOMMANDS: &[&str] = &[];
 
 pub struct JboshCompleter {
@@ -205,6 +266,47 @@ impl JboshCompleter {
                 match_indices: None,
             })
             .collect()
+    }
+
+    /// Read justfile targets for `just` tab completion.
+    fn justfile_targets(&self, partial: &str) -> Vec<String> {
+        let justfile = if PathBuf::from("justfile").exists() {
+            "justfile"
+        } else if PathBuf::from("Justfile").exists() {
+            "Justfile"
+        } else {
+            return vec![];
+        };
+
+        let mut targets = Vec::new();
+        if let Ok(contents) = fs::read_to_string(justfile) {
+            for line in contents.lines() {
+                // Match recipe definitions: `recipe-name:` or `recipe-name arg:`
+                if let Some(name) = line.split(':').next() {
+                    let name = name.trim();
+                    // Only simple identifiers (no comments, must start with alphanum/underscore)
+                    if !name.is_empty()
+                        && !name.starts_with('#')
+                        && !name.starts_with('@')
+                        && name
+                            .chars()
+                            .next()
+                            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                        && name
+                            .split_whitespace()
+                            .next()
+                            .is_some_and(|first| first.starts_with(partial))
+                    {
+                        if let Some(recipe) = name.split_whitespace().next() {
+                            targets.push(recipe.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        targets.sort();
+        targets.dedup();
+        targets
     }
 
     /// Read Makefile targets for `make` tab completion.
@@ -336,6 +438,34 @@ impl Completer for JboshCompleter {
                     }
                     Some(MAKE_SUBCOMMANDS)
                 }
+                "just" => {
+                    let targets = self.justfile_targets(partial);
+                    if !targets.is_empty() {
+                        return targets
+                            .into_iter()
+                            .map(|t| Suggestion {
+                                value: t,
+                                display_override: None,
+                                description: None,
+                                style: None,
+                                extra: None,
+                                span: Span::new(start, pos),
+                                append_whitespace: true,
+                                match_indices: None,
+                            })
+                            .collect();
+                    }
+                    Some(&[] as &[&str])
+                }
+                "npm" | "npx" => Some(NPM_SUBCOMMANDS),
+                "pnpm" => Some(PNPM_SUBCOMMANDS),
+                "yarn" => Some(YARN_SUBCOMMANDS),
+                "bun" | "bunx" => Some(BUN_SUBCOMMANDS),
+                "brew" => Some(BREW_SUBCOMMANDS),
+                "go" => Some(GO_SUBCOMMANDS),
+                "rustup" => Some(RUSTUP_SUBCOMMANDS),
+                "helm" => Some(HELM_SUBCOMMANDS),
+                "terraform" | "tf" => Some(TERRAFORM_SUBCOMMANDS),
                 _ => None,
             };
 

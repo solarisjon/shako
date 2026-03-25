@@ -94,6 +94,16 @@ shako provides subcommand completions for common tools:
 | `docker` / `podman` | 22 subcommands (run, ps, build, exec, compose, etc.) |
 | `kubectl` / `k` | 18 subcommands (get, apply, describe, logs, etc.) |
 | `make` / `gmake` | Dynamic — parses targets from `Makefile` in current directory |
+| `just` | Dynamic — parses recipes from `justfile` in current directory |
+| `npm` / `npx` | npm subcommands |
+| `pnpm` | pnpm subcommands |
+| `yarn` | yarn subcommands |
+| `bun` / `bunx` | bun subcommands |
+| `brew` | Homebrew subcommands |
+| `go` | Go tool subcommands |
+| `rustup` | rustup subcommands |
+| `helm` | Helm subcommands |
+| `terraform` / `tf` | Terraform subcommands |
 | `sudo` | Completes the next token as a command (from `$PATH`) |
 | `cd` / `z` / `pushd` | Directories only |
 
