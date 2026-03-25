@@ -140,6 +140,18 @@ a multiline string"           # until the quote is closed
 
 The prompt changes to `... ` for continuation lines.
 
+## Non-Interactive Mode
+
+Run a single command and exit without starting the REPL:
+
+```bash
+shako -c "ls -la"
+shako -c "git status && git diff"
+shako -c "make build"
+```
+
+Useful in scripts or when you need shako's parsing (quoting, expansion, aliases) without an interactive session.
+
 ## Functions
 
 Define functions inline or in files:

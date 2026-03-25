@@ -12,6 +12,7 @@ A fish-inspired shell where natural language and shell commands coexist. Type `l
 cargo build --release
 make install        # installs to ~/.local/bin/shako
 shako               # first run launches interactive setup wizard
+shako -c "ls -la"   # non-interactive: run one command and exit
 ```
 
 ## How It Works
@@ -59,11 +60,12 @@ Every input is classified in order:
 
 | Guide | What's covered |
 |---|---|
+| [Quick Reference](docs/quick-reference.md) | Cheat sheet — syntax, modes, aliases, keybindings |
 | [Getting Started](docs/getting-started.md) | Installation, first run, configuration wizard |
 | [AI Features](docs/ai-features.md) | Translation, explain mode, error recovery, project context |
+| [Shell Features](docs/shell-features.md) | Builtins, pipes, redirects, job control, functions, history |
 | [Smart Defaults](docs/smart-defaults.md) | Tool detection, auto-aliases, AI tool preferences |
 | [Configuration](docs/configuration.md) | Full config reference, LLM providers, behavior settings |
-| [Shell Features](docs/shell-features.md) | Builtins, pipes, redirects, job control, functions, history |
 | [ROADMAP](ROADMAP.md) | Planned features and architecture improvements |
 | [SCOPE](SCOPE.md) | Original design document |
 

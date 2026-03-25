@@ -6,25 +6,29 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ## Bugs / Broken Wiring
 
-- [ ] **Stderr never captured for AI diagnosis** — `main.rs` calls `diagnose_error()` with `""` for stderr. The AI can't see *why* a command failed. Capture stderr from child processes and pass it through.
-- [ ] **`history_context_lines` declared but never used** — `config/schema.rs` has the field (marked `dead_code`), but it's never read. AI should see recent command history for follow-up queries.
-- [ ] **`pre_exec` collision on `2>&1`** — `apply_stderr_redirect()` calls `cmd.pre_exec()` which *replaces* the one set by `setup_child_signals()`. Commands with `2>&1` lose signal handling (SIGINT/SIGQUIT/SIGTSTP not reset to defaults in child). Fix: merge both closures into a single `pre_exec`.
+- [x] **Stderr never captured for AI diagnosis** — fixed; `execute_command_with_stderr` captures stderr and passes last 20 lines to `diagnose_error()`.
+- [x] **`history_context_lines` declared but never used** — fixed; `read_recent_history()` now reads this from config and passes to AI context on every query.
+- [x] **`pre_exec` collision on `2>&1`** — fixed; `setup_child_signals()` combines setpgid and stderr-dup into a single `pre_exec` closure. Comment in `executor.rs` documents the fix.
 
 ---
 
 ## Quick Wins (high value, low effort)
 
-- [ ] **Git context for AI** — send current branch, dirty/clean status, and recent `git log --oneline -5` to the AI. Most AI queries are git-related.
-- [ ] **Project type detection** — detect `Cargo.toml`, `package.json`, `go.mod`, `pyproject.toml`, `Makefile`, `Dockerfile`, etc. in cwd and tell the AI what ecosystem tools to use.
-- [ ] **More smart defaults** — detect and alias:
-  - `duf` → `df` (disk usage with colors)
-  - `ouch` → auto-detect for compress/decompress
-  - `tokei` → `cloc` (code statistics)
-  - `doggo` → `dig` (DNS lookup)
-  - `xh` → `curl` (HTTP client)
-  - Git shortcuts: `gs` → `git status`, `gl` → `git log --oneline -20`, `gd` → `git diff`, `gp` → `git push`
-  - Docker shortcuts: `dps` → `docker ps`, `dex` → `docker exec -it`
-  - rg-powered: `rgf` → `rg -l` (filenames only)
+- [x] **Git context for AI** — branch, dirty/clean status, and recent commits are sent to the AI on every query.
+- [x] **Project type detection** — detects `Cargo.toml`, `package.json`, `go.mod`, `pyproject.toml`, `Makefile`, `Dockerfile` in cwd and informs the AI which ecosystem tools to use.
+- [x] **More smart defaults** — the following are now detected and aliased:
+  - `duf` → `df`
+  - `tokei` → `cloc`
+  - `doggo` → `dig`
+  - `xh` → `curl`
+  - `delta` → `diff`
+  - `procs` → `ps`
+  - `btop` / `bottom` → `top`
+  - Git shortcuts: `gs`, `gl`, `gd`, `gp`, `gpl`, `gco`, `gcm`
+  - Docker shortcuts: `dps`, `dex`, `dlog`
+  - rg-powered: `rgf` → `rg -l`
+- [x] **`edit_mode` config option** — `"emacs"` (default) or `"vi"` keybindings via `[behavior] edit_mode`.
+- [x] **`-c` flag** — `shako -c "command"` runs a command non-interactively and exits.
 - [ ] **More subcommand completions** — `npm`/`pnpm`/`yarn`/`bun`, `brew`, `go`, `just` (parse justfile targets like Makefile), `python`/`pip`/`uv`, `rustup`, `terraform`, `helm`.
 - [ ] **SSH host completion** — parse `~/.ssh/config` for hostnames on `ssh <Tab>`.
 
@@ -88,9 +92,10 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### Context Improvements
 
-- [ ] **Wire up `history_context_lines`** — send recent command history to the AI so it can understand "do that again" or follow-up queries.
-- [ ] **Git state in AI context** — branch, dirty/clean, recent commits.
-- [ ] **Project type in AI context** — detect build system / language from files in cwd.
+- [x] **Wire up `history_context_lines`** — recent command history is now sent to the AI on every query.
+- [x] **Git state in AI context** — branch, dirty/clean, recent commits included in every AI prompt.
+- [x] **Project type in AI context** — build system / language detected from files in cwd.
+- [x] **Per-project AI context (`.shako.toml`)** — drop a `.shako.toml` in any project root with `[ai] context = "..."` to inject project-specific instructions into every prompt.
 - [ ] **Shell aliases in AI context** — AI should know what `ll`, `gs`, etc. map to.
 - [ ] **File sizes in directory context** — useful for size-related queries.
 - [ ] **Running processes** — useful for "kill the node process" queries.
@@ -106,15 +111,15 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### Innovation Ideas (differentiators)
 
-- [ ] **`?` suffix for inline explain** — `git rebase -i?` explains the flag without executing. Different from `? git rebase -i` which translates NL.
-- [ ] **Session memory** — AI remembers the conversation. After `fd *.log`, say `"now delete the ones over 1GB"` and it knows what you mean.
-- [ ] **AI-powered history search** — `? what was that rsync command I used last week` does semantic search over shell history.
-- [ ] **Proactive suggestions** — after `git add .`, suggest `git commit -m "..."` with an AI-generated message from the staged diff.
-- [ ] **Per-project AI context (`.shako.toml`)** — drop a file in your project root with instructions the AI reads:
+- [x] **`?` suffix for inline explain** — `git rebase -i?` explains the flags without executing. Implemented and working.
+- [x] **Per-project AI context (`.shako.toml`)** — drop a file in your project root with instructions the AI reads:
   ```toml
   [ai]
   context = "Rust project using actix-web. Tests: cargo nextest run."
   ```
+- [ ] **Session memory** — AI remembers the conversation. After `fd *.log`, say `"now delete the ones over 1GB"` and it knows what you mean.
+- [ ] **AI-powered history search** — `? what was that rsync command I used last week` does semantic search over shell history.
+- [ ] **Proactive suggestions** — after `git add .`, suggest `git commit -m "..."` with an AI-generated message from the staged diff.
 - [ ] **AI pipe builder** — `? take output.json, extract emails, sort unique, count` builds the pipeline step-by-step with intermediate previews.
 - [ ] **Watch-and-learn** — when the user edits an AI suggestion, log the correction to a local preferences file. Over time: "user prefers rg over grep", "user uses fd not find".
 - [ ] **Smart history search** — `? what was that command I used to resize images` does semantic search.
@@ -155,7 +160,6 @@ Missing config options for power users:
 
 | Category | Option | Purpose |
 |---|---|---|
-| Behavior | `vi_mode` / `edit_mode` | Enable vi keybindings (reedline supports this) |
 | Behavior | `history_size` | Currently hardcoded to 10,000 |
 | Behavior | `history_dedup` | Deduplicate consecutive identical commands |
 | AI | `ai_enabled` | Global kill switch for AI features |
@@ -166,6 +170,8 @@ Missing config options for power users:
 | Shell | `abbreviations` section | Define abbreviations in config file |
 | Smart Defaults | `smart_defaults_enabled` | Disable auto-aliasing entirely |
 | Smart Defaults | `smart_defaults_exclude` | Skip specific tool upgrades |
+
+> `edit_mode` (emacs/vi keybindings) is implemented — see `[behavior] edit_mode` in the [Configuration guide](docs/configuration.md).
 
 ---
 
@@ -205,26 +211,26 @@ Missing config options for power users:
 
 ## Suggested Priority Order
 
-### Phase 1 — Fix What's Broken
-1. Fix `pre_exec` collision on `2>&1`
-2. Capture stderr for AI diagnosis
-3. Wire up `history_context_lines`
+### Phase 1 — Fix What's Broken ✅ Complete
+1. ~~Fix `pre_exec` collision on `2>&1`~~ — done
+2. ~~Capture stderr for AI diagnosis~~ — done
+3. ~~Wire up `history_context_lines`~~ — done
 
 ### Phase 2 — Essential Shell Features
 4. `echo`, `read`, `test` builtins
 5. `${VAR:-default}` parameter expansion
 6. `pushd`/`popd`/`dirs`
-7. Git branch + state in AI context
+7. ~~Git branch + state in AI context~~ — done
 
 ### Phase 3 — UX Polish
-8. More smart defaults (duf, ouch, git shortcuts)
+8. ~~More smart defaults (duf, git shortcuts, docker shortcuts)~~ — done
 9. `npm`/`brew`/`go`/`just` completions
 10. Stream AI responses
 11. `[w]hy` option in AI confirmation
 
 ### Phase 4 — Differentiators
-12. `?` suffix explain mode
-13. Per-project `.shako.toml` AI context
+12. ~~`?` suffix explain mode~~ — done
+13. ~~Per-project `.shako.toml` AI context~~ — done
 14. Session memory for AI
 15. AI-powered history search
 
