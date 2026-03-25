@@ -88,6 +88,7 @@ History is stored at the platform data directory:
 |---|---|
 | `--quiet` / `-q` | Suppress startup banner |
 | `--init` | Re-run the setup wizard (resets config) |
+| `-c "cmd"` | Run command non-interactively and exit |
 
 ## Next Steps
 
