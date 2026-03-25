@@ -112,7 +112,9 @@ fn main() -> Result<()> {
     let classifier = Classifier::new(path_cache.clone());
 
     let highlighter = shell::highlighter::ShakoHighlighter::new(path_cache.clone());
-    let completer = shell::completer::ShakoCompleter::new(path_cache);
+    let extra_completions: std::sync::Arc<std::sync::RwLock<Vec<String>>> =
+        std::sync::Arc::new(std::sync::RwLock::new(vec![]));
+    let completer = shell::completer::ShakoCompleter::new(path_cache, std::sync::Arc::clone(&extra_completions));
     let hinter = shell::hinter::create_hinter();
 
     let history_path = dirs::data_dir()
@@ -287,6 +289,13 @@ fn main() -> Result<()> {
         state.reap_jobs();
         prompt::set_job_count(state.jobs.len());
 
+        // Keep alias and function names available for tab completion.
+        if let Ok(mut extra) = extra_completions.write() {
+            extra.clear();
+            extra.extend(state.aliases.keys().cloned());
+            extra.extend(state.functions.keys().cloned());
+        }
+
         #[cfg(unix)]
         if ran_foreground {
             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -358,7 +367,8 @@ fn main() -> Result<()> {
                 {
                     if let Some(func) = state.functions.get(first_token).cloned() {
                         let args: Vec<&str> = input.split_whitespace().skip(1).collect();
-                        builtins::run_function(&func, &args);
+                        let code = builtins::run_function(&func, &args);
+                        crate::shell::prompt::set_last_status(code);
                     }
                     timer.stop();
                     continue;

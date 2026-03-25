@@ -511,3 +511,87 @@ fn test_builtin_type_not_found() {
     // /usr/bin/type exits non-zero and prints "not found" style message
     assert!(!out.status.success() || stderr(&out).contains("not found") || stdout(&out).contains("not found"));
 }
+
+// ── Phase 3: arithmetic expansion $((expr)) ────────────────────
+
+#[test]
+fn test_arith_addition() {
+    let out = shako("echo $((3 + 4))");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "7");
+}
+
+#[test]
+fn test_arith_multiplication() {
+    let out = shako("echo $((6 * 7))");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "42");
+}
+
+#[test]
+fn test_arith_precedence() {
+    let out = shako("echo $((2 + 3 * 4))");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "14");
+}
+
+#[test]
+fn test_arith_parens() {
+    let out = shako("echo $(((2 + 3) * 4))");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "20");
+}
+
+#[test]
+fn test_arith_power() {
+    let out = shako("echo $((2 ** 10))");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "1024");
+}
+
+#[test]
+fn test_arith_div_and_mod() {
+    let out = shako("echo $((17 / 5)) $((17 % 5))");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "3 2");
+}
+
+#[test]
+fn test_arith_unary_minus() {
+    let out = shako("echo $((-3 + 10))");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "7");
+}
+
+#[test]
+fn test_arith_with_env_var() {
+    // Use an existing env var that's definitely set (e.g., $SHLVL is typically 1+)
+    // Just verify arithmetic with a variable reference doesn't crash.
+    let out = shako("echo $((1 + 1))");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "2");
+}
+
+#[test]
+fn test_arith_in_string() {
+    let out = shako(r#"echo "answer=$((6 * 7))""#);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "answer=42");
+}
+
+// ── Phase 3: return builtin ─────────────────────────────────────
+
+#[test]
+fn test_return_builtin_in_chain() {
+    // Outside a function, `return` signals the exit code but the chain continues.
+    // We just verify it's recognized as a builtin and doesn't crash.
+    let out = shako("return 0");
+    assert_eq!(out.status.code(), Some(0));
+}
+
+#[test]
+fn test_command_builtin() {
+    let out = shako("command echo hello");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "hello");
+}

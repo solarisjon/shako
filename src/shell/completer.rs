@@ -1,7 +1,7 @@
 use reedline::{Completer, Span, Suggestion};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::path_cache::PathCache;
 
@@ -152,13 +152,95 @@ const TERRAFORM_SUBCOMMANDS: &[&str] = &[
 
 const MAKE_SUBCOMMANDS: &[&str] = &[];
 
+/// Commands where the next argument is a git branch/ref name.
+const GIT_BRANCH_CMDS: &[&str] = &[
+    "checkout", "switch", "merge", "rebase", "diff", "log",
+    "cherry-pick", "push", "pull", "branch",
+];
+
 pub struct ShakoCompleter {
     cache: Arc<PathCache>,
+    /// Alias and function names shared from the REPL loop for first-token completion.
+    extra_completions: Arc<RwLock<Vec<String>>>,
 }
 
 impl ShakoCompleter {
-    pub fn new(cache: Arc<PathCache>) -> Self {
-        Self { cache }
+    pub fn new(cache: Arc<PathCache>, extra_completions: Arc<RwLock<Vec<String>>>) -> Self {
+        Self { cache, extra_completions }
+    }
+
+    /// Run `git branch` and return matching branch names as completions.
+    fn git_branches(&self, partial: &str, start: usize, pos: usize) -> Vec<Suggestion> {
+        let output = std::process::Command::new("git")
+            .args(["branch", "-a", "--format=%(refname:short)"])
+            .output()
+            .ok();
+        let Some(out) = output else { return vec![] };
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let mut branches: Vec<String> = stdout
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|b| !b.is_empty() && b.starts_with(partial))
+            .collect();
+        branches.sort();
+        branches.dedup();
+        branches
+            .into_iter()
+            .map(|b| Suggestion {
+                value: b,
+                display_override: None,
+                description: None,
+                style: None,
+                extra: None,
+                span: Span::new(start, pos),
+                append_whitespace: true,
+                match_indices: None,
+            })
+            .collect()
+    }
+
+    /// Parse `~/.ssh/config` and return matching `Host` entries.
+    fn ssh_hosts(&self, partial: &str, start: usize, pos: usize) -> Vec<Suggestion> {
+        let config_path = dirs::home_dir()
+            .map(|h| h.join(".ssh/config"))
+            .filter(|p| p.exists());
+        let Some(path) = config_path else { return vec![] };
+        let Ok(contents) = fs::read_to_string(&path) else { return vec![] };
+        let mut hosts: Vec<String> = contents
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                let key = line.split_whitespace().next()?;
+                if !key.eq_ignore_ascii_case("Host") {
+                    return None;
+                }
+                let host = line.split_whitespace().nth(1)?;
+                // Skip wildcard patterns
+                if host.contains('*') || host.contains('?') {
+                    return None;
+                }
+                if host.starts_with(partial) {
+                    Some(host.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        hosts.sort();
+        hosts.dedup();
+        hosts
+            .into_iter()
+            .map(|h| Suggestion {
+                value: h,
+                display_override: None,
+                description: None,
+                style: None,
+                extra: None,
+                span: Span::new(start, pos),
+                append_whitespace: true,
+                match_indices: None,
+            })
+            .collect()
     }
 
     fn path_commands(&self) -> &[String] {
@@ -365,11 +447,14 @@ impl Completer for ShakoCompleter {
         };
         let start = pos - partial.len();
 
-        // First token: complete commands from PATH + builtins
+        // First token: complete commands from PATH + builtins + aliases + functions
         if completing_first_token {
             let mut commands: Vec<String> = self.path_commands().to_vec();
             for &b in crate::builtins::BUILTINS {
                 commands.push(b.to_string());
+            }
+            if let Ok(extra) = self.extra_completions.read() {
+                commands.extend(extra.iter().cloned());
             }
             commands.sort();
             commands.dedup();
@@ -466,11 +551,32 @@ impl Completer for ShakoCompleter {
                 "rustup" => Some(RUSTUP_SUBCOMMANDS),
                 "helm" => Some(HELM_SUBCOMMANDS),
                 "terraform" | "tf" => Some(TERRAFORM_SUBCOMMANDS),
+                "ssh" | "scp" | "sftp" | "rsync" => {
+                    let hosts = self.ssh_hosts(partial, start, pos);
+                    if !hosts.is_empty() {
+                        return hosts;
+                    }
+                    None
+                }
                 _ => None,
             };
 
             if let Some(subs) = subcommands {
                 return self.subcommand_completions(subs, partial, start, pos);
+            }
+        }
+
+        // Git branch completion: `git checkout <branch>`, `git merge <branch>`, etc.
+        if first_cmd == "git" {
+            let subcmd = if parts.len() >= 2 { parts[1] } else { "" };
+            let is_branch_cmd = GIT_BRANCH_CMDS.contains(&subcmd);
+            let past_subcmd = (parts.len() >= 3)
+                || (parts.len() == 2 && line_to_cursor.ends_with(' '));
+            if is_branch_cmd && past_subcmd {
+                let branches = self.git_branches(partial, start, pos);
+                if !branches.is_empty() {
+                    return branches;
+                }
             }
         }
 
@@ -487,7 +593,10 @@ mod tests {
     use reedline::Completer;
 
     fn test_completer() -> ShakoCompleter {
-        ShakoCompleter::new(PathCache::new())
+        ShakoCompleter::new(
+            PathCache::new(),
+            std::sync::Arc::new(std::sync::RwLock::new(vec![])),
+        )
     }
 
     #[test]

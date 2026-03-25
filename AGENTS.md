@@ -10,7 +10,7 @@
 
 ```bash
 make build          # cargo build
-make test           # cargo test (99 tests: 69 unit + 30 integration)
+make test           # cargo test (150 tests: 78 unit + 72 integration)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt
@@ -40,10 +40,13 @@ src/
 │                        #   pipeline child cleanup on spawn failure
 ├── parser.rs            # Tokenizer: quoting, env expansion, globs, tilde, command substitution
 │                        #   handles $(), backticks, nested substitution, chain/pipe splitting
+│                        #   $((arithmetic)): full recursive descent evaluator (+,-,*,/,%,**,cmp,&&,||,!)
 ├── builtins/
 │   ├── mod.rs           # Dispatch (run_builtin, is_builtin, BUILTINS, try_define_function,
-│   │                    #   run_function), and remaining builtins: cd, z, zi, alias, unalias,
-│   │                    #   abbr, export, unset, history, type, functions
+│   │                    #   run_function -> i32), builtins: cd, z, zi, alias, unalias,
+│   │                    #   abbr, export, unset, history, type, functions, return, command
+│   │                    #   FUNCTION_RETURN thread-local for early return from function bodies
+│   │                    #   run_builtin_no_state() dispatches echo/test/return/cd inside functions
 │   ├── state.rs         # ShellState, Job, ShellFunction structs and impl
 │   ├── jobs.rs          # builtin_jobs, builtin_fg, builtin_bg
 │   ├── set.rs           # fish-compatible `set` builtin (-x/-g/-U/-e flags), PATH helpers
@@ -76,8 +79,10 @@ src/
 │   │                    #   AI prefix (purple), path (yellow), unknown (red),
 │   │                    #   flags (blue), pipes/redirects (cyan), strings (yellow),
 │   │                    #   variables (green), comments (gray) — uses PathCache
-│   ├── completer.rs     # Smart tab completion (git, cargo, docker, kubectl, make targets,
-│   │                    #   sudo, dirs, path commands) — uses PathCache, escapes spaces
+│   ├── completer.rs     # Smart tab completion (git branch/ref, git subcommands, cargo, docker,
+│   │                    #   kubectl, make targets, just, npm/pnpm/yarn/bun, brew, go, rustup,
+│   │                    #   helm, terraform, ssh/scp/sftp hosts from ~/.ssh/config, dirs, paths)
+│   │                    #   first-token: PATH + builtins + aliases + functions via Arc<RwLock>
 │   └── hinter.rs        # Autosuggestions via reedline DefaultHinter (gray inline hints)
 ├── proactive.rs         # Post-command hooks: after `git add`, offers AI commit message
 ├── learned_prefs.rs     # Watch-and-learn: extracts tool substitutions from user edits,
@@ -249,7 +254,7 @@ The AI receives rich context:
 ### Shell Builtins
 
 Full list (`builtins::BUILTINS`):
-`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `abbr`, `fish-import`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`, `echo`, `read`, `test`, `[`, `pwd`, `pushd`, `popd`, `dirs`, `true`, `false`
+`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `abbr`, `fish-import`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`, `echo`, `read`, `test`, `[`, `pwd`, `pushd`, `popd`, `dirs`, `true`, `false`, `return`, `command`
 
 Notable:
 - `set` is fish-compatible: `set -x VAR val` (export), `set -gx VAR val`, `set -e VAR` (erase), `set` (list all)
@@ -292,17 +297,17 @@ lto = "thin"         # thin link-time optimization
 ## Testing
 
 ```bash
-cargo test                      # all 99 tests (69 unit + 30 integration)
-cargo test --lib                # 69 unit tests only
-cargo test --test integration   # 30 integration tests only
+cargo test                      # all 150 tests (78 unit + 72 integration)
+cargo test --lib                # 78 unit tests only
+cargo test --test integration   # 72 integration tests only
 cargo test classifier           # classifier + typo + NL detection tests
 cargo test executor             # redirect parsing + chain tests
-cargo test parser               # tokenizer, expansion, command substitution tests
+cargo test parser               # tokenizer, expansion, command substitution, arithmetic tests
 ```
 
 Unit test modules are inline (`#[cfg(test)] mod tests`) in `classifier.rs`, `executor.rs`, `parser.rs`, `ai/client.rs`, `shell/completer.rs`, `proactive.rs`, and `learned_prefs.rs`.
 
-Integration tests live in `tests/integration.rs` and exercise the compiled binary via `shako -c "..."`. They cover: basic execution, pipes, chains (`&&`/`||`/`;`), redirects, env var expansion, glob expansion, quoting, command substitution, and type-checking builtins. **Note**: builtins that require `ShellState` (cd, alias, export, set) cannot be tested via `-c` mode because that path calls `executor::execute_command` directly, bypassing the REPL's builtin dispatch. Those are best tested at the unit level.
+Integration tests live in `tests/integration.rs` and exercise the compiled binary via `shako -c "..."`. They cover: basic execution, pipes, chains (`&&`/`||`/`;`), redirects, env var expansion, glob expansion, quoting, command substitution, type-checking builtins, `$((arithmetic))`, and the `return`/`command` builtins. **Note**: builtins that require `ShellState` (cd, alias, export, set) cannot be tested via `-c` mode because that path calls `executor::execute_command` directly, bypassing the REPL's builtin dispatch. Those are best tested at the unit level.
 
 Tests use `assert!(matches!(...))` for enum variants and direct equality for strings. Some parser tests use `unsafe { env::set_var() }` to set up test env vars (cleaned up after).
 

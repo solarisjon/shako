@@ -30,7 +30,7 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 - [x] **`edit_mode` config option** — `"emacs"` (default) or `"vi"` keybindings via `[behavior] edit_mode`.
 - [x] **`-c` flag** — `shako -c "command"` runs a command non-interactively and exits.
 - [x] **More subcommand completions** — `npm`/`pnpm`/`yarn`/`bun`, `brew`, `go`, `just` (parses justfile targets), `rustup`, `terraform`, `helm` (#35).
-- [ ] **SSH host completion** — parse `~/.ssh/config` for hostnames on `ssh <Tab>`.
+- [x] **SSH host completion** — parse `~/.ssh/config` for hostnames on `ssh <Tab>`.
 
 ---
 
@@ -42,11 +42,11 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 - [x] **`read`** — can't do interactive prompts in functions without it. `read -p "prompt" VAR`.
 - [x] **`test` / `[`** — can't write conditionals. `[[ -f file ]]` doesn't work at all.
 - [x] **`pushd` / `popd` / `dirs`** — directory stack, very common workflow.
-- [ ] **`return`** — functions can't set exit status or return early.
+- [x] **`return`** — functions can't set exit status or return early.
 - [ ] **`disown`** — remove background job from shell tracking so it survives shell exit.
 - [ ] **`wait`** — wait for background jobs to finish.
 - [x] **`pwd`** — avoid exec overhead for trivial operation.
-- [ ] **`command`** — run a command bypassing aliases/functions (like fish's `command`).
+- [x] **`command`** — run a command bypassing aliases/functions (like fish's `command`).
 - [ ] **`eval`** — evaluate a string as a command.
 
 ### Parser / Expansion
@@ -57,7 +57,7 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 - [x] **`${VAR#pattern}` / `${VAR%pattern}`** — prefix/suffix stripping.
 - [x] **`${VAR/old/new}`** — string replacement.
 - [x] **`${#VAR}`** — string length.
-- [ ] **`$((arithmetic))`** — inline math expressions.
+- [x] **`$((arithmetic))`** — inline math expressions.
 - [ ] **Brace expansion** — `{a,b,c}` and `{1..10}`. Fish has this.
 - [ ] **Heredoc `<<EOF`** — pass multi-line input to commands.
 - [ ] **Herestring `<<<`** — `grep foo <<< "$var"`.
@@ -80,8 +80,8 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 ### Completion Gaps
 
 - [ ] **Flag completion** — `git commit --am<Tab>` should suggest `--amend`.
-- [ ] **Git branch completion** — `git checkout <Tab>` should list branches, not files.
-- [ ] **Alias/function completion** — user-defined aliases and functions should appear in first-token tab completion. (Requires passing `ShellState` to the completer.)
+- [x] **Git branch completion** — `git checkout <Tab>` should list branches, not files.
+- [x] **Alias/function completion** — user-defined aliases and functions should appear in first-token tab completion. (Requires passing `ShellState` to the completer.)
 - [ ] **Env var completion** — `$PA<Tab>` should complete to `$PATH`.
 - [ ] **Dynamic completions** — protocol for tools to register their own completions (like fish's `complete` command).
 - [ ] **Fuzzy matching** — not just prefix matching; `gitp` could match `git-push`.

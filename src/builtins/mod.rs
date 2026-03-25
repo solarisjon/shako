@@ -39,7 +39,16 @@ pub const BUILTINS: &[&str] = &[
     "dirs",
     "true",
     "false",
+    // Phase 3
+    "return",
+    "command",
 ];
+
+// Thread-local signal for early return from user-defined functions.
+// Set by `return [code]`; cleared by `run_function` after the loop.
+std::thread_local! {
+    static FUNCTION_RETURN: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
+}
 
 /// Check if a token is a builtin command name.
 pub fn is_builtin(token: &str) -> bool {
@@ -89,6 +98,23 @@ pub fn run_builtin(input: &str, state: &mut ShellState) -> i32 {
         "dirs" => { builtin_dirs(state); 0 }
         "true" => 0,
         "false" => 1,
+        "return" => {
+            let code = parts.get(1).and_then(|n| n.parse::<i32>().ok()).unwrap_or(0);
+            FUNCTION_RETURN.with(|r| r.set(Some(code)));
+            code
+        }
+        "command" => {
+            // Run a command bypassing aliases/functions (like fish's `command`).
+            // Simply exec the remainder as an external command.
+            if parts.len() < 2 {
+                eprintln!("shako: command: missing command name");
+                return 1;
+            }
+            let cmd = parts[1..].join(" ");
+            crate::executor::execute_command(&cmd)
+                .and_then(|s| s.code())
+                .unwrap_or(0)
+        }
         other => { eprintln!("shako: unknown builtin: {other}"); 1 }
     }
 }
@@ -141,27 +167,83 @@ pub fn try_define_function(input: &str, state: &mut ShellState) -> bool {
 }
 
 /// Run a shell function by executing each line of its body.
-pub fn run_function(func: &ShellFunction, args: &[&str]) {
+/// Returns the exit code: the argument to `return`, the last command's exit
+/// code, or 0 if the body was empty.
+pub fn run_function(func: &ShellFunction, args: &[&str]) -> i32 {
     use std::env;
     // Set positional parameters as env vars
     for (i, arg) in args.iter().enumerate() {
         unsafe { env::set_var(format!("{}", i + 1), arg) };
     }
     unsafe { env::set_var("@", args.join(" ")) };
+    unsafe { env::set_var("#", args.len().to_string()) };
 
-    for line in func.body.split(';') {
+    let mut last_code = 0i32;
+
+    'body: for line in func.body.split(';') {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        crate::executor::execute_command(line);
+        // Dispatch builtins (including `return`) inside function bodies.
+        let first = line.split_whitespace().next().unwrap_or("");
+        if is_builtin(first) {
+            // `return` signals early exit; the FUNCTION_RETURN cell is set
+            // inside run_builtin, so we just need to check it after.
+            last_code = run_builtin_no_state(first, line);
+        } else {
+            last_code = crate::executor::execute_command(line)
+                .and_then(|s| s.code())
+                .unwrap_or(0);
+        }
+        // Check for early return signal
+        if let Some(code) = FUNCTION_RETURN.with(|r| r.get()) {
+            last_code = code;
+            break 'body;
+        }
     }
+
+    // Clear any pending return signal
+    FUNCTION_RETURN.with(|r| r.set(None));
 
     // Clean up positional parameters
     for i in 1..=args.len() {
         unsafe { env::remove_var(format!("{i}")) };
     }
     unsafe { env::remove_var("@") };
+    unsafe { env::remove_var("#") };
+
+    last_code
+}
+
+/// Dispatch a builtin that does not need `ShellState` (usable inside function
+/// bodies where we don't have access to the REPL state).
+fn run_builtin_no_state(first: &str, line: &str) -> i32 {
+    let parsed = crate::parser::parse_args(line);
+    let parts: Vec<&str> = parsed.iter().map(|s| s.as_str()).collect();
+    match first {
+        "echo" => builtin_echo(&parts[1..]),
+        "read" => builtin_read(&parts[1..]),
+        "test" => builtin_test(&parts[1..]),
+        "[" => {
+            let args: Vec<&str> = parts[1..].iter().copied().filter(|a| *a != "]").collect();
+            builtin_test(&args)
+        }
+        "pwd" => { println!("{}", std::env::current_dir().unwrap_or_default().display()); 0 }
+        "true" => 0,
+        "false" => 1,
+        "return" => {
+            let code = parts.get(1).and_then(|n| n.parse::<i32>().ok()).unwrap_or(0);
+            FUNCTION_RETURN.with(|r| r.set(Some(code)));
+            code
+        }
+        "exit" => std::process::exit(0),
+        "cd" => builtin_cd(&parts[1..]),
+        other => {
+            eprintln!("shako: {other}: builtin not available inside function body");
+            127
+        }
+    }
 }
 
 fn builtin_cd(args: &[&str]) -> i32 {
