@@ -70,14 +70,34 @@ fn main() -> Result<()> {
     let (config, first_run) = ShakoConfig::load()?;
 
     // Non-interactive mode: shako -c "command"
+    // Use proper chain-aware dispatch so builtins work the same as interactive mode.
     if let Some(cmd_str) = cmd_mode {
         if cmd_str.is_empty() {
             eprintln!("shako: -c: option requires an argument");
             std::process::exit(2);
         }
-        let status = executor::execute_command(&cmd_str);
-        let code = status.and_then(|s| s.code()).unwrap_or(0);
-        std::process::exit(code);
+        let mut state = ShellState::new(std::path::PathBuf::new());
+        let mut last_code = 0i32;
+        let chains = parser::split_chains(&cmd_str);
+        let mut prev_op = parser::ChainOp::None;
+        for (segment, op) in &chains {
+            let should_run = match prev_op {
+                parser::ChainOp::None | parser::ChainOp::Semi => true,
+                parser::ChainOp::And => last_code == 0,
+                parser::ChainOp::Or => last_code != 0,
+            };
+            if should_run {
+                let first = segment.split_whitespace().next().unwrap_or("");
+                last_code = if builtins::is_builtin(first) {
+                    builtins::run_builtin(segment, &mut state)
+                } else {
+                    let status = executor::execute_command(segment);
+                    status.and_then(|s| s.code()).unwrap_or(0)
+                };
+            }
+            prev_op = *op;
+        }
+        std::process::exit(last_code);
     }
 
     if !quiet {
@@ -366,8 +386,26 @@ fn main() -> Result<()> {
                         }
                     }
                     Classification::Builtin(cmd) => {
-                        builtins::run_builtin(&cmd, &mut state);
-                        prompt::set_last_status(0);
+                        // Chain-aware builtin dispatch: split on ;/&&/|| so
+                        // that `pushd /tmp && ls` works correctly.
+                        let chains = parser::split_chains(&cmd);
+                        let mut last_code = 0i32;
+                        for (segment, op) in &chains {
+                            let first = segment.split_whitespace().next().unwrap_or("");
+                            if builtins::is_builtin(first) {
+                                last_code = builtins::run_builtin(segment, &mut state);
+                            } else {
+                                let status = executor::execute_command(segment);
+                                last_code = status.and_then(|s| s.code()).unwrap_or(0);
+                            }
+                            let stop = match op {
+                                parser::ChainOp::And => last_code != 0,
+                                parser::ChainOp::Or => last_code == 0,
+                                _ => false,
+                            };
+                            if stop { break; }
+                        }
+                        prompt::set_last_status(last_code);
                     }
                     Classification::NaturalLanguage(text) => {
                         let history = read_recent_history(&history_path, config.behavior.history_context_lines);
@@ -429,8 +467,8 @@ fn main() -> Result<()> {
                             if answer.is_empty() || answer == "y" || answer == "yes" {
                                 let first = suggestion.split_whitespace().next().unwrap_or("");
                                 if builtins::is_builtin(first) {
-                                    builtins::run_builtin(&suggestion, &mut state);
-                                    prompt::set_last_status(0);
+                                    let code = builtins::run_builtin(&suggestion, &mut state);
+                                    prompt::set_last_status(code);
                                 } else {
                                     let status = executor::execute_command(&suggestion);
                                     set_exit_code(status);

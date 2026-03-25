@@ -214,18 +214,10 @@ fn expand_env_at(chars: &[char], i: &mut usize) -> String {
         return "$".to_string();
     }
 
-    // ${VAR} form
+    // ${VAR} form — may include operators like ${VAR:-default}, ${#VAR}, etc.
     if chars[*i] == '{' {
         *i += 1;
-        let start = *i;
-        while *i < chars.len() && chars[*i] != '}' {
-            *i += 1;
-        }
-        let name: String = chars[start..*i].iter().collect();
-        if *i < chars.len() {
-            *i += 1; // skip '}'
-        }
-        return env::var(&name).unwrap_or_default();
+        return expand_brace_param(chars, i);
     }
 
     // $(...) — command substitution
@@ -258,6 +250,175 @@ fn expand_env_at(chars: &[char], i: &mut usize) -> String {
 fn contains_glob_chars(s: &str) -> bool {
     s.contains('*') || s.contains('?') || s.contains('[')
 }
+
+/// Expand `${...}` parameter expressions. Called with `i` pointing just past
+/// the opening `{`; advances `i` past the closing `}`.
+///
+/// Supported operators:
+///   `${#VAR}`          — string length
+///   `${VAR:-word}`     — value or default
+///   `${VAR:+word}`     — alt if set and non-empty
+///   `${VAR:?word}`     — error if unset
+///   `${VAR:=word}`     — assign default if unset
+///   `${VAR##pat}`      — remove longest matching prefix
+///   `${VAR#pat}`       — remove shortest matching prefix
+///   `${VAR%%pat}`      — remove longest matching suffix
+///   `${VAR%pat}`       — remove shortest matching suffix
+///   `${VAR//old/new}`  — replace all occurrences
+///   `${VAR/old/new}`   — replace first occurrence
+fn expand_brace_param(chars: &[char], i: &mut usize) -> String {
+    let start = *i;
+    // Collect everything up to the matching '}'
+    let mut depth = 1usize;
+    while *i < chars.len() {
+        if chars[*i] == '{' { depth += 1; }
+        if chars[*i] == '}' {
+            depth -= 1;
+            if depth == 0 { break; }
+        }
+        *i += 1;
+    }
+    let inner: String = chars[start..*i].iter().collect();
+    if *i < chars.len() { *i += 1; } // skip '}'
+
+    // ${#VAR} — string length
+    if let Some(varname) = inner.strip_prefix('#') {
+        return env::var(varname).unwrap_or_default().len().to_string();
+    }
+
+    // Detect operator: :-, :+, :?, :=, ##, #, %%, %, //, /
+    // We scan for the first operator character that is not part of the var name.
+    let var_chars: Vec<char> = inner.chars().collect();
+    let mut vi = 0;
+    while vi < var_chars.len() && (var_chars[vi].is_alphanumeric() || var_chars[vi] == '_') {
+        vi += 1;
+    }
+
+    let varname = &inner[..vi];
+    let rest = &inner[vi..];
+
+    if rest.is_empty() {
+        return env::var(varname).unwrap_or_default();
+    }
+
+    let value = env::var(varname).unwrap_or_default();
+
+    if let Some(word) = rest.strip_prefix(":-") {
+        return if value.is_empty() { word.to_string() } else { value };
+    }
+    if let Some(word) = rest.strip_prefix(":+") {
+        return if value.is_empty() { String::new() } else { word.to_string() };
+    }
+    if let Some(word) = rest.strip_prefix(":?") {
+        if value.is_empty() {
+            eprintln!("shako: {varname}: {}", if word.is_empty() { "parameter null or not set" } else { word });
+            return String::new();
+        }
+        return value;
+    }
+    if let Some(word) = rest.strip_prefix(":=") {
+        if value.is_empty() {
+            unsafe { env::set_var(varname, word) };
+            return word.to_string();
+        }
+        return value;
+    }
+    if let Some(pat) = rest.strip_prefix("##") {
+        return glob_strip_prefix_longest(&value, pat);
+    }
+    if let Some(pat) = rest.strip_prefix('#') {
+        return glob_strip_prefix_shortest(&value, pat);
+    }
+    if let Some(pat) = rest.strip_prefix("%%") {
+        return glob_strip_suffix_longest(&value, pat);
+    }
+    if let Some(pat) = rest.strip_prefix('%') {
+        return glob_strip_suffix_shortest(&value, pat);
+    }
+    if let Some(replacement_expr) = rest.strip_prefix("//") {
+        if let Some(slash) = replacement_expr.find('/') {
+            let pat = &replacement_expr[..slash];
+            let rep = &replacement_expr[slash + 1..];
+            return value.replace(pat, rep);
+        }
+        return value.replace(replacement_expr, "");
+    }
+    if let Some(replacement_expr) = rest.strip_prefix('/') {
+        if let Some(slash) = replacement_expr.find('/') {
+            let pat = &replacement_expr[..slash];
+            let rep = &replacement_expr[slash + 1..];
+            if let Some(pos) = value.find(pat) {
+                return format!("{}{}{}", &value[..pos], rep, &value[pos + pat.len()..]);
+            }
+            return value;
+        }
+        if let Some(pos) = value.find(replacement_expr) {
+            return value[..pos].to_string() + &value[pos + replacement_expr.len()..];
+        }
+        return value;
+    }
+
+    // Fallback: treat the whole inner as a variable name
+    env::var(&inner).unwrap_or_default()
+}
+
+fn glob_strip_prefix_shortest(s: &str, pat: &str) -> String {
+    for end in 0..=s.len() {
+        if s.is_char_boundary(end) && fnmatch(pat, &s[..end]) {
+            return s[end..].to_string();
+        }
+    }
+    s.to_string()
+}
+
+fn glob_strip_prefix_longest(s: &str, pat: &str) -> String {
+    for end in (0..=s.len()).rev() {
+        if s.is_char_boundary(end) && fnmatch(pat, &s[..end]) {
+            return s[end..].to_string();
+        }
+    }
+    s.to_string()
+}
+
+fn glob_strip_suffix_shortest(s: &str, pat: &str) -> String {
+    for start in (0..=s.len()).rev() {
+        if s.is_char_boundary(start) && fnmatch(pat, &s[start..]) {
+            return s[..start].to_string();
+        }
+    }
+    s.to_string()
+}
+
+fn glob_strip_suffix_longest(s: &str, pat: &str) -> String {
+    for start in 0..=s.len() {
+        if s.is_char_boundary(start) && fnmatch(pat, &s[start..]) {
+            return s[..start].to_string();
+        }
+    }
+    s.to_string()
+}
+
+/// Simple glob match supporting `*` (any sequence) and `?` (any one char).
+fn fnmatch(pat: &str, s: &str) -> bool {
+    let pat: Vec<char> = pat.chars().collect();
+    let s: Vec<char> = s.chars().collect();
+    fn m(pat: &[char], s: &[char]) -> bool {
+        match (pat, s) {
+            ([], []) => true,
+            (['*', rest_p @ ..], _) => {
+                // * matches 0 or more chars
+                for i in 0..=s.len() { if m(rest_p, &s[i..]) { return true; } }
+                false
+            }
+            (['?', rest_p @ ..], [_, rest_s @ ..]) => m(rest_p, rest_s),
+            ([p, rest_p @ ..], [c, rest_s @ ..]) if p == c => m(rest_p, rest_s),
+            _ => false,
+        }
+    }
+    m(&pat, &s)
+}
+
+
 
 /// Expand a glob pattern into matching file paths.
 fn expand_glob(pattern: &str) -> Option<Vec<String>> {

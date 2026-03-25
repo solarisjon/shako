@@ -38,25 +38,25 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### Builtins
 
-- [ ] **`echo`** — every script uses it; external `/bin/echo` has cross-platform behaviour differences.
-- [ ] **`read`** — can't do interactive prompts in functions without it. `read -p "prompt" VAR`.
-- [ ] **`test` / `[`** — can't write conditionals. `[[ -f file ]]` doesn't work at all.
-- [ ] **`pushd` / `popd` / `dirs`** — directory stack, very common workflow.
+- [x] **`echo`** — every script uses it; external `/bin/echo` has cross-platform behaviour differences.
+- [x] **`read`** — can't do interactive prompts in functions without it. `read -p "prompt" VAR`.
+- [x] **`test` / `[`** — can't write conditionals. `[[ -f file ]]` doesn't work at all.
+- [x] **`pushd` / `popd` / `dirs`** — directory stack, very common workflow.
 - [ ] **`return`** — functions can't set exit status or return early.
 - [ ] **`disown`** — remove background job from shell tracking so it survives shell exit.
 - [ ] **`wait`** — wait for background jobs to finish.
-- [ ] **`pwd`** — avoid exec overhead for trivial operation.
+- [x] **`pwd`** — avoid exec overhead for trivial operation.
 - [ ] **`command`** — run a command bypassing aliases/functions (like fish's `command`).
 - [ ] **`eval`** — evaluate a string as a command.
 
 ### Parser / Expansion
 
-- [ ] **`${VAR:-default}`** — parameter expansion with defaults. Breaks many sourced scripts without it.
-- [ ] **`${VAR:+alt}`** — use alternate value if set.
-- [ ] **`${VAR:?error}`** — error if unset.
-- [ ] **`${VAR#pattern}` / `${VAR%pattern}`** — prefix/suffix stripping.
-- [ ] **`${VAR/old/new}`** — string replacement.
-- [ ] **`${#VAR}`** — string length.
+- [x] **`${VAR:-default}`** — parameter expansion with defaults. Breaks many sourced scripts without it.
+- [x] **`${VAR:+alt}`** — use alternate value if set.
+- [x] **`${VAR:?error}`** — error if unset.
+- [x] **`${VAR#pattern}` / `${VAR%pattern}`** — prefix/suffix stripping.
+- [x] **`${VAR/old/new}`** — string replacement.
+- [x] **`${#VAR}`** — string length.
 - [ ] **`$((arithmetic))`** — inline math expressions.
 - [ ] **Brace expansion** — `{a,b,c}` and `{1..10}`. Fish has this.
 - [ ] **Heredoc `<<EOF`** — pass multi-line input to commands.

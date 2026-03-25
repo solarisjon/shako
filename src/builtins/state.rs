@@ -24,6 +24,7 @@ pub struct ShellState {
     pub history_path: PathBuf,
     pub jobs: Vec<Job>,
     next_job_id: usize,
+    pub dir_stack: Vec<PathBuf>,
 }
 
 impl ShellState {
@@ -36,6 +37,7 @@ impl ShellState {
             history_path,
             jobs: Vec::new(),
             next_job_id: 1,
+            dir_stack: Vec::new(),
         }
     }
 
