@@ -53,9 +53,7 @@ const TOOL_PREFERENCES: &[(&str, &str)] = &[
         "dust",
         "use dust instead of du for DISK USAGE SUMMARIES only. \
          Syntax: `dust` (current dir), `dust PATH`, `dust -n N` (top N entries). \
-         IMPORTANT: dust cannot filter by file size — it has no --size flag. \
-         To find files LARGER THAN a given size, use `fd --size +100m` (if fd is available) \
-         or `find . -size +100M -type f` instead.",
+         IMPORTANT: dust has no --size flag and cannot filter by size threshold.",
     ),
     (
         "sd",

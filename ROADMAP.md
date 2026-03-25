@@ -29,7 +29,7 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
   - rg-powered: `rgf` → `rg -l`
 - [x] **`edit_mode` config option** — `"emacs"` (default) or `"vi"` keybindings via `[behavior] edit_mode`.
 - [x] **`-c` flag** — `shako -c "command"` runs a command non-interactively and exits.
-- [ ] **More subcommand completions** — `npm`/`pnpm`/`yarn`/`bun`, `brew`, `go`, `just` (parse justfile targets like Makefile), `python`/`pip`/`uv`, `rustup`, `terraform`, `helm`.
+- [x] **More subcommand completions** — `npm`/`pnpm`/`yarn`/`bun`, `brew`, `go`, `just` (parses justfile targets), `rustup`, `terraform`, `helm` (#35).
 - [ ] **SSH host completion** — parse `~/.ssh/config` for hostnames on `ssh <Tab>`.
 
 ---
@@ -102,10 +102,10 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### UX Improvements
 
-- [ ] **Stream AI responses** — show tokens as they arrive instead of blocking with "thinking...". Much better perceived performance.
+- [x] **Stream AI responses** — tokens stream live to the terminal (#37).
 - [ ] **Edit mode with readline** — AI confirm `[e]dit` currently uses raw `stdin.read_line()`. Should use reedline with history/completion/cursor movement.
-- [ ] **Add `[w]hy` option** — `[Y]es / [n]o / [e]dit / [w]hy` lets users understand before executing.
-- [ ] **Multi-command preview** — multi-line AI commands should show as numbered steps, not one blob.
+- [x] **`[w]hy` option** — `[Y]es / [n]o / [e]dit / [w]hy` lets users understand before executing (#36).
+- [x] **Multi-command guard** — `collapse_multiline()` rejects multi-line AI responses, picks the best single command, and warns the user.
 - [ ] **Retry/refine** — if the AI generates the wrong command, allow "no, I meant..." without starting over.
 - [ ] **AI-generated commands in history** — add to reedline history after confirmation so they're recallable.
 
@@ -119,9 +119,9 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
   ```
 - [ ] **Session memory** — AI remembers the conversation. After `fd *.log`, say `"now delete the ones over 1GB"` and it knows what you mean.
 - [ ] **AI-powered history search** — `? what was that rsync command I used last week` does semantic search over shell history.
-- [ ] **Proactive suggestions** — after `git add .`, suggest `git commit -m "..."` with an AI-generated message from the staged diff.
+- [x] **Proactive suggestions** — after `git add`, shako offers an AI-generated commit message from the staged diff (#43).
 - [ ] **AI pipe builder** — `? take output.json, extract emails, sort unique, count` builds the pipeline step-by-step with intermediate previews.
-- [ ] **Watch-and-learn** — when the user edits an AI suggestion, log the correction to a local preferences file. Over time: "user prefers rg over grep", "user uses fd not find".
+- [x] **Watch-and-learn** — edits to AI suggestions are logged to `~/.config/shako/learned_prefs.toml`; preferences (e.g. "prefer rg over grep") are injected into future AI prompts (#42).
 - [ ] **Smart history search** — `? what was that command I used to resize images` does semantic search.
 - [ ] **Natural language aliases** — `alias "deploy to staging" = "kubectl apply -f k8s/staging/"`.
 

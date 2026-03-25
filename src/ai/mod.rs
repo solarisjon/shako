@@ -17,7 +17,8 @@ pub async fn translate_and_execute(
 
     let response = client::query_llm(&system_prompt, input, config.active_llm()).await?;
 
-    let command = response.trim();
+    let command = collapse_multiline(response.trim());
+    let command = command.as_str();
 
     if command == "SHAKO_CANNOT_TRANSLATE" || command.is_empty() {
         eprintln!("shako: couldn't translate that to a command");
@@ -105,6 +106,43 @@ pub async fn suggest_commit(stat: &str, diff: &str, config: &ShakoConfig) -> Res
     let raw = client::query_llm(&system_prompt, &user_msg, config.active_llm()).await?;
     // Strip any wrapping quotes the model might add
     Ok(raw.trim().trim_matches('"').trim_matches('\'').to_string())
+}
+
+/// Collapse a multi-line AI response into a single executable command.
+///
+/// The AI should return one line but sometimes returns alternatives or extra
+/// prose. Strategy:
+/// - Drop blank lines and lines that look like markdown/numbered lists
+/// - If only one non-trivial line remains, use it
+/// - If multiple lines remain, join them with " && " so the user can see
+///   them all in the confirm prompt and edit before running
+fn collapse_multiline(raw: &str) -> String {
+    let lines: Vec<&str> = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| {
+            !l.is_empty()
+                && !l.starts_with('#')
+                && !l.starts_with("```")
+                // Skip numbered/bulleted list items ("1. cmd", "- cmd", "* cmd")
+                && !l.starts_with("- ")
+                && !l.starts_with("* ")
+                && !matches!(l.chars().next(), Some(c) if c.is_ascii_digit())
+        })
+        .collect();
+
+    match lines.len() {
+        0 => String::new(),
+        1 => lines[0].to_string(),
+        _ => {
+            // Warn the user so they know the model returned multiple candidates
+            eprintln!(
+                "\x1b[33mshako: AI returned {} lines — showing first as best guess\x1b[0m",
+                lines.len()
+            );
+            lines[0].to_string()
+        }
+    }
 }
 
 /// Explain what a command does without executing it.

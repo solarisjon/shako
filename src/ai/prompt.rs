@@ -15,7 +15,8 @@ The user typed natural language instead of a shell command. Translate their
 intent into one or more shell commands.
 
 Rules:
-1. Return ONLY the command(s), one per line. No explanation, no markdown, no code fences.
+1. Return ONLY a single command or pipeline. No alternatives, no lists, no explanation,
+   no markdown, no code fences. ONE line (or a chain joined with && / ; / ||).
 2. Prefer simple, readable commands over clever one-liners.
 3. If the intent is ambiguous, return the safest interpretation.
 4. Never generate destructive commands (rm -rf, mkfs, etc.) without
@@ -24,7 +25,9 @@ Rules:
 6. Always quote glob patterns in arguments (e.g. '*.md', not *.md) so the shell
    does not expand them before the tool receives them.
 7. NEVER invent CLI flags. Only use flags you are certain the tool supports.
-   If unsure, fall back to a simpler tool (e.g. find/grep) rather than guessing flags."#,
+   If unsure, fall back to a simpler tool (e.g. find/grep) rather than guessing flags.
+8. To LIST files SORTED by size: use `ls -lS` (or `eza -la -s size` if eza is present).
+   Do NOT confuse this with finding files LARGER THAN a threshold (fd --size / find -size)."#,
         ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user,
     );
 

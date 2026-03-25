@@ -543,6 +543,25 @@ mod tests {
     }
 
     #[test]
+    fn test_ls_r_completes_readme() {
+        // Regression: "ls R<TAB>" must return path completions, not subcommand completions.
+        // README.md and ROADMAP.md live in the repo root, so this test must run from there.
+        let mut c = test_completer();
+        let suggestions = c.complete("ls R", 4);
+        let values: Vec<&str> = suggestions.iter().map(|s| s.value.as_str()).collect();
+        assert!(
+            values.iter().any(|v| v.starts_with("R")),
+            "expected completions starting with 'R' for 'ls R', got: {:?}",
+            values
+        );
+        // Span must cover the partial token (start=3, end=4)
+        for s in &suggestions {
+            assert_eq!(s.span.start, 3, "span.start should be 3 (position of 'R')");
+            assert_eq!(s.span.end, 4, "span.end should be 4 (cursor)");
+        }
+    }
+
+    #[test]
     fn test_tilde_path_completion() {
         let mut c = test_completer();
         // "ls ~/" — should return entries from the real home directory, not "NO RECORDS FOUND"

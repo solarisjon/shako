@@ -10,7 +10,7 @@
 
 ```bash
 make build          # cargo build
-make test           # cargo test (84 tests: 54 unit + 30 integration)
+make test           # cargo test (99 tests: 69 unit + 30 integration)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt
@@ -59,15 +59,15 @@ src/
 │                        #   completer, and highlighter — scanned once at startup
 ├── ai/
 │   ├── mod.rs           # Orchestrator: translate_and_execute(), diagnose_error(),
-│   │                    #   explain_command()
+│   │                    #   explain_command(), suggest_commit(); collapse_multiline()
+│   │                    #   guards against multi-line AI responses
 │   ├── client.rs        # OpenAI-compatible LLM HTTP client (rustls-tls-native-roots)
 │   │                    #   single retry with 2s delay on transient errors
-│   ├── context.rs       # Shell context (OS, arch, cwd, user, dir listings, tool preferences)
-│   │                    #   builds directory context (cwd + home) for AI grounding
-│   │                    #   git context (branch, status, recent commits)
-│   │                    #   per-project .shako.toml context
-│   ├── prompt.rs        # System prompts: translation, error recovery, explain
-│   └── confirm.rs       # Confirmation UX: [Y]es / [n]o / [e]dit
+│   ├── context.rs       # Shell context (OS, arch, cwd, user, dir listings, tool preferences,
+│   │                    #   user_preferences from learned_prefs); git context; .shako.toml
+│   ├── prompt.rs        # System prompts: translation (single-command rule), error recovery,
+│   │                    #   explain, commit message; injects learned user preferences
+│   └── confirm.rs       # Confirmation UX: [Y]es / [n]o / [e]dit / [w]hy
 ├── shell/
 │   ├── mod.rs           # Re-exports
 │   ├── prompt.rs        # Starship integration, exit code + duration tracking (atomics)
@@ -79,6 +79,10 @@ src/
 │   ├── completer.rs     # Smart tab completion (git, cargo, docker, kubectl, make targets,
 │   │                    #   sudo, dirs, path commands) — uses PathCache, escapes spaces
 │   └── hinter.rs        # Autosuggestions via reedline DefaultHinter (gray inline hints)
+├── proactive.rs         # Post-command hooks: after `git add`, offers AI commit message
+├── learned_prefs.rs     # Watch-and-learn: extracts tool substitutions from user edits,
+│                        #   persists to ~/.config/shako/learned_prefs.toml, injects into
+│                        #   AI context as "prefer rg over grep" style hints
 └── config/
     ├── mod.rs           # Re-exports ShakoConfig, LlmConfig
     └── schema.rs        # Config types, XDG-aware path resolution, serde defaults,
@@ -279,15 +283,15 @@ lto = "thin"         # thin link-time optimization
 ## Testing
 
 ```bash
-cargo test                      # all 84 tests (54 unit + 30 integration)
-cargo test --lib                # 54 unit tests only
+cargo test                      # all 99 tests (69 unit + 30 integration)
+cargo test --lib                # 69 unit tests only
 cargo test --test integration   # 30 integration tests only
 cargo test classifier           # classifier + typo + NL detection tests
 cargo test executor             # redirect parsing + chain tests
 cargo test parser               # tokenizer, expansion, command substitution tests
 ```
 
-Unit test modules are inline (`#[cfg(test)] mod tests`) in `classifier.rs`, `executor.rs`, `parser.rs`, `ai/client.rs`, and `shell/completer.rs`.
+Unit test modules are inline (`#[cfg(test)] mod tests`) in `classifier.rs`, `executor.rs`, `parser.rs`, `ai/client.rs`, `shell/completer.rs`, `proactive.rs`, and `learned_prefs.rs`.
 
 Integration tests live in `tests/integration.rs` and exercise the compiled binary via `shako -c "..."`. They cover: basic execution, pipes, chains (`&&`/`||`/`;`), redirects, env var expansion, glob expansion, quoting, command substitution, and type-checking builtins. **Note**: builtins that require `ShellState` (cd, alias, export, set) cannot be tested via `-c` mode because that path calls `executor::execute_command` directly, bypassing the REPL's builtin dispatch. Those are best tested at the unit level.
 
@@ -312,3 +316,8 @@ Tests use `assert!(matches!(...))` for enum variants and direct equality for str
 15. **CI** — `.github/workflows/ci.yml` runs `cargo test` + `cargo clippy` on push/PR (ubuntu + macOS).
 16. **First-run wizard** — if no config file exists, the shell launches an interactive setup wizard before the REPL starts.
 17. **LLM temperature** — configurable via `temperature` field in `LlmConfig` (default `0.1`). LLM client retries once with 2s delay on transient network errors.
+18. **Vi mode Tab completion** — `Vi::default()` has no Tab binding. We use `Vi::new(insert_kb, normal_kb)` with Tab explicitly added to `insert_keybindings`. `edit_mode = "vi"` in config requires this.
+19. **`suppress_echo()` / `restore_echo()` pairing** — `suppress_echo()` sets ECHO=0 after every foreground exit to silence late vim escape responses. `restore_echo()` re-enables ECHO before each `read_line()` call so reedline saves a clean baseline; otherwise the ColumnarMenu can break.
+20. **`collapse_multiline()`** — if the LLM returns multiple lines (alternatives), only the first non-blank non-prose line is used. A yellow warning is printed. The system prompt also tells the model to return a single command.
+21. **Watch-and-learn prefs path** — `~/.config/shako/learned_prefs.toml`. Safe to delete; defaults to empty on missing/corrupt file. Populated automatically when user edits an AI suggestion.
+22. **Proactive commit fires only after `git add`** — `proactive::check()` is called in the `Classification::Command` success path only, not after AI translations, builtins, or background commands.
