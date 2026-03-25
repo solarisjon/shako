@@ -158,6 +158,11 @@ Full tokenizer and expansion engine:
 - Double quotes: env var + command substitution + backslash escapes (`"`, `\`, `$`, `` ` ``), no glob
 - Backslash escapes (outside quotes)
 - `$VAR`, `${VAR}`, `$?` expansion
+- `${VAR:-word}` / `${VAR:+word}` / `${VAR:?word}` / `${VAR:=word}` — default/alternate/error/assign
+- `${VAR#pat}` / `${VAR##pat}` — strip shortest/longest prefix glob
+- `${VAR%pat}` / `${VAR%%pat}` — strip shortest/longest suffix glob
+- `${VAR/old/new}` / `${VAR//old/new}` — first/all replacement
+- `${#VAR}` — string length
 - `$(cmd)` and backtick command substitution (with nesting via `extract_balanced`)
 - Tilde expansion (`~` → `$HOME`)
 - Glob expansion (`*.rs`) via the `glob` crate — suppressed for quoted tokens
@@ -244,13 +249,17 @@ The AI receives rich context:
 ### Shell Builtins
 
 Full list (`builtins::BUILTINS`):
-`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `abbr`, `fish-import`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`
+`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `abbr`, `fish-import`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`, `echo`, `read`, `test`, `[`, `pwd`, `pushd`, `popd`, `dirs`, `true`, `false`
 
 Notable:
 - `set` is fish-compatible: `set -x VAR val` (export), `set -gx VAR val`, `set -e VAR` (erase), `set` (list all)
 - `source` processes `alias`, `export`, `set`, and `function` definitions from files
 - `type` checks builtins → functions → aliases → PATH (like bash `type`)
 - `z`/`zi` fall back to regular `cd` if zoxide not installed
+- `echo` supports `-n` (no newline), `-e` (escape sequences: `\n \t \r \a \b \\`)
+- `read` supports `-p prompt` and reads into named VAR (default: `REPLY`)
+- `test`/`[` implements POSIX: file tests (`-f -d -e -r -w -x -s -L -z -n`), string (`= != ==`), integer (`-eq -ne -lt -le -gt -ge`), boolean (`! -a -o`)
+- `pushd`/`popd`/`dirs` maintain `ShellState.dir_stack`; `dirs` prints cwd-first like bash
 
 ### Dependencies
 
