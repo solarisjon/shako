@@ -87,13 +87,13 @@ fn main() -> Result<()> {
                 parser::ChainOp::Or => last_code != 0,
             };
             if should_run {
-                let first = segment.split_whitespace().next().unwrap_or("");
-                last_code = if builtins::is_builtin(first) {
+                let last_code_here = if is_pure_builtin_call(segment) {
                     builtins::run_builtin(segment, &mut state)
                 } else {
                     let status = executor::execute_command(segment);
                     status.and_then(|s| s.code()).unwrap_or(0)
                 };
+                last_code = last_code_here;
             }
             prev_op = *op;
         }
@@ -388,16 +388,18 @@ fn main() -> Result<()> {
                     Classification::Builtin(cmd) => {
                         // Chain-aware builtin dispatch: split on ;/&&/|| so
                         // that `pushd /tmp && ls` works correctly.
+                        // For segments with pipes or redirects, fall through to
+                        // executor which handles them (so `echo hi | tr a-z A-Z` works).
                         let chains = parser::split_chains(&cmd);
                         let mut last_code = 0i32;
                         for (segment, op) in &chains {
-                            let first = segment.split_whitespace().next().unwrap_or("");
-                            if builtins::is_builtin(first) {
-                                last_code = builtins::run_builtin(segment, &mut state);
+                            let code = if is_pure_builtin_call(segment) {
+                                builtins::run_builtin(segment, &mut state)
                             } else {
                                 let status = executor::execute_command(segment);
-                                last_code = status.and_then(|s| s.code()).unwrap_or(0);
-                            }
+                                status.and_then(|s| s.code()).unwrap_or(0)
+                            };
+                            last_code = code;
                             let stop = match op {
                                 parser::ChainOp::And => last_code != 0,
                                 parser::ChainOp::Or => last_code == 0,
@@ -722,4 +724,26 @@ fn read_recent_history(history_path: &std::path::Path, n: usize) -> Vec<String> 
         }
         Err(_) => Vec::new(),
     }
+}
+
+/// Returns true if `segment` should be dispatched to `run_builtin`.
+/// A pure builtin call has no pipes and no unquoted redirect operators (> <).
+/// If pipes or redirects are present, the executor handles them (including
+/// any builtin at the start of the pipeline).
+fn is_pure_builtin_call(segment: &str) -> bool {
+    if parser::split_pipes(segment).len() > 1 {
+        return false;
+    }
+    let mut in_single = false;
+    let mut in_double = false;
+    for ch in segment.chars() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '>' | '<' if !in_single && !in_double => return false,
+            _ => {}
+        }
+    }
+    let first = segment.split_whitespace().next().unwrap_or("");
+    builtins::is_builtin(first)
 }

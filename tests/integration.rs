@@ -194,7 +194,242 @@ fn test_single_quotes_no_expansion() {
     assert_eq!(stdout(&out).trim(), "found_it");
 }
 
-// ── Glob expansion ──────────────────────────────────────────────
+// ── Phase 2: echo builtin ───────────────────────────────────────
+
+#[test]
+fn test_echo_builtin_basic() {
+    let out = shako("echo hello world");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "hello world");
+}
+
+#[test]
+fn test_echo_builtin_no_newline() {
+    let out = shako("echo -n hi");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "hi"); // no trailing newline
+}
+
+#[test]
+fn test_echo_builtin_escape_newline() {
+    let out = shako(r#"echo -e "a\nb""#);
+    assert!(out.status.success());
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["a", "b"]);
+}
+
+#[test]
+fn test_echo_builtin_escape_tab() {
+    let out = shako(r#"echo -e "a\tb""#);
+    assert!(out.status.success());
+    assert!(stdout(&out).contains('\t'));
+}
+
+// ── Phase 2: test / [ builtins ─────────────────────────────────
+
+#[test]
+fn test_builtin_test_file_exists() {
+    let out = shako("test -f src/main.rs");
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_builtin_test_file_missing() {
+    let out = shako("test -f no_such_file_xyz");
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(1));
+}
+
+#[test]
+fn test_builtin_test_dir() {
+    let out = shako("test -d src");
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_builtin_test_string_eq() {
+    let out = shako(r#"test "hello" = "hello""#);
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_builtin_test_string_ne() {
+    let out = shako(r#"test "hello" != "world""#);
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_builtin_test_integer_lt() {
+    let out = shako("test 3 -lt 5");
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_builtin_test_integer_gt_fail() {
+    let out = shako("test 5 -gt 10");
+    assert!(!out.status.success());
+}
+
+#[test]
+fn test_builtin_test_z_empty() {
+    let out = shako(r#"test -z """#);
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_builtin_test_n_nonempty() {
+    let out = shako(r#"test -n "hello""#);
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_bracket_alias_for_test() {
+    let out = shako(r#"[ "a" = "a" ]"#);
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_bracket_integer_ge() {
+    let out = shako("[ 10 -ge 10 ]");
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_test_negation() {
+    let out = shako("test ! -f no_such_file_xyz");
+    assert!(out.status.success());
+}
+
+#[test]
+fn test_test_in_chain() {
+    let out = shako("test -f src/main.rs && echo yes || echo no");
+    assert_eq!(stdout(&out).trim(), "yes");
+}
+
+// ── Phase 2: pwd builtin ────────────────────────────────────────
+
+#[test]
+fn test_pwd_builtin() {
+    let out = shako("pwd");
+    assert!(out.status.success());
+    let result = stdout(&out).trim().to_string();
+    assert!(!result.is_empty());
+    assert!(result.starts_with('/'));
+}
+
+// ── Phase 2: true / false builtins ─────────────────────────────
+
+#[test]
+fn test_true_builtin_exit() {
+    let out = shako("true");
+    assert!(out.status.success());
+    assert_eq!(out.status.code(), Some(0));
+}
+
+#[test]
+fn test_false_builtin_exit() {
+    let out = shako("false");
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(1));
+}
+
+// ── Phase 2: pushd / popd / dirs ───────────────────────────────
+
+#[test]
+fn test_pushd_changes_dir() {
+    let out = shako("pushd /tmp; pwd");
+    assert!(out.status.success());
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    // last line should be /private/tmp (macOS) or /tmp
+    let last = lines.last().unwrap_or(&"");
+    assert!(last.contains("tmp"), "pushd should cd to /tmp, got: {last}");
+}
+
+#[test]
+fn test_popd_returns_to_original() {
+    let out = shako("pushd /tmp; popd; pwd");
+    assert!(out.status.success());
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    let last = lines.last().unwrap_or(&"");
+    // Should be back to the original dir (not /tmp)
+    assert!(!last.ends_with("tmp"), "popd should restore cwd, got: {last}");
+}
+
+#[test]
+fn test_dirs_shows_stack() {
+    let out = shako("dirs");
+    assert!(out.status.success());
+    let result = stdout(&out).trim().to_string();
+    assert!(result.starts_with('/'), "dirs should show an absolute path, got: {result}");
+}
+
+#[test]
+fn test_popd_empty_stack() {
+    let out = shako("popd");
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("directory stack empty"));
+}
+
+// ── Phase 2: parameter expansion ───────────────────────────────
+
+#[test]
+fn test_param_default_unset() {
+    let out = shako("echo ${SHAKO_TEST_UNSET_VAR:-fallback}");
+    assert_eq!(stdout(&out).trim(), "fallback");
+}
+
+#[test]
+fn test_param_default_set() {
+    let out = shako("HOME=/home/test; echo ${HOME:-fallback}");
+    // HOME is set so should use its value
+    let result = stdout(&out).trim().to_string();
+    assert!(!result.is_empty() && result != "fallback");
+}
+
+#[test]
+fn test_param_alt_unset() {
+    let out = shako("echo ${SHAKO_TEST_UNSET_VAR:+alt}");
+    assert_eq!(stdout(&out).trim(), "");
+}
+
+#[test]
+fn test_param_length() {
+    let out = shako("echo ${#HOME}");
+    assert!(out.status.success());
+    let len: usize = stdout(&out).trim().parse().unwrap_or(0);
+    assert!(len > 0, "HOME should have length > 0");
+}
+
+#[test]
+fn test_param_strip_suffix_shortest() {
+    let out = shako("echo ${HOME%/*}");
+    assert!(out.status.success());
+    let result = stdout(&out).trim().to_string();
+    // /Users/jbowman → /Users
+    assert!(result.starts_with('/'));
+    assert!(!result.is_empty());
+}
+
+#[test]
+fn test_param_strip_prefix_longest() {
+    let out = shako("echo ${HOME##*/}");
+    assert!(out.status.success());
+    let result = stdout(&out).trim().to_string();
+    // /Users/jbowman → jbowman (no slash)
+    assert!(!result.contains('/'), "## should strip longest prefix, got: {result}");
+}
+
+#[test]
+fn test_param_replace_first() {
+    let out = shako("echo ${HOME/Users/home}");
+    assert!(out.status.success());
+    let result = stdout(&out).trim().to_string();
+    assert!(result.contains("home"), "/ should replace first occurrence, got: {result}");
+}
+
 
 #[test]
 fn test_glob_expansion() {
