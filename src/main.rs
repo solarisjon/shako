@@ -64,9 +64,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let (config, first_run) = JboshConfig::load()?;
-
-    // Non-interactive mode: shako -c "command"
+    // Non-interactive mode: shako -c "command" — skip wizard, just execute.
     if let Some(cmd_str) = cmd_mode {
         if cmd_str.is_empty() {
             eprintln!("shako: -c: option requires an argument");
@@ -76,6 +74,8 @@ fn main() -> Result<()> {
         let code = status.and_then(|s| s.code()).unwrap_or(0);
         std::process::exit(code);
     }
+
+    let (config, first_run) = JboshConfig::load()?;
 
     if !quiet {
         print_banner(&config);
