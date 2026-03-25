@@ -207,6 +207,47 @@ impl JboshCompleter {
             .collect()
     }
 
+    /// Run `git branch -a` and return branch names matching `partial`.
+    fn git_branches(&self, partial: &str) -> Vec<String> {
+        let output = std::process::Command::new("git")
+            .args(["branch", "-a", "--format=%(refname:short)"])
+            .output()
+            .ok();
+        let Some(output) = output else {
+            return vec![];
+        };
+        if !output.status.success() {
+            return vec![];
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut branches: Vec<String> = stdout
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|b| {
+                !b.is_empty() && !b.ends_with("/HEAD") && b.starts_with(partial)
+            })
+            .collect();
+        branches.sort();
+        branches.dedup();
+        branches
+    }
+
+    fn branch_suggestions(&self, partial: &str, start: usize, pos: usize) -> Vec<Suggestion> {
+        self.git_branches(partial)
+            .into_iter()
+            .map(|b| Suggestion {
+                value: b,
+                display_override: None,
+                description: None,
+                style: None,
+                extra: None,
+                span: Span::new(start, pos),
+                append_whitespace: true,
+                match_indices: None,
+            })
+            .collect()
+    }
+
     /// Read Makefile targets for `make` tab completion.
     fn makefile_targets(&self, partial: &str) -> Vec<String> {
         let makefile = if PathBuf::from("Makefile").exists() {
@@ -312,6 +353,14 @@ impl Completer for JboshCompleter {
             || (parts.len() == 1 && line_to_cursor.ends_with(' '));
 
         if is_second_token {
+            // `gco <branch>` — git checkout shortcut alias
+            if matches!(first_cmd, "gco") {
+                let branches = self.branch_suggestions(partial, start, pos);
+                if !branches.is_empty() {
+                    return branches;
+                }
+            }
+
             let subcommands = match first_cmd {
                 "git" => Some(GIT_SUBCOMMANDS),
                 "cargo" => Some(CARGO_SUBCOMMANDS),
@@ -341,6 +390,22 @@ impl Completer for JboshCompleter {
 
             if let Some(subs) = subcommands {
                 return self.subcommand_completions(subs, partial, start, pos);
+            }
+        }
+
+        // Third token: `git <subcmd> <branch>` — complete branch names
+        let is_third_token = (parts.len() == 3 && !line_to_cursor.ends_with(' '))
+            || (parts.len() == 2 && line_to_cursor.ends_with(' '));
+
+        if is_third_token && first_cmd == "git" {
+            let subcmd = parts.get(1).copied().unwrap_or("");
+            const BRANCH_SUBCMDS: &[&str] =
+                &["checkout", "switch", "merge", "rebase", "cherry-pick", "diff", "show", "reset"];
+            if BRANCH_SUBCMDS.contains(&subcmd) {
+                let branches = self.branch_suggestions(partial, start, pos);
+                if !branches.is_empty() {
+                    return branches;
+                }
             }
         }
 
@@ -425,6 +490,64 @@ mod tests {
                     assert!(s.value.starts_with("~/"), "completion '{}' should start with '~/'", s.value);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_git_checkout_branch_completion() {
+        let mut c = test_completer();
+        // In a git repo with at least a `main` branch this should return branch completions.
+        let suggestions = c.complete("git checkout ", 13);
+        // Only run the assertion when we are inside a git repo (git_branches returns results).
+        if !suggestions.is_empty() {
+            // Completions should not look like file paths (no trailing slash for branches).
+            for s in &suggestions {
+                assert!(!s.value.ends_with('/'), "branch completion '{}' should not end with '/'", s.value);
+                assert!(s.append_whitespace, "branch completion should append whitespace");
+            }
+        }
+    }
+
+    #[test]
+    fn test_git_checkout_branch_prefix_filter() {
+        let mut c = test_completer();
+        // Completing "git checkout ma" should only return branches starting with "ma".
+        let suggestions = c.complete("git checkout ma", 15);
+        for s in &suggestions {
+            assert!(
+                s.value.starts_with("ma"),
+                "branch '{}' should start with 'ma'",
+                s.value
+            );
+        }
+    }
+
+    #[test]
+    fn test_git_switch_branch_completion() {
+        let mut c = test_completer();
+        let suggestions = c.complete("git switch ", 11);
+        // If inside a git repo, branches should be offered (not file paths).
+        for s in &suggestions {
+            assert!(!s.value.ends_with('/'), "unexpected dir completion for git switch");
+        }
+    }
+
+    #[test]
+    fn test_gco_branch_completion() {
+        let mut c = test_completer();
+        let suggestions = c.complete("gco ", 4);
+        // gco is an alias for git checkout — branch completions when in a git repo.
+        for s in &suggestions {
+            assert!(!s.value.ends_with('/'), "branch completion '{}' should not end with '/'", s.value);
+        }
+    }
+
+    #[test]
+    fn test_no_head_in_branch_completions() {
+        let c = test_completer();
+        let branches = c.git_branches("");
+        for b in &branches {
+            assert!(!b.ends_with("/HEAD"), "HEAD ref should be filtered: {b}");
         }
     }
 }
