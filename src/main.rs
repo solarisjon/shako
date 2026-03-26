@@ -68,9 +68,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let (config, first_run) = ShakoConfig::load()?;
-
-    // Non-interactive mode: shako -c "command"
+    // Non-interactive mode: shako -c "command" — skip wizard, just execute.
     // Use proper chain-aware dispatch so builtins work the same as interactive mode.
     if let Some(cmd_str) = cmd_mode {
         if cmd_str.is_empty() {
@@ -111,6 +109,8 @@ fn main() -> Result<()> {
         }
         std::process::exit(last_code);
     }
+
+    let (config, first_run) = ShakoConfig::load()?;
 
     if !quiet {
         print_banner(&config);

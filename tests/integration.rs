@@ -1,8 +1,21 @@
 use std::process::Command;
+use std::sync::OnceLock;
+
+/// A shared temp directory used as `XDG_CONFIG_HOME` for all integration tests.
+/// This prevents the first-run setup wizard from firing on systems without a
+/// shako config file (e.g. fresh CI runners).
+static TEST_CONFIG_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
+
+fn test_config_home() -> &'static std::path::Path {
+    TEST_CONFIG_DIR
+        .get_or_init(|| tempfile::tempdir().expect("failed to create test config dir"))
+        .path()
+}
 
 fn shako(cmd: &str) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_shako"))
         .args(["-c", cmd])
+        .env("XDG_CONFIG_HOME", test_config_home())
         .output()
         .expect("failed to run shako")
 }
@@ -149,6 +162,7 @@ fn test_redirect_stderr_to_stdout() {
 fn test_env_var_expansion() {
     let out = Command::new(env!("CARGO_BIN_EXE_shako"))
         .args(["-c", "echo $SHAKO_TEST_VAR"])
+        .env("XDG_CONFIG_HOME", test_config_home())
         .env("SHAKO_TEST_VAR", "it_works")
         .output()
         .unwrap();
@@ -174,6 +188,7 @@ fn test_command_substitution() {
 fn test_double_quotes_preserve_var() {
     let out = Command::new(env!("CARGO_BIN_EXE_shako"))
         .args(["-c", "echo \"$USER\""])
+        .env("XDG_CONFIG_HOME", test_config_home())
         .output()
         .unwrap();
     let result = stdout(&out).trim().to_string();
@@ -188,6 +203,7 @@ fn test_single_quotes_no_expansion() {
     // Test that double-quoted $VAR does expand (inverse test).
     let out = Command::new(env!("CARGO_BIN_EXE_shako"))
         .args(["-c", "echo $SHAKO_TEST_PRESENT"])
+        .env("XDG_CONFIG_HOME", test_config_home())
         .env("SHAKO_TEST_PRESENT", "found_it")
         .output()
         .unwrap();
@@ -462,6 +478,7 @@ fn test_nonexistent_command() {
 fn test_c_flag_missing_argument() {
     let out = Command::new(env!("CARGO_BIN_EXE_shako"))
         .args(["-c"])
+        .env("XDG_CONFIG_HOME", test_config_home())
         .output()
         .unwrap();
     assert!(!out.status.success());
