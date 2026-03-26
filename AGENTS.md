@@ -10,7 +10,7 @@
 
 ```bash
 make build          # cargo build
-make test           # cargo test (54 tests)
+make test           # cargo test (189 tests: 97 unit + 92 integration)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt
@@ -33,6 +33,9 @@ make clean          # cargo clean
 src/
 ├── main.rs              # Entry point, REPL loop, signal handling, multiline input,
 │                        #   AI error recovery UX, startup banner, !! and !$ history expansion
+run_function() → control::parse_body() + control::exec_statements() → ExecSignal
+  │                                        propagates Return/Break/Continue upward
+  └── restores local variables after function exit
 ├── classifier.rs        # Input classification with typo detection (strsim/Damerau-Levenshtein)
 │                        #   uses shared PathCache; detects NL-looking args (looks_like_natural_language)
 ├── executor.rs          # Process execution: pipes, redirects (stdout, stderr, 2>&1), chains,
@@ -40,8 +43,25 @@ src/
 │                        #   pipeline child cleanup on spawn failure
 ├── parser.rs            # Tokenizer: quoting, env expansion, globs, tilde, command substitution
 │                        #   handles $(), backticks, nested substitution, chain/pipe splitting
-├── builtins.rs          # Builtins, ShellState (aliases, functions, jobs), job control
-│                        #   fish-compatible `set` builtin with -x/-g/-U/-e flags
+│                        #   $((arithmetic)): full recursive descent evaluator (+,-,*,/,%,**,cmp,&&,||,!)
+├── builtins/
+│   ├── mod.rs           # Dispatch (run_builtin, is_builtin, BUILTINS, try_define_function,
+│   │                    #   run_function -> i32), builtins: cd, z, zi, alias, unalias,
+│   │                    #   abbr, export, unset, history, type, functions, return, command
+│   │                    #   FUNCTION_RETURN thread-local for early return from function bodies
+│   │                    #   run_builtin_no_state() dispatches echo/test/return/cd inside functions
+│   ├── state.rs         # ShellState, Job, ShellFunction structs and impl
+│   ├── jobs.rs          # builtin_jobs, builtin_fg, builtin_bg
+│   ├── set.rs           # fish-compatible `set` builtin (-x/-g/-U/-e flags), PATH helpers
+│   └── source.rs        # source_fish_string, source_conf_d, load_functions_dir,
+│                        #   fish parsing helpers (fish_cmdsub_to_posix, parse_fish_function_file)
+├── control.rs           # Control flow engine: parse_body(), exec_statements(), is/has_control_flow()
+│                        #   Statement enum (Simple, If, For, While, Break, Continue, Local)
+│                        #   ExecSignal enum (Normal, Break, Continue, Return)
+│                        #   Tokenizer: split_semicolons, leading_keyword, emit_segment
+│                        #   Recursive-descent Parser struct; handles nested if/for/while
+│                        #   exec_one dispatches to run_builtin_stateless or executor
+│                        #   local variable save/restore via Vec<(String, Option<String>)>
 ├── safety.rs            # Dangerous command pattern matching (wired into AI pipeline)
 ├── setup.rs             # First-run wizard (interactive provider config)
 │                        #   Starship config merging (ensure_starship_config)
@@ -52,15 +72,15 @@ src/
 │                        #   completer, and highlighter — scanned once at startup
 ├── ai/
 │   ├── mod.rs           # Orchestrator: translate_and_execute(), diagnose_error(),
-│   │                    #   explain_command()
+│   │                    #   explain_command(), suggest_commit(); collapse_multiline()
+│   │                    #   guards against multi-line AI responses
 │   ├── client.rs        # OpenAI-compatible LLM HTTP client (rustls-tls-native-roots)
 │   │                    #   single retry with 2s delay on transient errors
-│   ├── context.rs       # Shell context (OS, arch, cwd, user, dir listings, tool preferences)
-│   │                    #   builds directory context (cwd + home) for AI grounding
-│   │                    #   git context (branch, status, recent commits)
-│   │                    #   per-project .shako.toml context
-│   ├── prompt.rs        # System prompts: translation, error recovery, explain
-│   └── confirm.rs       # Confirmation UX: [Y]es / [n]o / [e]dit
+│   ├── context.rs       # Shell context (OS, arch, cwd, user, dir listings, tool preferences,
+│   │                    #   user_preferences from learned_prefs); git context; .shako.toml
+│   ├── prompt.rs        # System prompts: translation (single-command rule), error recovery,
+│   │                    #   explain, commit message; injects learned user preferences
+│   └── confirm.rs       # Confirmation UX: [Y]es / [n]o / [e]dit / [w]hy
 ├── shell/
 │   ├── mod.rs           # Re-exports
 │   ├── prompt.rs        # Starship integration, exit code + duration tracking (atomics)
@@ -69,11 +89,17 @@ src/
 │   │                    #   AI prefix (purple), path (yellow), unknown (red),
 │   │                    #   flags (blue), pipes/redirects (cyan), strings (yellow),
 │   │                    #   variables (green), comments (gray) — uses PathCache
-│   ├── completer.rs     # Smart tab completion (git, cargo, docker, kubectl, make targets,
-│   │                    #   sudo, dirs, path commands) — uses PathCache, escapes spaces
+│   ├── completer.rs     # Smart tab completion (git branch/ref, git subcommands, cargo, docker,
+│   │                    #   kubectl, make targets, just, npm/pnpm/yarn/bun, brew, go, rustup,
+│   │                    #   helm, terraform, ssh/scp/sftp hosts from ~/.ssh/config, dirs, paths)
+│   │                    #   first-token: PATH + builtins + aliases + functions via Arc<RwLock>
 │   └── hinter.rs        # Autosuggestions via reedline DefaultHinter (gray inline hints)
+├── proactive.rs         # Post-command hooks: after `git add`, offers AI commit message
+├── learned_prefs.rs     # Watch-and-learn: extracts tool substitutions from user edits,
+│                        #   persists to ~/.config/shako/learned_prefs.toml, injects into
+│                        #   AI context as "prefer rg over grep" style hints
 └── config/
-    ├── mod.rs           # Re-exports JboshConfig, LlmConfig
+    ├── mod.rs           # Re-exports ShakoConfig, LlmConfig
     └── schema.rs        # Config types, XDG-aware path resolution, serde defaults,
                          #   multi-provider support ([providers.*] + active_provider)
 ```
@@ -95,6 +121,9 @@ User Input → Reedline → Multiline continuation (if trailing \ or unclosed qu
   ├── Classification::ForcedAI(...)      → explain if bare command, else translate_and_execute()
   ├── Classification::ExplainCommand(.)  → ai::explain_command() (trailing ? syntax)
   └── Classification::Empty              → (skip)
+
+  Control flow shortcut (before classifier):
+  has_control_flow(input) → control::parse_body() + control::exec_statements()
 ```
 
 ### Classification Logic (classifier.rs)
@@ -147,6 +176,11 @@ Full tokenizer and expansion engine:
 - Double quotes: env var + command substitution + backslash escapes (`"`, `\`, `$`, `` ` ``), no glob
 - Backslash escapes (outside quotes)
 - `$VAR`, `${VAR}`, `$?` expansion
+- `${VAR:-word}` / `${VAR:+word}` / `${VAR:?word}` / `${VAR:=word}` — default/alternate/error/assign
+- `${VAR#pat}` / `${VAR##pat}` — strip shortest/longest prefix glob
+- `${VAR%pat}` / `${VAR%%pat}` — strip shortest/longest suffix glob
+- `${VAR/old/new}` / `${VAR//old/new}` — first/all replacement
+- `${#VAR}` — string length
 - `$(cmd)` and backtick command substitution (with nesting via `extract_balanced`)
 - Tilde expansion (`~` → `$HOME`)
 - Glob expansion (`*.rs`) via the `glob` crate — suppressed for quoted tokens
@@ -155,7 +189,7 @@ Full tokenizer and expansion engine:
 
 ### First-Run Setup (setup.rs)
 
-When no config file exists, `JboshConfig::load()` launches an interactive wizard:
+When no config file exists, `ShakoConfig::load()` launches an interactive wizard:
 1. LM Studio (local, `localhost:1234`)
 2. Custom/work proxy (endpoint, model, API key env var, SSL verify)
 3. Template for manual editing
@@ -223,23 +257,27 @@ The AI receives rich context:
 
 ### Naming Conventions
 
-- Structs: `PascalCase`; reedline trait impls use `Jbosh` prefix (`JboshHighlighter`, `JboshCompleter`, `JboshHinter`)
+- Structs: `PascalCase`; reedline trait impls use `Shako` prefix (`ShakoHighlighter`, `ShakoCompleter`)
 - Functions: `snake_case`
-- Builtin handlers: `builtin_cd()`, `builtin_export()`, etc.
+- Builtin handlers: `builtin_cd()`, `builtin_export()`, etc. (module-private in `builtins/mod.rs` or submodules)
 - Constants: `SCREAMING_SNAKE_CASE`
-- Single source of truth: `pub const BUILTINS` in `builtins.rs`
-- Config struct still named `JboshConfig` (historical, pre-rename)
+- Single source of truth: `pub const BUILTINS` in `builtins/mod.rs`
+- Config struct: `ShakoConfig` (in `config/schema.rs`)
 
 ### Shell Builtins
 
 Full list (`builtins::BUILTINS`):
-`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`
+`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `abbr`, `fish-import`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`, `echo`, `read`, `test`, `[`, `pwd`, `pushd`, `popd`, `dirs`, `true`, `false`, `return`, `command`
 
 Notable:
 - `set` is fish-compatible: `set -x VAR val` (export), `set -gx VAR val`, `set -e VAR` (erase), `set` (list all)
 - `source` processes `alias`, `export`, `set`, and `function` definitions from files
 - `type` checks builtins → functions → aliases → PATH (like bash `type`)
 - `z`/`zi` fall back to regular `cd` if zoxide not installed
+- `echo` supports `-n` (no newline), `-e` (escape sequences: `\n \t \r \a \b \\`)
+- `read` supports `-p prompt` and reads into named VAR (default: `REPLY`)
+- `test`/`[` implements POSIX: file tests (`-f -d -e -r -w -x -s -L -z -n`), string (`= != ==`), integer (`-eq -ne -lt -le -gt -ge`), boolean (`! -a -o`)
+- `pushd`/`popd`/`dirs` maintain `ShellState.dir_stack`; `dirs` prints cwd-first like bash
 
 ### Dependencies
 
@@ -272,21 +310,25 @@ lto = "thin"         # thin link-time optimization
 ## Testing
 
 ```bash
-cargo test                      # all 54 tests
+cargo test                      # all 150 tests (78 unit + 72 integration)
+cargo test --lib                # 97 unit tests only
+cargo test --test integration   # 92 integration tests only
 cargo test classifier           # classifier + typo + NL detection tests
 cargo test executor             # redirect parsing + chain tests
-cargo test parser               # tokenizer, expansion, command substitution tests
+cargo test parser               # tokenizer, expansion, command substitution, arithmetic tests
 ```
 
-Test modules are inline (`#[cfg(test)] mod tests`) in `classifier.rs`, `executor.rs`, and `parser.rs`.
+Unit test modules are inline (`#[cfg(test)] mod tests`) in `classifier.rs`, `executor.rs`, `parser.rs`, `ai/client.rs`, `shell/completer.rs`, `proactive.rs`, and `learned_prefs.rs`.
+
+Integration tests live in `tests/integration.rs` and exercise the compiled binary via `shako -c "..."`. They cover: basic execution, pipes, chains (`&&`/`||`/`;`), redirects, env var expansion, glob expansion, quoting, command substitution, type-checking builtins, `$((arithmetic))`, and the `return`/`command` builtins. **Note**: builtins that require `ShellState` (cd, alias, export, set) cannot be tested via `-c` mode because that path calls `executor::execute_command` directly, bypassing the REPL's builtin dispatch. Those are best tested at the unit level.
 
 Tests use `assert!(matches!(...))` for enum variants and direct equality for strings. Some parser tests use `unsafe { env::set_var() }` to set up test env vars (cleaned up after).
 
 ## Gotchas
 
 1. **Edition 2024** — `env::set_var`/`remove_var` require `unsafe`. This is correct and intentional throughout the codebase.
-2. **Config struct naming** — `JboshConfig`, `JboshHighlighter`, `JboshCompleter`, `JboshHinter` still use the pre-rename `Jbosh` prefix. Not yet renamed to `Shako*`.
-3. **Config path on macOS** — `dirs::config_dir()` returns `~/Library/Application Support`. The loader checks `~/.config` first for XDG consistency.
+2. **Config path on macOS** — `dirs::config_dir()` returns `~/Library/Application Support`. The loader checks `~/.config` first for XDG consistency.
+3. **`-c` mode bypasses builtins** — `shako -c "..."` calls `executor::execute_command` directly. Builtins that need `ShellState` (cd, alias, export, set, source) are not dispatched; they fail as if they were unknown external commands. Only the interactive REPL loop handles builtins correctly.
 4. **reqwest uses native roots** — `rustls-tls-native-roots` loads system CA store. Required for corporate proxies. `verify_ssl = false` disables cert verification.
 5. **Typo vs NL heuristic** — typo detection only fires for ≤3 word inputs. Prevents `list all files` matching `lint`.
 6. **Command + NL args** — even valid commands like `find` get routed to AI if args look like prose (detected by `looks_like_natural_language()`). Flags or path-like args override this.
@@ -301,3 +343,8 @@ Tests use `assert!(matches!(...))` for enum variants and direct equality for str
 15. **CI** — `.github/workflows/ci.yml` runs `cargo test` + `cargo clippy` on push/PR (ubuntu + macOS).
 16. **First-run wizard** — if no config file exists, the shell launches an interactive setup wizard before the REPL starts.
 17. **LLM temperature** — configurable via `temperature` field in `LlmConfig` (default `0.1`). LLM client retries once with 2s delay on transient network errors.
+18. **Vi mode Tab completion** — `Vi::default()` has no Tab binding. We use `Vi::new(insert_kb, normal_kb)` with Tab explicitly added to `insert_keybindings`. `edit_mode = "vi"` in config requires this.
+19. **`suppress_echo()` / `restore_echo()` pairing** — `suppress_echo()` sets ECHO=0 after every foreground exit to silence late vim escape responses. `restore_echo()` re-enables ECHO before each `read_line()` call so reedline saves a clean baseline; otherwise the ColumnarMenu can break.
+20. **`collapse_multiline()`** — if the LLM returns multiple lines (alternatives), only the first non-blank non-prose line is used. A yellow warning is printed. The system prompt also tells the model to return a single command.
+21. **Watch-and-learn prefs path** — `~/.config/shako/learned_prefs.toml`. Safe to delete; defaults to empty on missing/corrupt file. Populated automatically when user edits an AI suggestion.
+22. **Proactive commit fires only after `git add`** — `proactive::check()` is called in the `Classification::Command` success path only, not after AI translations, builtins, or background commands.

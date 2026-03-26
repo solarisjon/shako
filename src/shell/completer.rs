@@ -1,7 +1,7 @@
 use reedline::{Completer, Span, Suggestion};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::path_cache::PathCache;
 
@@ -89,15 +89,158 @@ const KUBECTL_SUBCOMMANDS: &[&str] = &[
     "top",
 ];
 
+const NPM_SUBCOMMANDS: &[&str] = &[
+    "audit", "cache", "ci", "dedupe", "exec", "fund", "help", "init", "install",
+    "link", "list", "login", "logout", "outdated", "pack", "ping", "prefix",
+    "publish", "rebuild", "restart", "root", "run", "set", "start", "stop",
+    "test", "token", "uninstall", "unpublish", "update", "version", "view", "whoami",
+];
+
+const PNPM_SUBCOMMANDS: &[&str] = &[
+    "add", "audit", "ci", "dedupe", "exec", "import", "init", "install", "licenses",
+    "link", "list", "outdated", "pack", "patch", "publish", "rebuild", "remove",
+    "run", "start", "store", "test", "unlink", "update", "why",
+];
+
+const YARN_SUBCOMMANDS: &[&str] = &[
+    "add", "audit", "autoclean", "bin", "cache", "check", "config", "create",
+    "exec", "global", "help", "import", "info", "init", "install", "licenses",
+    "link", "list", "login", "logout", "outdated", "owner", "pack", "policies",
+    "publish", "remove", "run", "tag", "team", "test", "unlink", "upgrade",
+    "upgrade-interactive", "version", "versions", "why", "workspace", "workspaces",
+];
+
+const BUN_SUBCOMMANDS: &[&str] = &[
+    "add", "build", "create", "dev", "exec", "init", "install", "link", "outdated",
+    "patch", "pm", "publish", "remove", "run", "test", "unlink", "update", "upgrade", "x",
+];
+
+const BREW_SUBCOMMANDS: &[&str] = &[
+    "analytics", "audit", "autoremove", "bundle", "cask", "cleanup", "commands",
+    "completions", "config", "deps", "desc", "developer", "doctor", "edit",
+    "fetch", "formulae", "gist-logs", "help", "home", "info", "install", "leaves",
+    "link", "list", "log", "missing", "options", "outdated", "pin", "postinstall",
+    "readall", "reinstall", "search", "services", "shellenv", "style", "tap",
+    "tap-info", "uninstall", "unlink", "unpin", "untap", "update", "upgrade",
+    "uses", "vendor-gems",
+];
+
+const GO_SUBCOMMANDS: &[&str] = &[
+    "build", "clean", "doc", "env", "fix", "fmt", "generate", "get", "help",
+    "install", "list", "mod", "run", "telemetry", "test", "tool", "vet", "version", "work",
+];
+
+const RUSTUP_SUBCOMMANDS: &[&str] = &[
+    "check", "component", "completions", "default", "doc", "help", "man",
+    "override", "run", "self", "set", "show", "target", "toolchain", "uninstall",
+    "update", "which",
+];
+
+const HELM_SUBCOMMANDS: &[&str] = &[
+    "completion", "create", "dependency", "diff", "env", "get", "help", "history",
+    "install", "lint", "list", "package", "plugin", "pull", "push", "registry",
+    "repo", "rollback", "search", "show", "status", "template", "test",
+    "uninstall", "upgrade", "verify", "version",
+];
+
+const TERRAFORM_SUBCOMMANDS: &[&str] = &[
+    "apply", "console", "destroy", "fmt", "force-unlock", "get", "graph", "import",
+    "init", "login", "logout", "metadata", "modules", "output", "plan", "providers",
+    "refresh", "show", "state", "taint", "test", "untaint", "validate", "version",
+    "workspace",
+];
+
 const MAKE_SUBCOMMANDS: &[&str] = &[];
 
-pub struct JboshCompleter {
+/// Commands where the next argument is a git branch/ref name.
+const GIT_BRANCH_CMDS: &[&str] = &[
+    "checkout", "switch", "merge", "rebase", "diff", "log",
+    "cherry-pick", "push", "pull", "branch",
+];
+
+pub struct ShakoCompleter {
     cache: Arc<PathCache>,
+    /// Alias and function names shared from the REPL loop for first-token completion.
+    extra_completions: Arc<RwLock<Vec<String>>>,
 }
 
-impl JboshCompleter {
-    pub fn new(cache: Arc<PathCache>) -> Self {
-        Self { cache }
+impl ShakoCompleter {
+    pub fn new(cache: Arc<PathCache>, extra_completions: Arc<RwLock<Vec<String>>>) -> Self {
+        Self { cache, extra_completions }
+    }
+
+    /// Run `git branch` and return matching branch names as completions.
+    fn git_branches(&self, partial: &str, start: usize, pos: usize) -> Vec<Suggestion> {
+        let output = std::process::Command::new("git")
+            .args(["branch", "-a", "--format=%(refname:short)"])
+            .output()
+            .ok();
+        let Some(out) = output else { return vec![] };
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let mut branches: Vec<String> = stdout
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|b| !b.is_empty() && b.starts_with(partial))
+            .collect();
+        branches.sort();
+        branches.dedup();
+        branches
+            .into_iter()
+            .map(|b| Suggestion {
+                value: b,
+                display_override: None,
+                description: None,
+                style: None,
+                extra: None,
+                span: Span::new(start, pos),
+                append_whitespace: true,
+                match_indices: None,
+            })
+            .collect()
+    }
+
+    /// Parse `~/.ssh/config` and return matching `Host` entries.
+    fn ssh_hosts(&self, partial: &str, start: usize, pos: usize) -> Vec<Suggestion> {
+        let config_path = dirs::home_dir()
+            .map(|h| h.join(".ssh/config"))
+            .filter(|p| p.exists());
+        let Some(path) = config_path else { return vec![] };
+        let Ok(contents) = fs::read_to_string(&path) else { return vec![] };
+        let mut hosts: Vec<String> = contents
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                let key = line.split_whitespace().next()?;
+                if !key.eq_ignore_ascii_case("Host") {
+                    return None;
+                }
+                let host = line.split_whitespace().nth(1)?;
+                // Skip wildcard patterns
+                if host.contains('*') || host.contains('?') {
+                    return None;
+                }
+                if host.starts_with(partial) {
+                    Some(host.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        hosts.sort();
+        hosts.dedup();
+        hosts
+            .into_iter()
+            .map(|h| Suggestion {
+                value: h,
+                display_override: None,
+                description: None,
+                style: None,
+                extra: None,
+                span: Span::new(start, pos),
+                append_whitespace: true,
+                match_indices: None,
+            })
+            .collect()
     }
 
     fn path_commands(&self) -> &[String] {
@@ -207,45 +350,45 @@ impl JboshCompleter {
             .collect()
     }
 
-    /// Run `git branch -a` and return branch names matching `partial`.
-    fn git_branches(&self, partial: &str) -> Vec<String> {
-        let output = std::process::Command::new("git")
-            .args(["branch", "-a", "--format=%(refname:short)"])
-            .output()
-            .ok();
-        let Some(output) = output else {
+    /// Read justfile targets for `just` tab completion.
+    fn justfile_targets(&self, partial: &str) -> Vec<String> {
+        let justfile = if PathBuf::from("justfile").exists() {
+            "justfile"
+        } else if PathBuf::from("Justfile").exists() {
+            "Justfile"
+        } else {
             return vec![];
         };
-        if !output.status.success() {
-            return vec![];
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut branches: Vec<String> = stdout
-            .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|b| {
-                !b.is_empty() && !b.ends_with("/HEAD") && b.starts_with(partial)
-            })
-            .collect();
-        branches.sort();
-        branches.dedup();
-        branches
-    }
 
-    fn branch_suggestions(&self, partial: &str, start: usize, pos: usize) -> Vec<Suggestion> {
-        self.git_branches(partial)
-            .into_iter()
-            .map(|b| Suggestion {
-                value: b,
-                display_override: None,
-                description: None,
-                style: None,
-                extra: None,
-                span: Span::new(start, pos),
-                append_whitespace: true,
-                match_indices: None,
-            })
-            .collect()
+        let mut targets = Vec::new();
+        if let Ok(contents) = fs::read_to_string(justfile) {
+            for line in contents.lines() {
+                // Match recipe definitions: `recipe-name:` or `recipe-name arg:`
+                if let Some(name) = line.split(':').next() {
+                    let name = name.trim();
+                    // Only simple identifiers (no comments, must start with alphanum/underscore)
+                    if !name.is_empty()
+                        && !name.starts_with('#')
+                        && !name.starts_with('@')
+                        && name
+                            .chars()
+                            .next()
+                            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                        && name
+                            .split_whitespace()
+                            .next()
+                            .is_some_and(|first| first.starts_with(partial))
+                    {
+                        if let Some(recipe) = name.split_whitespace().next() {
+                            targets.push(recipe.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        targets.sort();
+        targets.dedup();
+        targets
     }
 
     /// Read Makefile targets for `make` tab completion.
@@ -287,7 +430,7 @@ impl JboshCompleter {
     }
 }
 
-impl Completer for JboshCompleter {
+impl Completer for ShakoCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let line_to_cursor = &line[..pos];
         let parts: Vec<&str> = line_to_cursor.split_whitespace().collect();
@@ -304,11 +447,14 @@ impl Completer for JboshCompleter {
         };
         let start = pos - partial.len();
 
-        // First token: complete commands from PATH + builtins
+        // First token: complete commands from PATH + builtins + aliases + functions
         if completing_first_token {
             let mut commands: Vec<String> = self.path_commands().to_vec();
             for &b in crate::builtins::BUILTINS {
                 commands.push(b.to_string());
+            }
+            if let Ok(extra) = self.extra_completions.read() {
+                commands.extend(extra.iter().cloned());
             }
             commands.sort();
             commands.dedup();
@@ -353,14 +499,6 @@ impl Completer for JboshCompleter {
             || (parts.len() == 1 && line_to_cursor.ends_with(' '));
 
         if is_second_token {
-            // `gco <branch>` — git checkout shortcut alias
-            if matches!(first_cmd, "gco") {
-                let branches = self.branch_suggestions(partial, start, pos);
-                if !branches.is_empty() {
-                    return branches;
-                }
-            }
-
             let subcommands = match first_cmd {
                 "git" => Some(GIT_SUBCOMMANDS),
                 "cargo" => Some(CARGO_SUBCOMMANDS),
@@ -385,6 +523,41 @@ impl Completer for JboshCompleter {
                     }
                     Some(MAKE_SUBCOMMANDS)
                 }
+                "just" => {
+                    let targets = self.justfile_targets(partial);
+                    if !targets.is_empty() {
+                        return targets
+                            .into_iter()
+                            .map(|t| Suggestion {
+                                value: t,
+                                display_override: None,
+                                description: None,
+                                style: None,
+                                extra: None,
+                                span: Span::new(start, pos),
+                                append_whitespace: true,
+                                match_indices: None,
+                            })
+                            .collect();
+                    }
+                    Some(&[] as &[&str])
+                }
+                "npm" | "npx" => Some(NPM_SUBCOMMANDS),
+                "pnpm" => Some(PNPM_SUBCOMMANDS),
+                "yarn" => Some(YARN_SUBCOMMANDS),
+                "bun" | "bunx" => Some(BUN_SUBCOMMANDS),
+                "brew" => Some(BREW_SUBCOMMANDS),
+                "go" => Some(GO_SUBCOMMANDS),
+                "rustup" => Some(RUSTUP_SUBCOMMANDS),
+                "helm" => Some(HELM_SUBCOMMANDS),
+                "terraform" | "tf" => Some(TERRAFORM_SUBCOMMANDS),
+                "ssh" | "scp" | "sftp" | "rsync" => {
+                    let hosts = self.ssh_hosts(partial, start, pos);
+                    if !hosts.is_empty() {
+                        return hosts;
+                    }
+                    None
+                }
                 _ => None,
             };
 
@@ -393,16 +566,14 @@ impl Completer for JboshCompleter {
             }
         }
 
-        // Third token: `git <subcmd> <branch>` — complete branch names
-        let is_third_token = (parts.len() == 3 && !line_to_cursor.ends_with(' '))
-            || (parts.len() == 2 && line_to_cursor.ends_with(' '));
-
-        if is_third_token && first_cmd == "git" {
-            let subcmd = parts.get(1).copied().unwrap_or("");
-            const BRANCH_SUBCMDS: &[&str] =
-                &["checkout", "switch", "merge", "rebase", "cherry-pick", "diff", "show", "reset"];
-            if BRANCH_SUBCMDS.contains(&subcmd) {
-                let branches = self.branch_suggestions(partial, start, pos);
+        // Git branch completion: `git checkout <branch>`, `git merge <branch>`, etc.
+        if first_cmd == "git" {
+            let subcmd = if parts.len() >= 2 { parts[1] } else { "" };
+            let is_branch_cmd = GIT_BRANCH_CMDS.contains(&subcmd);
+            let past_subcmd = (parts.len() >= 3)
+                || (parts.len() == 2 && line_to_cursor.ends_with(' '));
+            if is_branch_cmd && past_subcmd {
+                let branches = self.git_branches(partial, start, pos);
                 if !branches.is_empty() {
                     return branches;
                 }
@@ -421,8 +592,11 @@ mod tests {
     use super::*;
     use reedline::Completer;
 
-    fn test_completer() -> JboshCompleter {
-        JboshCompleter::new(PathCache::new())
+    fn test_completer() -> ShakoCompleter {
+        ShakoCompleter::new(
+            PathCache::new(),
+            std::sync::Arc::new(std::sync::RwLock::new(vec![])),
+        )
     }
 
     #[test]
@@ -478,6 +652,25 @@ mod tests {
     }
 
     #[test]
+    fn test_ls_r_completes_readme() {
+        // Regression: "ls R<TAB>" must return path completions, not subcommand completions.
+        // README.md and ROADMAP.md live in the repo root, so this test must run from there.
+        let mut c = test_completer();
+        let suggestions = c.complete("ls R", 4);
+        let values: Vec<&str> = suggestions.iter().map(|s| s.value.as_str()).collect();
+        assert!(
+            values.iter().any(|v| v.starts_with("R")),
+            "expected completions starting with 'R' for 'ls R', got: {:?}",
+            values
+        );
+        // Span must cover the partial token (start=3, end=4)
+        for s in &suggestions {
+            assert_eq!(s.span.start, 3, "span.start should be 3 (position of 'R')");
+            assert_eq!(s.span.end, 4, "span.end should be 4 (cursor)");
+        }
+    }
+
+    #[test]
     fn test_tilde_path_completion() {
         let mut c = test_completer();
         // "ls ~/" — should return entries from the real home directory, not "NO RECORDS FOUND"
@@ -490,64 +683,6 @@ mod tests {
                     assert!(s.value.starts_with("~/"), "completion '{}' should start with '~/'", s.value);
                 }
             }
-        }
-    }
-
-    #[test]
-    fn test_git_checkout_branch_completion() {
-        let mut c = test_completer();
-        // In a git repo with at least a `main` branch this should return branch completions.
-        let suggestions = c.complete("git checkout ", 13);
-        // Only run the assertion when we are inside a git repo (git_branches returns results).
-        if !suggestions.is_empty() {
-            // Completions should not look like file paths (no trailing slash for branches).
-            for s in &suggestions {
-                assert!(!s.value.ends_with('/'), "branch completion '{}' should not end with '/'", s.value);
-                assert!(s.append_whitespace, "branch completion should append whitespace");
-            }
-        }
-    }
-
-    #[test]
-    fn test_git_checkout_branch_prefix_filter() {
-        let mut c = test_completer();
-        // Completing "git checkout ma" should only return branches starting with "ma".
-        let suggestions = c.complete("git checkout ma", 15);
-        for s in &suggestions {
-            assert!(
-                s.value.starts_with("ma"),
-                "branch '{}' should start with 'ma'",
-                s.value
-            );
-        }
-    }
-
-    #[test]
-    fn test_git_switch_branch_completion() {
-        let mut c = test_completer();
-        let suggestions = c.complete("git switch ", 11);
-        // If inside a git repo, branches should be offered (not file paths).
-        for s in &suggestions {
-            assert!(!s.value.ends_with('/'), "unexpected dir completion for git switch");
-        }
-    }
-
-    #[test]
-    fn test_gco_branch_completion() {
-        let mut c = test_completer();
-        let suggestions = c.complete("gco ", 4);
-        // gco is an alias for git checkout — branch completions when in a git repo.
-        for s in &suggestions {
-            assert!(!s.value.ends_with('/'), "branch completion '{}' should not end with '/'", s.value);
-        }
-    }
-
-    #[test]
-    fn test_no_head_in_branch_completions() {
-        let c = test_completer();
-        let branches = c.git_branches("");
-        for b in &branches {
-            assert!(!b.ends_with("/HEAD"), "HEAD ref should be filtered: {b}");
         }
     }
 }

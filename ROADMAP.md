@@ -29,8 +29,8 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
   - rg-powered: `rgf` → `rg -l`
 - [x] **`edit_mode` config option** — `"emacs"` (default) or `"vi"` keybindings via `[behavior] edit_mode`.
 - [x] **`-c` flag** — `shako -c "command"` runs a command non-interactively and exits.
-- [ ] **More subcommand completions** — `npm`/`pnpm`/`yarn`/`bun`, `brew`, `go`, `just` (parse justfile targets like Makefile), `python`/`pip`/`uv`, `rustup`, `terraform`, `helm`.
-- [ ] **SSH host completion** — parse `~/.ssh/config` for hostnames on `ssh <Tab>`.
+- [x] **More subcommand completions** — `npm`/`pnpm`/`yarn`/`bun`, `brew`, `go`, `just` (parses justfile targets), `rustup`, `terraform`, `helm` (#35).
+- [x] **SSH host completion** — parse `~/.ssh/config` for hostnames on `ssh <Tab>`.
 
 ---
 
@@ -38,26 +38,26 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### Builtins
 
-- [ ] **`echo`** — every script uses it; external `/bin/echo` has cross-platform behaviour differences.
-- [ ] **`read`** — can't do interactive prompts in functions without it. `read -p "prompt" VAR`.
-- [ ] **`test` / `[`** — can't write conditionals. `[[ -f file ]]` doesn't work at all.
-- [ ] **`pushd` / `popd` / `dirs`** — directory stack, very common workflow.
-- [ ] **`return`** — functions can't set exit status or return early.
+- [x] **`echo`** — every script uses it; external `/bin/echo` has cross-platform behaviour differences.
+- [x] **`read`** — can't do interactive prompts in functions without it. `read -p "prompt" VAR`.
+- [x] **`test` / `[`** — can't write conditionals. `[[ -f file ]]` doesn't work at all.
+- [x] **`pushd` / `popd` / `dirs`** — directory stack, very common workflow.
+- [x] **`return`** — functions can't set exit status or return early.
 - [ ] **`disown`** — remove background job from shell tracking so it survives shell exit.
 - [ ] **`wait`** — wait for background jobs to finish.
-- [ ] **`pwd`** — avoid exec overhead for trivial operation.
-- [ ] **`command`** — run a command bypassing aliases/functions (like fish's `command`).
+- [x] **`pwd`** — avoid exec overhead for trivial operation.
+- [x] **`command`** — run a command bypassing aliases/functions (like fish's `command`).
 - [ ] **`eval`** — evaluate a string as a command.
 
 ### Parser / Expansion
 
-- [ ] **`${VAR:-default}`** — parameter expansion with defaults. Breaks many sourced scripts without it.
-- [ ] **`${VAR:+alt}`** — use alternate value if set.
-- [ ] **`${VAR:?error}`** — error if unset.
-- [ ] **`${VAR#pattern}` / `${VAR%pattern}`** — prefix/suffix stripping.
-- [ ] **`${VAR/old/new}`** — string replacement.
-- [ ] **`${#VAR}`** — string length.
-- [ ] **`$((arithmetic))`** — inline math expressions.
+- [x] **`${VAR:-default}`** — parameter expansion with defaults. Breaks many sourced scripts without it.
+- [x] **`${VAR:+alt}`** — use alternate value if set.
+- [x] **`${VAR:?error}`** — error if unset.
+- [x] **`${VAR#pattern}` / `${VAR%pattern}`** — prefix/suffix stripping.
+- [x] **`${VAR/old/new}`** — string replacement.
+- [x] **`${#VAR}`** — string length.
+- [x] **`$((arithmetic))`** — inline math expressions.
 - [ ] **Brace expansion** — `{a,b,c}` and `{1..10}`. Fish has this.
 - [ ] **Heredoc `<<EOF`** — pass multi-line input to commands.
 - [ ] **Herestring `<<<`** — `grep foo <<< "$var"`.
@@ -66,11 +66,11 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### Control Flow
 
-- [ ] **`if` / `else` / `fi`** — interactive and in functions.
-- [ ] **`for` / `while` / `done`** — loops.
+- [x] **`if` / `else` / `elif` / `fi`** — interactive and in functions.
+- [x] **`for` / `while` / `do` / `done`** — loops.
 - [ ] **`case` / `esac`** — pattern matching.
-- [ ] **`break` / `continue`** — loop control.
-- [ ] **Local variables** — `local VAR=value` in functions.
+- [x] **`break` / `continue`** — loop control.
+- [x] **Local variables** — `local VAR=value` in functions.
 
 ### Job Control
 
@@ -80,8 +80,8 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 ### Completion Gaps
 
 - [ ] **Flag completion** — `git commit --am<Tab>` should suggest `--amend`.
-- [ ] **Git branch completion** — `git checkout <Tab>` should list branches, not files.
-- [ ] **Alias/function completion** — user-defined aliases and functions should appear in first-token tab completion. (Requires passing `ShellState` to the completer.)
+- [x] **Git branch completion** — `git checkout <Tab>` should list branches, not files.
+- [x] **Alias/function completion** — user-defined aliases and functions should appear in first-token tab completion. (Requires passing `ShellState` to the completer.)
 - [ ] **Env var completion** — `$PA<Tab>` should complete to `$PATH`.
 - [ ] **Dynamic completions** — protocol for tools to register their own completions (like fish's `complete` command).
 - [ ] **Fuzzy matching** — not just prefix matching; `gitp` could match `git-push`.
@@ -102,10 +102,10 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### UX Improvements
 
-- [ ] **Stream AI responses** — show tokens as they arrive instead of blocking with "thinking...". Much better perceived performance.
+- [x] **Stream AI responses** — tokens stream live to the terminal (#37).
 - [ ] **Edit mode with readline** — AI confirm `[e]dit` currently uses raw `stdin.read_line()`. Should use reedline with history/completion/cursor movement.
-- [ ] **Add `[w]hy` option** — `[Y]es / [n]o / [e]dit / [w]hy` lets users understand before executing.
-- [ ] **Multi-command preview** — multi-line AI commands should show as numbered steps, not one blob.
+- [x] **`[w]hy` option** — `[Y]es / [n]o / [e]dit / [w]hy` lets users understand before executing (#36).
+- [x] **Multi-command guard** — `collapse_multiline()` rejects multi-line AI responses, picks the best single command, and warns the user.
 - [ ] **Retry/refine** — if the AI generates the wrong command, allow "no, I meant..." without starting over.
 - [ ] **AI-generated commands in history** — add to reedline history after confirmation so they're recallable.
 
@@ -119,9 +119,9 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
   ```
 - [ ] **Session memory** — AI remembers the conversation. After `fd *.log`, say `"now delete the ones over 1GB"` and it knows what you mean.
 - [ ] **AI-powered history search** — `? what was that rsync command I used last week` does semantic search over shell history.
-- [ ] **Proactive suggestions** — after `git add .`, suggest `git commit -m "..."` with an AI-generated message from the staged diff.
+- [x] **Proactive suggestions** — after `git add`, shako offers an AI-generated commit message from the staged diff (#43).
 - [ ] **AI pipe builder** — `? take output.json, extract emails, sort unique, count` builds the pipeline step-by-step with intermediate previews.
-- [ ] **Watch-and-learn** — when the user edits an AI suggestion, log the correction to a local preferences file. Over time: "user prefers rg over grep", "user uses fd not find".
+- [x] **Watch-and-learn** — edits to AI suggestions are logged to `~/.config/shako/learned_prefs.toml`; preferences (e.g. "prefer rg over grep") are injected into future AI prompts (#42).
 - [ ] **Smart history search** — `? what was that command I used to resize images` does semantic search.
 - [ ] **Natural language aliases** — `alias "deploy to staging" = "kubectl apply -f k8s/staging/"`.
 
@@ -177,10 +177,10 @@ Missing config options for power users:
 
 ## Architecture / Code Health
 
-- [ ] **Split `builtins.rs`** (1,183 lines) — extract `ShellState`, `Job`/job-control, and `set` builtin into separate modules.
-- [ ] **Rename `Jbosh*` → `Shako*`** — `JboshConfig`, `JboshHighlighter`, `JboshCompleter`, `JboshHinter` still use the pre-rename prefix.
+- [x] **Split `builtins.rs`** — split into `builtins/state.rs` (ShellState/Job/ShellFunction), `builtins/jobs.rs` (fg/bg/jobs), `builtins/set.rs` (set + PATH helpers), `builtins/source.rs` (source_fish_string, source_conf_d, load_functions_dir), `builtins/mod.rs` (dispatch + remaining builtins).
+- [x] **Rename `Jbosh*` → `Shako*`** — `ShakoConfig`, `ShakoHighlighter`, `ShakoCompleter` throughout. No more `Jbosh` prefix anywhere.
 - [ ] **Feature-gate `fish_import.rs`** (683 lines) — one-time migration utility; put behind `--features fish-import`.
-- [ ] **Integration tests** — end-to-end tests that pipe input through shako and check output. Currently all 54 tests are unit tests.
+- [x] **Integration tests** — `tests/integration.rs` has 30 end-to-end tests (pipes, chains, redirects, env, glob, quoting, builtins). 54 unit tests + 30 integration = 84 total. Note: builtins (cd, alias, export, set) can only be tested via the interactive REPL loop, not via `-c` mode (which bypasses `ShellState`).
 - [ ] **Startup time instrumentation** — add `--timings` flag or log startup duration at `RUST_LOG=info`.
 
 ---
@@ -222,11 +222,11 @@ Missing config options for power users:
 6. `pushd`/`popd`/`dirs`
 7. ~~Git branch + state in AI context~~ — done
 
-### Phase 3 — UX Polish
+### Phase 3 — UX Polish ✅ Complete
 8. ~~More smart defaults (duf, git shortcuts, docker shortcuts)~~ — done
-9. `npm`/`brew`/`go`/`just` completions
-10. Stream AI responses
-11. `[w]hy` option in AI confirmation
+9. ~~`npm`/`brew`/`go`/`just`/`helm`/`terraform` completions~~ — done (#35)
+10. ~~Stream AI responses~~ — done (#37)
+11. ~~`[w]hy` option in AI confirmation~~ — done (#36)
 
 ### Phase 4 — Differentiators
 12. ~~`?` suffix explain mode~~ — done

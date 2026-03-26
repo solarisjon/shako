@@ -15,7 +15,8 @@ The user typed natural language instead of a shell command. Translate their
 intent into one or more shell commands.
 
 Rules:
-1. Return ONLY the command(s), one per line. No explanation, no markdown, no code fences.
+1. Return ONLY a single command or pipeline. No alternatives, no lists, no explanation,
+   no markdown, no code fences. ONE line (or a chain joined with && / ; / ||).
 2. Prefer simple, readable commands over clever one-liners.
 3. If the intent is ambiguous, return the safest interpretation.
 4. Never generate destructive commands (rm -rf, mkfs, etc.) without
@@ -24,7 +25,9 @@ Rules:
 6. Always quote glob patterns in arguments (e.g. '*.md', not *.md) so the shell
    does not expand them before the tool receives them.
 7. NEVER invent CLI flags. Only use flags you are certain the tool supports.
-   If unsure, fall back to a simpler tool (e.g. find/grep) rather than guessing flags."#,
+   If unsure, fall back to a simpler tool (e.g. find/grep) rather than guessing flags.
+8. To LIST files SORTED by size: use `ls -lS` (or `eza -la -s size` if eza is present).
+   Do NOT confuse this with finding files LARGER THAN a threshold (fd --size / find -size)."#,
         ctx.os, ctx.arch, ctx.shell, ctx.cwd, ctx.user,
     );
 
@@ -56,6 +59,10 @@ Rules:
         for (tool, instruction) in &ctx.available_tools {
             prompt.push_str(&format!("\n   - {tool}: {instruction}"));
         }
+    }
+
+    if !ctx.user_preferences.is_empty() {
+        prompt.push_str(&format!("\n\n{}", ctx.user_preferences));
     }
 
     prompt
@@ -119,6 +126,28 @@ Rules:
     }
 
     prompt
+}
+
+/// Build the system prompt for generating a git commit message.
+pub fn commit_message_prompt() -> String {
+    r#"You are a git commit message generator.
+
+Given a staged diff summary and the actual diff, write a single concise commit message.
+
+Rules:
+1. Use conventional commits format: type(scope): description
+   Valid types: feat, fix, refactor, docs, test, chore, style, perf, ci, build
+2. The description must be ≤72 characters total, imperative mood ("add" not "added")
+3. Return ONLY the commit message. No quotes, no explanation, no markdown, no code fences.
+4. Omit the scope if it would be too generic (e.g. do not write "chore(misc):")
+5. If changes span multiple unrelated concerns, summarize the most significant one.
+6. Good examples:
+   feat(auth): add OAuth2 login flow
+   fix(parser): handle empty input without panic
+   refactor: extract ShellState into separate module
+   docs: update README with new CLI flags
+   test: add integration tests for pipe chains"#
+        .to_string()
 }
 
 /// Build the system prompt for explaining a command.

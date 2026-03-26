@@ -98,9 +98,11 @@ impl Classifier {
         }
 
         // Typo detection: only for short inputs that look like command attempts
-        // (not full sentences). 3+ words is likely natural language.
+        // (not full sentences). 3+ words is likely natural language, and we also
+        // check if the args read as prose (e.g. "list all files" has "all" in NL_WORDS).
         let word_count = trimmed.split_whitespace().count();
-        if word_count <= 3 {
+        let args_after_first: Vec<&str> = trimmed.split_whitespace().skip(1).collect();
+        if word_count <= 2 || (word_count == 3 && !looks_like_natural_language(&args_after_first)) {
             if let Some(suggestion) = self.find_typo_match(first_token) {
                 let corrected = if trimmed.len() > first_token.len() {
                     format!("{}{}", suggestion, &trimmed[first_token.len()..])
@@ -323,6 +325,19 @@ mod tests {
         assert!(
             matches!(result, Classification::Typo { ref suggestion, .. } if suggestion == "git status"),
             "expected Typo with suggestion 'git status', got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_3word_nl_not_typo() {
+        // "list all files" — "list" is 1 edit from "klist" but the args look like
+        // natural language, so it must route to NaturalLanguage, not Typo.
+        let c = test_classifier();
+        let result = c.classify("list all files");
+        assert!(
+            matches!(result, Classification::NaturalLanguage(_)),
+            "expected NaturalLanguage for 'list all files', got {:?}",
             result
         );
     }

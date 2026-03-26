@@ -1,3 +1,3 @@
 mod schema;
 
-pub use schema::{JboshConfig, LlmConfig};
+pub use schema::{ShakoConfig, LlmConfig};

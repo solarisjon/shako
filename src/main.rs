@@ -4,16 +4,20 @@ use anyhow::Result;
 use reedline::{
     ColumnarMenu, EditMode, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
     ReedlineEvent, ReedlineMenu, Signal, Vi, default_emacs_keybindings,
+    default_vi_insert_keybindings, default_vi_normal_keybindings,
 };
 
 mod ai;
 mod builtins;
 mod classifier;
 mod config;
+mod control;
 mod executor;
 mod fish_import;
+mod learned_prefs;
 mod parser;
 mod path_cache;
+mod proactive;
 mod safety;
 mod setup;
 mod shell;
@@ -21,7 +25,7 @@ mod smart_defaults;
 
 use builtins::ShellState;
 use classifier::{Classification, Classifier};
-use config::JboshConfig;
+use config::ShakoConfig;
 use shell::prompt::{self, CommandTimer, StarshipPrompt};
 
 fn main() -> Result<()> {
@@ -35,7 +39,7 @@ fn main() -> Result<()> {
 
     if init {
         eprintln!("\x1b[1;36mshako:\x1b[0m reinitializing...");
-        if let Err(e) = JboshConfig::reset() {
+        if let Err(e) = ShakoConfig::reset() {
             eprintln!("shako: reset failed: {e}");
             std::process::exit(1);
         }
@@ -65,17 +69,48 @@ fn main() -> Result<()> {
     }
 
     // Non-interactive mode: shako -c "command" — skip wizard, just execute.
+    // Use proper chain-aware dispatch so builtins work the same as interactive mode.
     if let Some(cmd_str) = cmd_mode {
         if cmd_str.is_empty() {
             eprintln!("shako: -c: option requires an argument");
             std::process::exit(2);
         }
-        let status = executor::execute_command(&cmd_str);
-        let code = status.and_then(|s| s.code()).unwrap_or(0);
-        std::process::exit(code);
+        let mut state = ShellState::new(std::path::PathBuf::new());
+        let last_code;
+
+        if control::has_control_flow(&cmd_str) {
+            let stmts = control::parse_body(&cmd_str);
+            let mut locals = Vec::new();
+            last_code = match control::exec_statements(&stmts, &mut locals) {
+                control::ExecSignal::Normal(c) | control::ExecSignal::Return(c) => c,
+                _ => 0,
+            };
+        } else {
+            let mut code = 0i32;
+            let chains = parser::split_chains(&cmd_str);
+            let mut prev_op = parser::ChainOp::None;
+            for (segment, op) in &chains {
+                let should_run = match prev_op {
+                    parser::ChainOp::None | parser::ChainOp::Semi => true,
+                    parser::ChainOp::And => code == 0,
+                    parser::ChainOp::Or => code != 0,
+                };
+                if should_run {
+                    code = if is_pure_builtin_call(segment) {
+                        builtins::run_builtin(segment, &mut state)
+                    } else {
+                        let status = executor::execute_command(segment);
+                        status.and_then(|s| s.code()).unwrap_or(0)
+                    };
+                }
+                prev_op = *op;
+            }
+            last_code = code;
+        }
+        std::process::exit(last_code);
     }
 
-    let (config, first_run) = JboshConfig::load()?;
+    let (config, first_run) = ShakoConfig::load()?;
 
     if !quiet {
         print_banner(&config);
@@ -88,8 +123,10 @@ fn main() -> Result<()> {
     let path_cache = path_cache::PathCache::new();
     let classifier = Classifier::new(path_cache.clone());
 
-    let highlighter = shell::highlighter::JboshHighlighter::new(path_cache.clone());
-    let completer = shell::completer::JboshCompleter::new(path_cache);
+    let highlighter = shell::highlighter::ShakoHighlighter::new(path_cache.clone());
+    let extra_completions: std::sync::Arc<std::sync::RwLock<Vec<String>>> =
+        std::sync::Arc::new(std::sync::RwLock::new(vec![]));
+    let completer = shell::completer::ShakoCompleter::new(path_cache, std::sync::Arc::clone(&extra_completions));
     let hinter = shell::hinter::create_hinter();
 
     let history_path = dirs::data_dir()
@@ -112,23 +149,21 @@ fn main() -> Result<()> {
             .with_column_padding(2),
     );
 
+    let tab_completion_binding = ReedlineEvent::UntilFound(vec![
+        ReedlineEvent::Menu("completion_menu".to_string()),
+        ReedlineEvent::MenuNext,
+    ]);
+
     let edit_mode: Box<dyn EditMode> = if config.behavior.edit_mode == "vi" {
-        Box::new(Vi::default())
+        // Add Tab completion to vi insert mode — Vi::default() has no completion binding.
+        let mut insert_kb = default_vi_insert_keybindings();
+        insert_kb.add_binding(KeyModifiers::NONE, KeyCode::Tab, tab_completion_binding.clone());
+        insert_kb.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
+        Box::new(Vi::new(insert_kb, default_vi_normal_keybindings()))
     } else {
         let mut keybindings = default_emacs_keybindings();
-        keybindings.add_binding(
-            KeyModifiers::NONE,
-            KeyCode::Tab,
-            ReedlineEvent::UntilFound(vec![
-                ReedlineEvent::Menu("completion_menu".to_string()),
-                ReedlineEvent::MenuNext,
-            ]),
-        );
-        keybindings.add_binding(
-            KeyModifiers::SHIFT,
-            KeyCode::BackTab,
-            ReedlineEvent::MenuPrevious,
-        );
+        keybindings.add_binding(KeyModifiers::NONE, KeyCode::Tab, tab_completion_binding);
+        keybindings.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
         Box::new(Emacs::new(keybindings))
     };
 
@@ -266,12 +301,25 @@ fn main() -> Result<()> {
         state.reap_jobs();
         prompt::set_job_count(state.jobs.len());
 
+        // Keep alias and function names available for tab completion.
+        if let Ok(mut extra) = extra_completions.write() {
+            extra.clear();
+            extra.extend(state.aliases.keys().cloned());
+            extra.extend(state.functions.keys().cloned());
+        }
+
         #[cfg(unix)]
         if ran_foreground {
             std::thread::sleep(std::time::Duration::from_millis(50));
             executor::drain_pending_input();
             ran_foreground = false;
         }
+
+        // Always restore ECHO before reedline reads — suppress_echo() may have
+        // disabled it, and if reedline saves that as its baseline the tab
+        // completion menu can break on some terminals.
+        #[cfg(unix)]
+        executor::restore_echo();
 
         let sig = line_editor.read_line(&prompt);
         match sig {
@@ -322,16 +370,32 @@ fn main() -> Result<()> {
                     continue;
                 }
 
+                // Route control flow (if/for/while) through the control engine
                 let timer = CommandTimer::start();
 
+                if control::has_control_flow(&input) {
+                    let stmts = control::parse_body(&input);
+                    let mut locals = Vec::new();
+                    let code = match control::exec_statements(&stmts, &mut locals) {
+                        control::ExecSignal::Normal(c) | control::ExecSignal::Return(c) => c,
+                        _ => 0,
+                    };
+                    prompt::set_last_status(code);
+                    last_command = input.to_string();
+                    timer.stop();
+                    continue;
+                }
+
                 // Check if first token is a shell function (including autoload)
+                // (timer was already started before the control-flow check above)
                 let first_token = input.split_whitespace().next().unwrap_or("");
                 if state.functions.contains_key(first_token)
                     || state.try_autoload_function(first_token)
                 {
                     if let Some(func) = state.functions.get(first_token).cloned() {
                         let args: Vec<&str> = input.split_whitespace().skip(1).collect();
-                        builtins::run_function(&func, &args);
+                        let code = builtins::run_function(&func, &args);
+                        crate::shell::prompt::set_last_status(code);
                     }
                     timer.stop();
                     continue;
@@ -353,12 +417,34 @@ fn main() -> Result<()> {
                                     &rt,
                                     &history_path,
                                 );
+                            } else {
+                                proactive::check(&cmd, &config, &rt);
                             }
                         }
                     }
                     Classification::Builtin(cmd) => {
-                        builtins::run_builtin(&cmd, &mut state);
-                        prompt::set_last_status(0);
+                        // Chain-aware builtin dispatch: split on ;/&&/|| so
+                        // that `pushd /tmp && ls` works correctly.
+                        // For segments with pipes or redirects, fall through to
+                        // executor which handles them (so `echo hi | tr a-z A-Z` works).
+                        let chains = parser::split_chains(&cmd);
+                        let mut last_code = 0i32;
+                        for (segment, op) in &chains {
+                            let code = if is_pure_builtin_call(segment) {
+                                builtins::run_builtin(segment, &mut state)
+                            } else {
+                                let status = executor::execute_command(segment);
+                                status.and_then(|s| s.code()).unwrap_or(0)
+                            };
+                            last_code = code;
+                            let stop = match op {
+                                parser::ChainOp::And => last_code != 0,
+                                parser::ChainOp::Or => last_code == 0,
+                                _ => false,
+                            };
+                            if stop { break; }
+                        }
+                        prompt::set_last_status(last_code);
                     }
                     Classification::NaturalLanguage(text) => {
                         let history = read_recent_history(&history_path, config.behavior.history_context_lines);
@@ -420,8 +506,8 @@ fn main() -> Result<()> {
                             if answer.is_empty() || answer == "y" || answer == "yes" {
                                 let first = suggestion.split_whitespace().next().unwrap_or("");
                                 if builtins::is_builtin(first) {
-                                    builtins::run_builtin(&suggestion, &mut state);
-                                    prompt::set_last_status(0);
+                                    let code = builtins::run_builtin(&suggestion, &mut state);
+                                    prompt::set_last_status(code);
                                 } else {
                                     let status = executor::execute_command(&suggestion);
                                     set_exit_code(status);
@@ -489,7 +575,7 @@ fn offer_ai_recovery(
     command: &str,
     exit_code: i32,
     stderr_output: &str,
-    config: &JboshConfig,
+    config: &ShakoConfig,
     rt: &tokio::runtime::Runtime,
     history_path: &std::path::Path,
 ) {
@@ -587,7 +673,8 @@ fn offer_ai_recovery(
     });
 }
 
-/// Check if the input line needs continuation (trailing \ or unclosed quotes).
+/// Check if the input line needs continuation (trailing \, unclosed quotes,
+/// or an unclosed if/for/while block).
 fn needs_continuation(input: &str) -> bool {
     if input.ends_with('\\') {
         return true;
@@ -614,14 +701,71 @@ fn needs_continuation(input: &str) -> bool {
         }
     }
 
-    in_single || in_double
+    if in_single || in_double {
+        return true;
+    }
+
+    // Count unclosed control-flow blocks
+    control_depth(input) > 0
 }
 
-fn print_banner(config: &JboshConfig) {
+/// Count nesting depth of control-flow keywords in a (possibly partial) input.
+/// Positive → needs more `fi`/`done` to close.
+fn control_depth(input: &str) -> i32 {
+    let mut depth = 0i32;
+    // Split on unquoted semicolons and check first word of each segment
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut seg_start = 0usize;
+    let bytes = input.as_bytes();
+    let mut i = 0usize;
+
+    let mut check_seg = |seg: &str| {
+        let first = seg.trim().split_whitespace().next().unwrap_or("");
+        match first {
+            "if" | "for" | "while" => depth += 1,
+            "fi" | "done" => depth -= 1,
+            _ => {}
+        }
+    };
+
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        match c {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            ';' if !in_single && !in_double => {
+                let seg = &input[seg_start..i];
+                check_seg(seg);
+                seg_start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let tail = &input[seg_start..];
+    check_seg(tail);
+    depth
+}
+
+fn print_banner(config: &ShakoConfig) {
     let version = env!("CARGO_PKG_VERSION");
     let llm = config.active_llm();
 
-    let provider_name = config.active_provider.as_deref().unwrap_or("llm");
+    // Derive a display name for the provider.
+    let provider_name: String = if let Some(name) = &config.active_provider {
+        if !config.providers.contains_key(name.as_str()) {
+            eprintln!(
+                "\x1b[33mwarning:\x1b[0m active_provider '{}' not found in config — using defaults.\
+                 \n         Add a [providers.{}] block or remove active_provider.",
+                name, name
+            );
+        }
+        name.clone()
+    } else {
+        // No named provider — infer a friendly label from the endpoint.
+        endpoint_label(&llm.endpoint)
+    };
 
     // Show the normalized endpoint so users see what URL will actually be used.
     let endpoint = ai::client::normalize_endpoint(&llm.endpoint);
@@ -636,6 +780,31 @@ fn print_banner(config: &JboshConfig) {
          \x1b[33m{provider_name}\x1b[0m  {model}  \x1b[90m{endpoint_display}\x1b[0m",
         model = llm.model,
     );
+}
+
+/// Infer a friendly backend label from an endpoint URL.
+/// Maps well-known localhost ports to backend names; falls back to host:port.
+fn endpoint_label(endpoint: &str) -> String {
+    let url = endpoint.trim();
+    let host = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or(url);
+
+    if host.contains("openai.com") {
+        "openai".to_string()
+    } else if host.ends_with(":11434") || host == "localhost:11434" {
+        "ollama".to_string()
+    } else if host.ends_with(":1234") {
+        "lm-studio".to_string()
+    } else if host.ends_with(":8080") {
+        "llama.cpp".to_string()
+    } else {
+        host.to_string()
+    }
 }
 
 /// Expand `!!` (last command) and `!$` (last arg of last command) in the input.
@@ -675,4 +844,26 @@ fn read_recent_history(history_path: &std::path::Path, n: usize) -> Vec<String> 
         }
         Err(_) => Vec::new(),
     }
+}
+
+/// Returns true if `segment` should be dispatched to `run_builtin`.
+/// A pure builtin call has no pipes and no unquoted redirect operators (> <).
+/// If pipes or redirects are present, the executor handles them (including
+/// any builtin at the start of the pipeline).
+fn is_pure_builtin_call(segment: &str) -> bool {
+    if parser::split_pipes(segment).len() > 1 {
+        return false;
+    }
+    let mut in_single = false;
+    let mut in_double = false;
+    for ch in segment.chars() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '>' | '<' if !in_single && !in_double => return false,
+            _ => {}
+        }
+    }
+    let first = segment.split_whitespace().next().unwrap_or("");
+    builtins::is_builtin(first)
 }

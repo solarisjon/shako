@@ -3,8 +3,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Debug, Default, Deserialize, Clone)]
-pub struct JboshConfig {
+#[derive(Debug, Deserialize, Clone)]
+pub struct ShakoConfig {
     /// Legacy single-provider config. Used when no `active_provider` is set.
     #[serde(default)]
     pub llm: LlmConfig,
@@ -21,7 +21,7 @@ pub struct JboshConfig {
     pub aliases: HashMap<String, String>,
 }
 
-impl JboshConfig {
+impl ShakoConfig {
     /// Returns the active LLM config: the named provider if `active_provider` is set,
     /// otherwise the legacy `[llm]` block.
     pub fn active_llm(&self) -> &LlmConfig {
@@ -141,7 +141,7 @@ impl Default for BehaviorConfig {
     }
 }
 
-impl JboshConfig {
+impl ShakoConfig {
     /// Load config from ~/.config/shako/config.toml, falling back to defaults.
     /// Returns `(config, first_run)` where `first_run` is true if the wizard was invoked.
     pub fn load() -> Result<(Self, bool)> {
@@ -149,7 +149,7 @@ impl JboshConfig {
 
         if config_path.exists() {
             let contents = std::fs::read_to_string(&config_path)?;
-            let config: JboshConfig = toml::from_str(&contents)?;
+            let config: ShakoConfig = toml::from_str(&contents)?;
             log::debug!("loaded config from {}", config_path.display());
             let active = config.active_llm();
             log::debug!(
@@ -165,7 +165,7 @@ impl JboshConfig {
                 config_path.display()
             );
             let toml = crate::setup::run_wizard(&config_path)?;
-            let config: JboshConfig = toml::from_str(&toml)?;
+            let config: ShakoConfig = toml::from_str(&toml)?;
             Ok((config, true))
         }
     }

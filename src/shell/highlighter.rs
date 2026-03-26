@@ -5,11 +5,11 @@ use reedline::{Highlighter, StyledText};
 
 use crate::path_cache::PathCache;
 
-pub struct JboshHighlighter {
+pub struct ShakoHighlighter {
     cache: Arc<PathCache>,
 }
 
-impl JboshHighlighter {
+impl ShakoHighlighter {
     pub fn new(cache: Arc<PathCache>) -> Self {
         Self { cache }
     }
@@ -54,7 +54,7 @@ fn style_default() -> Style {
     Style::new()
 }
 
-impl Highlighter for JboshHighlighter {
+impl Highlighter for ShakoHighlighter {
     fn highlight(&self, line: &str, _cursor: usize) -> StyledText {
         let mut styled = StyledText::new();
 

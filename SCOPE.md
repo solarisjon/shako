@@ -97,7 +97,12 @@ src/
 ├── main.rs              # Entry point, REPL loop
 ├── classifier.rs        # Input classification (command vs NL)
 ├── executor.rs          # Process execution, pipes, redirects
-├── builtins.rs          # cd, export, source, exit, etc.
+├── builtins/
+│   ├── mod.rs           # Dispatch (run_builtin), cd/z/zi/alias/history/type/etc.
+│   ├── state.rs         # ShellState, Job, ShellFunction
+│   ├── jobs.rs          # builtin_jobs, builtin_fg, builtin_bg
+│   ├── set.rs           # fish-compatible set builtin + PATH helpers
+│   └── source.rs        # source_fish_string, source_conf_d, load_functions_dir
 ├── ai/
 │   ├── mod.rs           # AI bridge orchestrator
 │   ├── client.rs        # HTTP client for LLM API
@@ -105,14 +110,14 @@ src/
 │   ├── prompt.rs        # System prompt templates
 │   └── confirm.rs       # User confirmation before execution
 ├── shell/
-│   ├── mod.rs           # Shell state (env, aliases, history)
+│   ├── mod.rs           # Re-exports
 │   ├── highlighter.rs   # Syntax highlighting (fish-like)
 │   ├── completer.rs     # Tab completion
 │   ├── hinter.rs        # Autosuggestions from history
 │   └── prompt.rs        # Prompt rendering (git, path, etc.)
 ├── config/
 │   ├── mod.rs           # Config loading
-│   └── schema.rs        # Config types
+│   └── schema.rs        # ShakoConfig + types
 └── safety.rs            # Dangerous command detection
 ```
 
