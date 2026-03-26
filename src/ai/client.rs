@@ -143,7 +143,7 @@ pub async fn query_llm(
                         buf = buf[nl + 1..].to_string();
 
                         if line.starts_with("data: ") {
-                            let data = &line["data: ".len()..];
+                            let data = line.strip_prefix("data: ").unwrap_or("");
                             if data == "[DONE]" {
                                 done = true;
                                 break;

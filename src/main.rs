@@ -722,7 +722,7 @@ fn control_depth(input: &str) -> i32 {
     let mut i = 0usize;
 
     let mut check_seg = |seg: &str| {
-        let first = seg.trim().split_whitespace().next().unwrap_or("");
+        let first = seg.split_whitespace().next().unwrap_or("");
         match first {
             "if" | "for" | "while" => depth += 1,
             "fi" | "done" => depth -= 1,
