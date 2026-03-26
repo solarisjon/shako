@@ -134,6 +134,9 @@ fn offer_commit_suggestion(config: &ShakoConfig, rt: &tokio::runtime::Runtime) {
                         eprintln!("\x1b[90m{}\x1b[0m", staged.stat.trim());
                         // loop continues — re-shows the command and prompt
                     }
+                    Ok(ai::confirm::ConfirmAction::Refine) => {
+                        // Refine not meaningful in commit context; loop continues
+                    }
                     Err(_) => break,
                 }
             }

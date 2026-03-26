@@ -46,6 +46,13 @@ Rules:
         prompt.push_str(&format!("\n\nProject instructions:\n{}", ctx.project_context));
     }
 
+    if !ctx.session_memory.is_empty() {
+        prompt.push_str("\n\nRecent AI conversation context (use this to understand follow-up queries):\n");
+        for (user_input, ai_cmd) in &ctx.session_memory {
+            prompt.push_str(&format!("  User: {user_input}\n  Command: {ai_cmd}\n"));
+        }
+    }
+
     if !ctx.recent_history.is_empty() {
         prompt.push_str("\n\nRecent command history (most recent last):\n");
         for cmd in &ctx.recent_history {

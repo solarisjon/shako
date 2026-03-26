@@ -353,6 +353,13 @@ fn main() -> Result<()> {
                 // Expand aliases before classification
                 let input = state.expand_alias(&input).unwrap_or(input);
 
+                // Handle AI session memory reset
+                if input == "ai reset" || input == "ai forget" {
+                    state.ai_session_memory.clear();
+                    println!("AI session memory cleared.");
+                    continue;
+                }
+
                 // Check for function definition
                 if input.starts_with("function ") {
                     builtins::try_define_function(&input, &mut state);
@@ -448,15 +455,13 @@ fn main() -> Result<()> {
                     }
                     Classification::NaturalLanguage(text) => {
                         let history = read_recent_history(&history_path, config.behavior.history_context_lines);
-                        rt.block_on(async {
-                            match ai::translate_and_execute(&text, &config, history).await {
-                                Ok(_) => prompt::set_last_status(0),
-                                Err(e) => {
-                                    eprintln!("shako: ai error: {e}");
-                                    prompt::set_last_status(1);
-                                }
+                        match rt.block_on(ai::translate_and_execute(&text, &config, history, &mut state.ai_session_memory)) {
+                            Ok(_) => prompt::set_last_status(0),
+                            Err(e) => {
+                                eprintln!("shako: ai error: {e}");
+                                prompt::set_last_status(1);
                             }
-                        });
+                        }
                     }
                     Classification::ForcedAI(text) => {
                         let words: Vec<&str> = text.split_whitespace().collect();
@@ -483,15 +488,13 @@ fn main() -> Result<()> {
                             });
                         } else {
                             let history = read_recent_history(&history_path, config.behavior.history_context_lines);
-                            rt.block_on(async {
-                                match ai::translate_and_execute(&text, &config, history).await {
-                                    Ok(_) => prompt::set_last_status(0),
-                                    Err(e) => {
-                                        eprintln!("shako: ai error: {e}");
-                                        prompt::set_last_status(1);
-                                    }
+                            match rt.block_on(ai::translate_and_execute(&text, &config, history, &mut state.ai_session_memory)) {
+                                Ok(_) => prompt::set_last_status(0),
+                                Err(e) => {
+                                    eprintln!("shako: ai error: {e}");
+                                    prompt::set_last_status(1);
                                 }
-                            });
+                            }
                         }
                     }
                     Classification::Typo { suggestion, .. } => {
@@ -514,16 +517,14 @@ fn main() -> Result<()> {
                                 }
                             }
                         } else {
-                            rt.block_on(async {
-                                let history = read_recent_history(&history_path, config.behavior.history_context_lines);
-                                match ai::translate_and_execute(&suggestion, &config, history).await {
-                                    Ok(_) => prompt::set_last_status(0),
-                                    Err(e) => {
-                                        eprintln!("shako: ai error: {e}");
-                                        prompt::set_last_status(1);
-                                    }
+                            let history = read_recent_history(&history_path, config.behavior.history_context_lines);
+                            match rt.block_on(ai::translate_and_execute(&suggestion, &config, history, &mut state.ai_session_memory)) {
+                                Ok(_) => prompt::set_last_status(0),
+                                Err(e) => {
+                                    eprintln!("shako: ai error: {e}");
+                                    prompt::set_last_status(1);
                                 }
-                            });
+                            }
                         }
                     }
                     Classification::Empty => {}

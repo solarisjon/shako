@@ -5,76 +5,108 @@ pub mod prompt;
 
 use crate::config::ShakoConfig;
 use anyhow::Result;
+use std::io::{self, Write};
 
 /// Translate natural language to a shell command via LLM, confirm, and execute.
 pub async fn translate_and_execute(
     input: &str,
     config: &ShakoConfig,
     recent_history: Vec<String>,
+    session_memory: &mut Vec<(String, String)>,
 ) -> Result<()> {
-    let ctx = context::build_context(recent_history)?;
+    let ctx = context::build_context(recent_history, session_memory.clone())?;
     let system_prompt = prompt::system_prompt(&ctx);
 
-    let response = client::query_llm(&system_prompt, input, config.active_llm()).await?;
+    let mut current_input = input.to_string();
 
-    let command = collapse_multiline(response.trim());
-    let command = command.as_str();
+    'translate: loop {
+        let response = client::query_llm(&system_prompt, &current_input, config.active_llm()).await?;
+        let command = collapse_multiline(response.trim());
 
-    if command == "SHAKO_CANNOT_TRANSLATE" || command.is_empty() {
-        eprintln!("shako: couldn't translate that to a command");
-        return Ok(());
-    }
-
-    // Safety check on AI-generated commands
-    if config.behavior.safety_mode != "off" && crate::safety::is_dangerous(command) {
-        if config.behavior.safety_mode == "block" {
-            eprintln!("\x1b[31;1m⚠ dangerous command blocked:\x1b[0m {command}");
+        if command == "SHAKO_CANNOT_TRANSLATE" || command.is_empty() {
+            eprintln!("shako: couldn't translate that to a command");
             return Ok(());
         }
-        eprintln!("\x1b[31;1m⚠ dangerous command detected:\x1b[0m {command}");
-    }
 
-    let extra_warning =
-        config.behavior.safety_mode != "off" && crate::safety::needs_extra_confirmation(command);
-
-    // Show the translated command and ask for confirmation
-    if config.behavior.confirm_ai_commands {
-        if extra_warning {
-            eprintln!("\x1b[33;1m⚠ this command modifies system state\x1b[0m");
+        // Safety check on AI-generated commands
+        if config.behavior.safety_mode != "off" && crate::safety::is_dangerous(&command) {
+            if config.behavior.safety_mode == "block" {
+                eprintln!("\x1b[31;1m⚠ dangerous command blocked:\x1b[0m {command}");
+                return Ok(());
+            }
+            eprintln!("\x1b[31;1m⚠ dangerous command detected:\x1b[0m {command}");
         }
-        loop {
-            match confirm::confirm_command(command)? {
-                confirm::ConfirmAction::Execute => {
-                    crate::executor::execute_command(command);
-                    break;
-                }
-                confirm::ConfirmAction::Edit(edited) => {
-                    crate::learned_prefs::record_edit(command, &edited);
-                    crate::executor::execute_command(&edited);
-                    break;
-                }
-                confirm::ConfirmAction::Cancel => {
-                    println!("cancelled");
-                    break;
-                }
-                confirm::ConfirmAction::Why => {
-                    match explain_command(command, config).await {
-                        Ok(explanation) => {
-                            println!("\x1b[90m{explanation}\x1b[0m");
-                        }
-                        Err(e) => {
-                            eprintln!("shako: couldn't explain: {e}");
-                        }
+
+        let extra_warning = config.behavior.safety_mode != "off"
+            && crate::safety::needs_extra_confirmation(&command);
+
+        // Show the translated command and ask for confirmation
+        if config.behavior.confirm_ai_commands {
+            if extra_warning {
+                eprintln!("\x1b[33;1m⚠ this command modifies system state\x1b[0m");
+            }
+            // Show numbered preview for multi-step commands
+            confirm::print_multi_command_preview(&command);
+            loop {
+                match confirm::confirm_command(&command)? {
+                    confirm::ConfirmAction::Execute => {
+                        crate::executor::execute_command(&command);
+                        push_memory(session_memory, input, &command);
+                        break 'translate;
                     }
-                    // loop continues — re-shows the command and prompt
+                    confirm::ConfirmAction::Edit(edited) => {
+                        crate::learned_prefs::record_edit(&command, &edited);
+                        crate::executor::execute_command(&edited);
+                        push_memory(session_memory, input, &edited);
+                        break 'translate;
+                    }
+                    confirm::ConfirmAction::Cancel => {
+                        println!("cancelled");
+                        break 'translate;
+                    }
+                    confirm::ConfirmAction::Why => {
+                        match explain_command(&command, config).await {
+                            Ok(explanation) => {
+                                println!("\x1b[90m{explanation}\x1b[0m");
+                            }
+                            Err(e) => {
+                                eprintln!("shako: couldn't explain: {e}");
+                            }
+                        }
+                        // loop continues — re-shows the command and prompt
+                    }
+                    confirm::ConfirmAction::Refine => {
+                        print!("\x1b[36mRefine:\x1b[0m ");
+                        io::stdout().flush()?;
+                        let mut clarification = String::new();
+                        io::stdin().read_line(&mut clarification)?;
+                        let clarification = clarification.trim();
+                        if clarification.is_empty() {
+                            // loop again without change
+                            continue;
+                        }
+                        current_input = format!("{input} (clarification: {clarification})");
+                        // Break inner confirm loop to re-translate
+                        break;
+                    }
                 }
             }
+        } else {
+            crate::executor::execute_command(&command);
+            push_memory(session_memory, input, &command);
+            break 'translate;
         }
-    } else {
-        crate::executor::execute_command(command);
     }
 
     Ok(())
+}
+
+/// Push a (user NL input, AI command) pair into session memory, capped at 5.
+fn push_memory(memory: &mut Vec<(String, String)>, input: &str, command: &str) {
+    memory.push((input.to_string(), command.to_string()));
+    if memory.len() > 5 {
+        memory.remove(0);
+    }
 }
 
 /// Ask the AI to diagnose a failed command and suggest a fix.
@@ -85,7 +117,7 @@ pub async fn diagnose_error(
     config: &ShakoConfig,
     recent_history: Vec<String>,
 ) -> Result<String> {
-    let ctx = context::build_context(recent_history)?;
+    let ctx = context::build_context(recent_history, vec![])?;
     let system_prompt = prompt::error_recovery_prompt(&ctx);
     let user_msg = if stderr_hint.is_empty() {
         format!("Command: {command}\nExit code: {exit_code}")
@@ -150,7 +182,7 @@ pub async fn explain_command(
     command: &str,
     config: &ShakoConfig,
 ) -> Result<String> {
-    let ctx = context::build_context(vec![])?;
+    let ctx = context::build_context(vec![], vec![])?;
     let system_prompt = prompt::explain_prompt(&ctx);
 
     client::query_llm(&system_prompt, command, config.active_llm()).await
