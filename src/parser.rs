@@ -205,8 +205,8 @@ fn expand_braces(token: &str) -> Vec<String> {
     let bytes = token.as_bytes();
     let mut depth = 0usize;
     let mut close_pos = None;
-    for i in open_pos..bytes.len() {
-        match bytes[i] {
+    for (i, &byte) in bytes.iter().enumerate().skip(open_pos) {
+        match byte {
             b'{' => depth += 1,
             b'}' => {
                 depth -= 1;
