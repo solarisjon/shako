@@ -10,7 +10,7 @@
 
 ```bash
 make build          # cargo build
-make test           # cargo test (189 tests: 97 unit + 92 integration)
+make test           # cargo test < /dev/null (189+ tests)
 make run            # cargo run
 make check          # cargo check
 make fmt            # cargo fmt
@@ -25,7 +25,7 @@ make clean          # cargo clean
 
 **Logging**: Set `RUST_LOG=debug` (or `info`, `trace`) to enable `env_logger` output.
 
-**Runtime flag**: `--quiet` / `-q` suppresses the startup banner.
+**Runtime flags**: `--quiet` / `-q` suppresses the startup banner. `--timings` / `-T` prints wall-clock execution time after each command.
 
 ## Project Structure
 
@@ -44,6 +44,8 @@ run_function() → control::parse_body() + control::exec_statements() → ExecSi
 ├── parser.rs            # Tokenizer: quoting, env expansion, globs, tilde, command substitution
 │                        #   handles $(), backticks, nested substitution, chain/pipe splitting
 │                        #   $((arithmetic)): full recursive descent evaluator (+,-,*,/,%,**,cmp,&&,||,!)
+│                        #   brace expansion: {a,b,c} and {1..10} sequences
+│                        #   herestring: <<< word (expands to stdin string)
 ├── builtins/
 │   ├── mod.rs           # Dispatch (run_builtin, is_builtin, BUILTINS, try_define_function,
 │   │                    #   run_function -> i32), builtins: cd, z, zi, alias, unalias,
@@ -51,7 +53,8 @@ run_function() → control::parse_body() + control::exec_statements() → ExecSi
 │   │                    #   FUNCTION_RETURN thread-local for early return from function bodies
 │   │                    #   run_builtin_no_state() dispatches echo/test/return/cd inside functions
 │   ├── state.rs         # ShellState, Job, ShellFunction structs and impl
-│   ├── jobs.rs          # builtin_jobs, builtin_fg, builtin_bg
+│   │                    #   ShellState.ai_session_memory: Vec<(String,String)> rolling AI context (cap 5)
+│   ├── jobs.rs          # builtin_jobs, builtin_fg, builtin_bg, builtin_disown, builtin_wait
 │   ├── set.rs           # fish-compatible `set` builtin (-x/-g/-U/-e flags), PATH helpers
 │   └── source.rs        # source_fish_string, source_conf_d, load_functions_dir,
 │                        #   fish parsing helpers (fish_cmdsub_to_posix, parse_fish_function_file)
@@ -72,15 +75,18 @@ run_function() → control::parse_body() + control::exec_statements() → ExecSi
 │                        #   completer, and highlighter — scanned once at startup
 ├── ai/
 │   ├── mod.rs           # Orchestrator: translate_and_execute(), diagnose_error(),
-│   │                    #   explain_command(), suggest_commit(); collapse_multiline()
-│   │                    #   guards against multi-line AI responses
+│   │                    #   explain_command(), suggest_commit(), search_history(); collapse_multiline()
+│   │                    #   guards against multi-line AI responses; session memory rolling context;
+│   │                    #   multi-command step preview for && / ; / pipe chains; refine loop
 │   ├── client.rs        # OpenAI-compatible LLM HTTP client (rustls-tls-native-roots)
 │   │                    #   single retry with 2s delay on transient errors
 │   ├── context.rs       # Shell context (OS, arch, cwd, user, dir listings, tool preferences,
 │   │                    #   user_preferences from learned_prefs); git context; .shako.toml
+│   │                    #   injects ai_session_memory as recent conversation history
 │   ├── prompt.rs        # System prompts: translation (single-command rule), error recovery,
 │   │                    #   explain, commit message; injects learned user preferences
-│   └── confirm.rs       # Confirmation UX: [Y]es / [n]o / [e]dit / [w]hy
+│   └── confirm.rs       # Confirmation UX: [Y]es / [n]o / [e]dit / [w]hy / [r]efine
+│                        #   [r]efine: prompts for clarification, re-queries LLM with amended input
 ├── shell/
 │   ├── mod.rs           # Re-exports
 │   ├── prompt.rs        # Starship integration, exit code + duration tracking (atomics)
@@ -93,8 +99,11 @@ run_function() → control::parse_body() + control::exec_statements() → ExecSi
 │   │                    #   kubectl, make targets, just, npm/pnpm/yarn/bun, brew, go, rustup,
 │   │                    #   helm, terraform, ssh/scp/sftp hosts from ~/.ssh/config, dirs, paths)
 │   │                    #   first-token: PATH + builtins + aliases + functions via Arc<RwLock>
+│   │                    #   flag completion: git (commit/push/log/diff/clone) and cargo subcommands
 │   └── hinter.rs        # Autosuggestions via reedline DefaultHinter (gray inline hints)
 ├── proactive.rs         # Post-command hooks: after `git add`, offers AI commit message
+│                        #   also triggers after `git clone` (suggests cd into repo) and
+│                        #   after `cd` into a dir with Makefile/justfile (suggests make targets)
 ├── learned_prefs.rs     # Watch-and-learn: extracts tool substitutions from user edits,
 │                        #   persists to ~/.config/shako/learned_prefs.toml, injects into
 │                        #   AI context as "prefer rg over grep" style hints
@@ -119,6 +128,7 @@ User Input → Reedline → Multiline continuation (if trailing \ or unclosed qu
   ├── Classification::Typo{suggestion}   → prompt "did you mean X?" → run as builtin or command
   ├── Classification::NaturalLanguage(.) → ai::translate_and_execute()
   ├── Classification::ForcedAI(...)      → explain if bare command, else translate_and_execute()
+  ├── Classification::HistorySearch(...) → ai::search_history() (prefixed with `??`)
   ├── Classification::ExplainCommand(.)  → ai::explain_command() (trailing ? syntax)
   └── Classification::Empty              → (skip)
 
@@ -131,24 +141,29 @@ User Input → Reedline → Multiline continuation (if trailing \ or unclosed qu
 Order matters:
 
 1. Empty input → `Empty`
-2. Starts with `? ` or `ai:` or `?<text>` → `ForcedAI`
-3. Ends with `?` → `ExplainCommand` (explain without executing)
-4. First token is in `BUILTINS` list → `Builtin`
-4. First token starts with `/` or `./` (explicit path) → `Command`
-5. First token found via `which` (in `$PATH`) → `Command` **unless** remaining args look like natural language (`looks_like_natural_language()` detects prose words like "the", "all", "in", "files", "modified", "today", etc. — requires ≥2 args and no flags/paths)
-6. First token is within edit distance 2 of a known command AND input is ≤3 words → `Typo`
-7. Everything else → `NaturalLanguage` (routed to LLM)
+2. Starts with `?? ` → `HistorySearch` (semantic history search via LLM)
+3. Starts with `? ` or `ai:` or `?<text>` → `ForcedAI`
+4. Ends with `?` → `ExplainCommand` (explain without executing)
+5. First token is in `BUILTINS` list → `Builtin`
+5. First token starts with `/` or `./` (explicit path) → `Command`
+6. First token found via `which` (in `$PATH`) → `Command` **unless** remaining args look like natural language (`looks_like_natural_language()` detects prose words like "the", "all", "in", "files", "modified", "today", etc. — requires ≥2 args and no flags/paths)
+7. First token is within edit distance 2 of a known command AND input is ≤3 words → `Typo`
+8. Everything else → `NaturalLanguage` (routed to LLM)
 
 ### AI Pipeline (ai/)
 
-1. `context::build_context()` — gathers OS, arch, cwd, user, directory listings (cwd + home subtree), detected modern tools with syntax guidance, git state (branch, status, recent commits), per-project .shako.toml instructions, recent command history
+1. `context::build_context()` — gathers OS, arch, cwd, user, directory listings (cwd + home subtree), detected modern tools with syntax guidance, git state (branch, status, recent commits), per-project .shako.toml instructions, recent command history, and recent AI session memory
 2. `prompt::system_prompt()` — formats system prompt with context, tool preferences, and directory context
 3. `client::query_llm()` — sends to OpenAI-compatible endpoint (temperature 0.1)
 4. If response is `SHAKO_CANNOT_TRANSLATE` or empty → error message
 5. **Safety check** — `safety::is_dangerous()` blocks/warns based on `safety_mode`
 6. **Extra warning** — `safety::needs_extra_confirmation()` for sudo/rm/mv/chmod/chown
-7. If `confirm_ai_commands` is true → `confirm::confirm_command()` → Y/n/e
-8. Execute via `executor::execute_command()`
+7. If command contains `&&` / `;` / pipes → print numbered step preview before confirming
+8. If `confirm_ai_commands` is true → `confirm::confirm_command()` → Y/n/e/w/r
+   - `[r]efine` prompts for clarification, appends it to original query, and re-queries LLM
+9. Execute via `executor::execute_command()`
+10. On success: push (query, command) pair to `ai_session_memory` (capped at 5 exchanges)
+    - `ai reset` / `ai forget` clears session memory
 
 ### AI Error Recovery
 
@@ -219,12 +234,13 @@ Also: `ensure_starship_config()` creates `~/.config/shako/starship.toml` (mergin
 - Default endpoint: `http://localhost:11434/v1/chat/completions` (Ollama)
 - Default model: `claude-haiku-4.5`
 - Default API key env var: `SHAKO_LLM_KEY`
+- `behavior.ai_enabled = false` disables AI routing entirely (all NL input falls through as command)
 - `[aliases]` section loaded at startup, user config overrides smart defaults
 - Auto-sources `~/.config/shako/init.sh` if it exists (supports alias, export, set, function definitions)
 
 ### State Management
 
-- `ShellState` holds: aliases (`HashMap<String, String>`), functions (`HashMap<String, ShellFunction>`), jobs (`Vec<Job>`), history path
+- `ShellState` holds: aliases (`HashMap<String, String>`), functions (`HashMap<String, ShellFunction>`), jobs (`Vec<Job>`), history path, `ai_session_memory: Vec<(String,String)>` (rolling AI context, max 5 pairs)
 - Exit code tracked via `AtomicI32` in `shell::prompt` (for starship + `$?`)
 - Command duration tracked via `CommandTimer` using `AtomicU64` (for starship)
 - Job count tracked via `AtomicUsize` (for starship jobs module)
@@ -267,13 +283,15 @@ The AI receives rich context:
 ### Shell Builtins
 
 Full list (`builtins::BUILTINS`):
-`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `abbr`, `fish-import`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `function`, `functions`, `echo`, `read`, `test`, `[`, `pwd`, `pushd`, `popd`, `dirs`, `true`, `false`, `return`, `command`
+`cd`, `exit`, `export`, `unset`, `set`, `source`, `alias`, `unalias`, `abbr`, `fish-import`, `history`, `type`, `z`, `zi`, `jobs`, `fg`, `bg`, `disown`, `wait`, `function`, `functions`, `echo`, `read`, `test`, `[`, `pwd`, `pushd`, `popd`, `dirs`, `true`, `false`, `return`, `command`
 
 Notable:
 - `set` is fish-compatible: `set -x VAR val` (export), `set -gx VAR val`, `set -e VAR` (erase), `set` (list all)
 - `source` processes `alias`, `export`, `set`, and `function` definitions from files
 - `type` checks builtins → functions → aliases → PATH (like bash `type`)
 - `z`/`zi` fall back to regular `cd` if zoxide not installed
+- `disown <job>` removes a job from the job table (background process runs independently after)
+- `wait [job]` blocks until specified (or all) background jobs finish
 - `echo` supports `-n` (no newline), `-e` (escape sequences: `\n \t \r \a \b \\`)
 - `read` supports `-p prompt` and reads into named VAR (default: `REPLY`)
 - `test`/`[` implements POSIX: file tests (`-f -d -e -r -w -x -s -L -z -n`), string (`= != ==`), integer (`-eq -ne -lt -le -gt -ge`), boolean (`! -a -o`)
@@ -310,10 +328,10 @@ lto = "thin"         # thin link-time optimization
 ## Testing
 
 ```bash
-cargo test                      # all 150 tests (78 unit + 72 integration)
-cargo test --lib                # 97 unit tests only
-cargo test --test integration   # 92 integration tests only
-cargo test classifier           # classifier + typo + NL detection tests
+cargo test < /dev/null              # all tests (189+ — count grows with new features)
+cargo test --lib                    # unit tests only (inline #[cfg(test)] modules)
+cargo test --test integration       # integration tests only (tests/integration.rs)
+cargo test classifier               # classifier + typo + NL detection tests
 cargo test executor             # redirect parsing + chain tests
 cargo test parser               # tokenizer, expansion, command substitution, arithmetic tests
 ```

@@ -43,8 +43,8 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 - [x] **`test` / `[`** — can't write conditionals. `[[ -f file ]]` doesn't work at all.
 - [x] **`pushd` / `popd` / `dirs`** — directory stack, very common workflow.
 - [x] **`return`** — functions can't set exit status or return early.
-- [ ] **`disown`** — remove background job from shell tracking so it survives shell exit.
-- [ ] **`wait`** — wait for background jobs to finish.
+- [x] **`disown`** — remove background job from shell tracking so it survives shell exit.
+- [x] **`wait`** — wait for background jobs to finish.
 - [x] **`pwd`** — avoid exec overhead for trivial operation.
 - [x] **`command`** — run a command bypassing aliases/functions (like fish's `command`).
 - [ ] **`eval`** — evaluate a string as a command.
@@ -58,9 +58,9 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 - [x] **`${VAR/old/new}`** — string replacement.
 - [x] **`${#VAR}`** — string length.
 - [x] **`$((arithmetic))`** — inline math expressions.
-- [ ] **Brace expansion** — `{a,b,c}` and `{1..10}`. Fish has this.
+- [x] **Brace expansion** — `{a,b,c}` and `{1..10}`. Fish has this.
 - [ ] **Heredoc `<<EOF`** — pass multi-line input to commands.
-- [ ] **Herestring `<<<`** — `grep foo <<< "$var"`.
+- [x] **Herestring `<<<`** — `grep foo <<< "$var"`.
 - [ ] **`$0`, `$#`, `$$`, `$!`** — special variables (script name, arg count, PID, last background PID).
 - [ ] **ANSI-C quoting `$'...'`** — `$'\n'`, `$'\t'` escape sequences.
 
@@ -79,7 +79,7 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 
 ### Completion Gaps
 
-- [ ] **Flag completion** — `git commit --am<Tab>` should suggest `--amend`.
+- [x] **Flag completion** — `git commit --am<Tab>` completes `--amend`; cargo subcommand flags also supported.
 - [x] **Git branch completion** — `git checkout <Tab>` should list branches, not files.
 - [x] **Alias/function completion** — user-defined aliases and functions should appear in first-token tab completion. (Requires passing `ShellState` to the completer.)
 - [ ] **Env var completion** — `$PA<Tab>` should complete to `$PATH`.
@@ -106,7 +106,7 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 - [ ] **Edit mode with readline** — AI confirm `[e]dit` currently uses raw `stdin.read_line()`. Should use reedline with history/completion/cursor movement.
 - [x] **`[w]hy` option** — `[Y]es / [n]o / [e]dit / [w]hy` lets users understand before executing (#36).
 - [x] **Multi-command guard** — `collapse_multiline()` rejects multi-line AI responses, picks the best single command, and warns the user.
-- [ ] **Retry/refine** — if the AI generates the wrong command, allow "no, I meant..." without starting over.
+- [x] **Retry/refine** — if the AI generates the wrong command, `[r]efine` lets you clarify without starting over.
 - [ ] **AI-generated commands in history** — add to reedline history after confirmation so they're recallable.
 
 ### Innovation Ideas (differentiators)
@@ -117,12 +117,12 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
   [ai]
   context = "Rust project using actix-web. Tests: cargo nextest run."
   ```
-- [ ] **Session memory** — AI remembers the conversation. After `fd *.log`, say `"now delete the ones over 1GB"` and it knows what you mean.
-- [ ] **AI-powered history search** — `? what was that rsync command I used last week` does semantic search over shell history.
+- [x] **Session memory** — AI remembers the conversation within a session (last 5 exchanges). `ai reset` clears it.
+- [x] **AI-powered history search** — `?? rsync command last week` does semantic search over shell history.
 - [x] **Proactive suggestions** — after `git add`, shako offers an AI-generated commit message from the staged diff (#43).
 - [ ] **AI pipe builder** — `? take output.json, extract emails, sort unique, count` builds the pipeline step-by-step with intermediate previews.
 - [x] **Watch-and-learn** — edits to AI suggestions are logged to `~/.config/shako/learned_prefs.toml`; preferences (e.g. "prefer rg over grep") are injected into future AI prompts (#42).
-- [ ] **Smart history search** — `? what was that command I used to resize images` does semantic search.
+- [ ] **Smart history search** — `? what was that command I used to resize images` does semantic search. (Use `??` prefix for history search)
 - [ ] **Natural language aliases** — `alias "deploy to staging" = "kubectl apply -f k8s/staging/"`.
 
 ---
@@ -180,8 +180,8 @@ Missing config options for power users:
 - [x] **Split `builtins.rs`** — split into `builtins/state.rs` (ShellState/Job/ShellFunction), `builtins/jobs.rs` (fg/bg/jobs), `builtins/set.rs` (set + PATH helpers), `builtins/source.rs` (source_fish_string, source_conf_d, load_functions_dir), `builtins/mod.rs` (dispatch + remaining builtins).
 - [x] **Rename `Jbosh*` → `Shako*`** — `ShakoConfig`, `ShakoHighlighter`, `ShakoCompleter` throughout. No more `Jbosh` prefix anywhere.
 - [ ] **Feature-gate `fish_import.rs`** (683 lines) — one-time migration utility; put behind `--features fish-import`.
-- [x] **Integration tests** — `tests/integration.rs` has 30 end-to-end tests (pipes, chains, redirects, env, glob, quoting, builtins). 54 unit tests + 30 integration = 84 total. Note: builtins (cd, alias, export, set) can only be tested via the interactive REPL loop, not via `-c` mode (which bypasses `ShellState`).
-- [ ] **Startup time instrumentation** — add `--timings` flag or log startup duration at `RUST_LOG=info`.
+- [x] **Integration tests** — `tests/integration.rs` has 90+ end-to-end tests (pipes, chains, redirects, env, glob, quoting, builtins). 97 unit tests + 92 integration = 189 total (and growing). Note: builtins (cd, alias, export, set) can only be tested via the interactive REPL loop, not via `-c` mode (which bypasses `ShellState`).
+- [x] **Startup time instrumentation** — `--timings` / `-T` flag prints wall-clock execution time after each command.
 
 ---
 
