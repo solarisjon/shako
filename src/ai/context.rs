@@ -18,6 +18,8 @@ pub struct ShellContext {
     pub project_context: String,
     /// Learned user preferences injected from ~/.config/shako/learned_prefs.toml
     pub user_preferences: String,
+    /// Rolling session memory: (user NL input, AI command)
+    pub session_memory: Vec<(String, String)>,
 }
 
 /// Modern tools the AI should prefer when available, with concrete syntax guidance.
@@ -73,7 +75,7 @@ const TOOL_PREFERENCES: &[(&str, &str)] = &[
 ];
 
 /// Build context from the current environment.
-pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
+pub fn build_context(recent_history: Vec<String>, session_memory: Vec<(String, String)>) -> Result<ShellContext> {
     let cwd = env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
@@ -105,6 +107,7 @@ pub fn build_context(recent_history: Vec<String>) -> Result<ShellContext> {
         git_context,
         project_context,
         user_preferences,
+        session_memory,
     })
 }
 

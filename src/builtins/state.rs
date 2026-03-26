@@ -25,6 +25,8 @@ pub struct ShellState {
     pub jobs: Vec<Job>,
     next_job_id: usize,
     pub dir_stack: Vec<PathBuf>,
+    /// Rolling AI session memory: (user NL input, AI command response)
+    pub ai_session_memory: Vec<(String, String)>,
 }
 
 impl ShellState {
@@ -38,6 +40,7 @@ impl ShellState {
             jobs: Vec::new(),
             next_job_id: 1,
             dir_stack: Vec::new(),
+            ai_session_memory: Vec::new(),
         }
     }
 
