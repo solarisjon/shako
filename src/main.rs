@@ -29,16 +29,11 @@ use config::ShakoConfig;
 use shell::prompt::{self, CommandTimer, StarshipPrompt};
 
 fn main() -> Result<()> {
-    let t0 = std::time::Instant::now();
     let args: Vec<String> = std::env::args().collect();
     let quiet = args.iter().any(|a| a == "--quiet" || a == "-q");
-    let show_timings = args.iter().any(|a| a == "--timings");
     let init = args.iter().any(|a| a == "--init");
     let cmd_mode = args.iter().position(|a| a == "-c")
         .map(|i| args.get(i + 1).cloned().unwrap_or_default());
-
-    let mut timings: Vec<(&str, std::time::Duration)> = Vec::new();
-    timings.push(("arg parsing", t0.elapsed()));
 
     env_logger::init();
 
