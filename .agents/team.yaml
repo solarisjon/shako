@@ -1,0 +1,204 @@
+# Team Configuration
+# This file defines the team structure, roles, and operational defaults.
+
+team:
+  name: "Development Team"
+  version: "1.0.0"
+  description: "Multi-agent software development team with specialized roles"
+
+# Default settings applied to all tasks unless overridden
+defaults:
+  language: "auto-detect"        # Infer from project files
+  test_required: true            # Tests must pass before handoff
+  review_required: true          # Code review before merge
+  docs_required: false           # Docs only when lead requests
+  max_delegation_depth: 2        # Lead -> Specialist -> Sub-task (no deeper)
+  task_timeout_minutes: 30       # Escalate if stuck longer than this
+
+# Team roster — ordered by delegation priority
+roles:
+  lead:
+    persona: "leads/orchestrator.md"
+    description: "Orchestrates the team, decomposes tasks, reviews output"
+    can_delegate_to:
+      - developer
+      - tester
+      - reviewer
+      - release-engineer
+      - doc-writer
+      - purifier
+      - architect
+    authority:
+      - final_approval
+      - conflict_resolution
+      - scope_changes
+      - architecture_decisions
+
+  developer:
+    persona: "roles/developer.md"
+    description: "Implements features, fixes bugs, refactors code"
+    tools:
+      - edit
+      - search
+      - lsp
+      - bash
+      - test_runner
+    reports_to: lead
+    can_request_help_from:
+      - architect
+      - tester
+
+  tester:
+    persona: "roles/tester.md"
+    description: "Writes tests, runs test suites, analyzes coverage"
+    tools:
+      - bash
+      - test_runner
+      - grep
+      - view
+    reports_to: lead
+    can_request_help_from:
+      - developer
+
+  reviewer:
+    persona: "roles/reviewer.md"
+    description: "Reviews code for quality, security, and style"
+    tools:
+      - view
+      - grep
+      - lsp_diagnostics
+      - search
+    reports_to: lead
+    can_request_help_from:
+      - architect
+      - developer
+
+  release-engineer:
+    persona: "roles/release-engineer.md"
+    description: "Manages git workflow, versioning, releases, CI/CD"
+    tools:
+      - bash
+      - git
+      - gh_cli
+    reports_to: lead
+    can_request_help_from:
+      - developer
+      - tester
+
+  doc-writer:
+    persona: "roles/doc-writer.md"
+    description: "Writes and maintains documentation"
+    tools:
+      - view
+      - edit
+      - grep
+      - search
+    reports_to: lead
+    can_request_help_from:
+      - developer
+      - architect
+
+  purifier:
+    persona: "roles/purifier.md"
+    description: "Runs documentation through Purify (AISP) pipeline to eliminate ambiguity"
+    tools:
+      - bash
+      - view
+      - edit
+      - grep
+    reports_to: lead
+    can_request_help_from:
+      - doc-writer
+      - developer
+    requires:
+      - purify           # CLI: purify -f <doc>
+      - purify-mcp       # MCP server (optional, for session-based flows)
+
+  architect:
+    persona: "roles/architect.md"
+    description: "Makes design decisions, analyzes dependencies, manages tech debt"
+    tools:
+      - search
+      - grep
+      - lsp
+      - sourcegraph
+      - view
+    reports_to: lead
+    can_request_help_from:
+      - developer
+
+# Workflow pipelines — common multi-role sequences
+pipelines:
+  feature:
+    description: "Full feature implementation pipeline"
+    steps:
+      - role: architect
+        action: "Design and dependency analysis"
+        optional: true
+      - role: developer
+        action: "Implementation"
+      - role: tester
+        action: "Write and run tests"
+      - role: reviewer
+        action: "Code review"
+      - role: doc-writer
+        action: "Update documentation"
+        optional: true
+      - role: purifier
+        action: "Purify specs and API docs"
+        optional: true
+        condition: "specs, requirements, API docs, ADRs — skip for changelogs, comments"
+      - role: release-engineer
+        action: "Commit, tag, release"
+
+  bugfix:
+    description: "Bug fix pipeline"
+    steps:
+      - role: developer
+        action: "Investigate and fix"
+      - role: tester
+        action: "Write regression test"
+      - role: reviewer
+        action: "Review fix"
+      - role: release-engineer
+        action: "Commit and patch release"
+
+  refactor:
+    description: "Code refactoring pipeline"
+    steps:
+      - role: architect
+        action: "Analyze scope and impact"
+      - role: developer
+        action: "Implement refactor"
+      - role: tester
+        action: "Verify no regressions"
+      - role: reviewer
+        action: "Review changes"
+      - role: release-engineer
+        action: "Commit"
+
+  docs-only:
+    description: "Documentation-only changes"
+    steps:
+      - role: doc-writer
+        action: "Write or update docs"
+      - role: purifier
+        action: "Purify docs through AISP round-trip"
+        optional: true
+        condition: "specs, requirements, API docs, ADRs — skip for changelogs, comments"
+      - role: reviewer
+        action: "Review docs"
+        optional: true
+      - role: release-engineer
+        action: "Commit"
+
+# Task states
+task_states:
+  - pending        # In backlog, not yet assigned
+  - assigned       # Delegated to a role
+  - in_progress    # Actively being worked
+  - blocked        # Waiting on dependency or escalation
+  - review         # Awaiting lead review
+  - approved       # Lead accepted the output
+  - rejected       # Lead returned with feedback
+  - completed      # Done and merged/shipped

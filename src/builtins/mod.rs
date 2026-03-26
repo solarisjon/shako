@@ -26,6 +26,8 @@ pub const BUILTINS: &[&str] = &[
     "jobs",
     "fg",
     "bg",
+    "disown",
+    "wait",
     "function",
     "functions",
     // Phase 2
@@ -93,6 +95,8 @@ pub fn run_builtin(input: &str, state: &mut ShellState) -> i32 {
         "jobs" => { jobs::builtin_jobs(state); 0 }
         "fg" => { jobs::builtin_fg(&parts[1..], state); 0 }
         "bg" => { jobs::builtin_bg(&parts[1..], state); 0 }
+        "disown" => jobs::builtin_disown(&parts[1..], state),
+        "wait" => jobs::builtin_wait(&parts[1..], state),
         "functions" => { builtin_functions(state); 0 }
         // Phase 2
         "echo" => builtin_echo(&parts[1..]),

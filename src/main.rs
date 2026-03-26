@@ -29,11 +29,16 @@ use config::ShakoConfig;
 use shell::prompt::{self, CommandTimer, StarshipPrompt};
 
 fn main() -> Result<()> {
+    let t0 = std::time::Instant::now();
     let args: Vec<String> = std::env::args().collect();
     let quiet = args.iter().any(|a| a == "--quiet" || a == "-q");
+    let show_timings = args.iter().any(|a| a == "--timings");
     let init = args.iter().any(|a| a == "--init");
     let cmd_mode = args.iter().position(|a| a == "-c")
         .map(|i| args.get(i + 1).cloned().unwrap_or_default());
+
+    let mut timings: Vec<(&str, std::time::Duration)> = Vec::new();
+    timings.push(("arg parsing", t0.elapsed()));
 
     env_logger::init();
 
@@ -416,6 +421,7 @@ fn main() -> Result<()> {
                         set_exit_code(status);
                         if let Some(s) = status {
                             if !s.success() {
+                                if config.behavior.ai_enabled {
                                 offer_ai_recovery(
                                     &cmd,
                                     s.code().unwrap_or(1),
@@ -424,7 +430,8 @@ fn main() -> Result<()> {
                                     &rt,
                                     &history_path,
                                 );
-                            } else {
+                                }
+                            } else if config.behavior.ai_enabled {
                                 proactive::check(&cmd, &config, &rt);
                             }
                         }
@@ -454,6 +461,9 @@ fn main() -> Result<()> {
                         prompt::set_last_status(last_code);
                     }
                     Classification::NaturalLanguage(text) => {
+                        if !config.behavior.ai_enabled {
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                        } else {
                         let history = read_recent_history(&history_path, config.behavior.history_context_lines);
                         match rt.block_on(ai::translate_and_execute(&text, &config, history, &mut state.ai_session_memory)) {
                             Ok(_) => prompt::set_last_status(0),
@@ -462,8 +472,12 @@ fn main() -> Result<()> {
                                 prompt::set_last_status(1);
                             }
                         }
+                        }
                     }
                     Classification::ForcedAI(text) => {
+                        if !config.behavior.ai_enabled {
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                        } else {
                         let words: Vec<&str> = text.split_whitespace().collect();
                         let is_bare_command = words.len() == 1
                             && (which::which(words[0]).is_ok()
@@ -496,6 +510,7 @@ fn main() -> Result<()> {
                                 }
                             }
                         }
+                        } // end ai_enabled check
                     }
                     Classification::Typo { suggestion, .. } => {
                         if config.behavior.auto_correct_typos {
@@ -528,7 +543,21 @@ fn main() -> Result<()> {
                         }
                     }
                     Classification::Empty => {}
+                    Classification::HistorySearch(query) => {
+                        if config.behavior.ai_enabled {
+                        let history = read_recent_history(&history_path, 200);
+                        match rt.block_on(ai::search_history(&query, &history, &config)) {
+                            Ok(result) => println!("{result}"),
+                            Err(e) => eprintln!("shako: history search failed: {e}"),
+                        }
+                        } else {
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                        }
+                    }
                     Classification::ExplainCommand(cmd) => {
+                        if !config.behavior.ai_enabled {
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                        } else {
                         print!("\x1b[90mexplaining...\x1b[0m");
                         io::stdout().flush().ok();
                         rt.block_on(async {
@@ -544,6 +573,7 @@ fn main() -> Result<()> {
                                 }
                             }
                         });
+                        } // end ai_enabled check
                     }
                 }
 

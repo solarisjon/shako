@@ -59,6 +59,8 @@ pub struct BehaviorConfig {
     pub confirm_ai_commands: bool,
     #[serde(default = "default_true")]
     pub auto_correct_typos: bool,
+    #[serde(default = "default_true")]
+    pub ai_enabled: bool,
     #[serde(default = "default_history_lines")]
     pub history_context_lines: usize,
     #[serde(default = "default_safety_mode")]
@@ -134,6 +136,7 @@ impl Default for BehaviorConfig {
         Self {
             confirm_ai_commands: true,
             auto_correct_typos: true,
+            ai_enabled: true,
             history_context_lines: 20,
             safety_mode: "warn".to_string(),
             edit_mode: "emacs".to_string(),
@@ -238,5 +241,23 @@ impl ShakoConfig {
 
         // Neither exists — return XDG path as the canonical default
         xdg_path.unwrap_or(platform_path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ai_enabled_defaults_to_true() {
+        let config = BehaviorConfig::default();
+        assert!(config.ai_enabled, "ai_enabled should default to true");
+    }
+
+    #[test]
+    fn test_ai_enabled_can_be_disabled_via_toml() {
+        let toml_str = "[behavior]\nai_enabled = false\n";
+        let shako_config: ShakoConfig = toml::from_str(toml_str).expect("parse failed");
+        assert!(!shako_config.behavior.ai_enabled);
     }
 }

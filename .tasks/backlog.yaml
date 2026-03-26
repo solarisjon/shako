@@ -1,0 +1,25 @@
+# Task Backlog
+# Queued work items waiting to be assigned by the lead.
+# Move items to .tasks/active/ when delegation begins.
+
+tasks: []
+
+# Example entry:
+# tasks:
+#   - id: TASK-001
+#     summary: "Add input validation to /api/users endpoint"
+#     priority: high
+#     pipeline: feature
+#     roles_needed: [developer, tester]
+#     created: 2026-03-26
+#     notes: "User reported 500 errors on malformed input"
+#
+#   - id: TASK-002
+#     summary: "Update README with new configuration options"
+#     priority: normal
+#     pipeline: docs-only
+#     roles_needed: [doc-writer]
+#     created: 2026-03-26
+
+# ID sequence — increment for each new task
+next_id: 1

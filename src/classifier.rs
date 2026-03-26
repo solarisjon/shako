@@ -17,6 +17,8 @@ pub enum Classification {
     NaturalLanguage(String),
     /// Explicit AI request (prefixed with `?` or `ai:`).
     ForcedAI(String),
+    /// AI-powered semantic history search (prefixed with `?? `).
+    HistorySearch(String),
     /// Likely typo — suggested correction.
     Typo { suggestion: String },
     /// Command ending with `?` — explain what it does without executing.
@@ -57,6 +59,11 @@ impl Classifier {
         }
         if let Some(rest) = trimmed.strip_prefix("ai:") {
             return Classification::ForcedAI(rest.trim().to_string());
+        }
+
+        // AI history search: `?? query`
+        if let Some(rest) = trimmed.strip_prefix("?? ") {
+            return Classification::HistorySearch(rest.trim().to_string());
         }
 
         // Single `?` with no space = also forced AI for everything after
@@ -233,6 +240,19 @@ mod tests {
             c.classify("ai: what does ls do"),
             Classification::ForcedAI(_)
         ));
+    }
+
+    #[test]
+    fn test_history_search() {
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("?? find files by size"),
+            Classification::HistorySearch(_)
+        ));
+        let Classification::HistorySearch(query) = c.classify("?? git commands") else {
+            panic!("expected HistorySearch");
+        };
+        assert_eq!(query, "git commands");
     }
 
     #[test]

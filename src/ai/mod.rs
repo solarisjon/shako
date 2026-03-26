@@ -14,6 +14,10 @@ pub async fn translate_and_execute(
     recent_history: Vec<String>,
     session_memory: &mut Vec<(String, String)>,
 ) -> Result<()> {
+    if !config.behavior.ai_enabled {
+        eprintln!("shako: AI is disabled");
+        return Ok(());
+    }
     let ctx = context::build_context(recent_history, session_memory.clone())?;
     let system_prompt = prompt::system_prompt(&ctx);
 
@@ -186,4 +190,22 @@ pub async fn explain_command(
     let system_prompt = prompt::explain_prompt(&ctx);
 
     client::query_llm(&system_prompt, command, config.active_llm()).await
+}
+
+/// Search shell history using AI semantic matching.
+pub async fn search_history(query: &str, history: &[String], config: &ShakoConfig) -> Result<String> {
+    if history.is_empty() {
+        return Ok("No history available.".to_string());
+    }
+    let history_text = history
+        .iter()
+        .enumerate()
+        .map(|(i, cmd)| format!("{}: {}", i + 1, cmd))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let system = "You are a shell history search assistant. Given a list of shell commands and a search query, find the most relevant commands. Return just the matching commands, one per line, most relevant first. If nothing matches well, say so briefly.";
+    let user_msg = format!("Search query: {query}\n\nShell history (most recent last):\n{history_text}");
+
+    client::query_llm(system, &user_msg, config.active_llm()).await
 }
