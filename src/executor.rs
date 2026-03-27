@@ -798,30 +798,21 @@ fn strip_herestring_from_input(input: &str) -> String {
 }
 
 /// Create a fake ExitStatus with the given code.
-/// On Unix, we do this by running `sh -c "exit N"`.
-/// If `sh` itself is unavailable we fall back to `/bin/false` (code≠0) or
-/// `/bin/true` (code=0) so we never panic in a restricted environment.
+/// Tries `sh -c "exit N"` first; falls back to `/bin/true` or `/bin/false`
+/// in restricted environments where `sh` is unavailable (containers, sandboxes).
 fn fake_status(code: i32) -> ExitStatus {
-    // Primary: portable, correct exit code.
-    if let Ok(status) = Command::new("sh")
-        .args(["-c", &format!("exit {code}")])
-        .status()
-    {
-        return status;
+    if let Ok(s) = Command::new("sh").args(["-c", &format!("exit {code}")]).status() {
+        return s;
     }
-    // Fallback: POSIX builtins that always exist on any system that can run a shell.
     let fallback = if code == 0 { "/bin/true" } else { "/bin/false" };
-    if let Ok(status) = Command::new(fallback).status() {
-        return status;
+    if let Ok(s) = Command::new(fallback).status() {
+        return s;
     }
-    // Second fallback: try bare names in case /bin is not the right path.
-    let bare = if code == 0 { "true" } else { "false" };
-    if let Ok(status) = Command::new(bare).status() {
-        return status;
+    // Last resort: `true` or `false` from PATH
+    if let Ok(s) = Command::new(if code == 0 { "true" } else { "false" }).status() {
+        return s;
     }
-    // If none of sh/true/false are available, the system is too broken to run
-    // this shell at all. Abort with a clear diagnostic rather than a cryptic panic.
-    eprintln!("shako: fatal: cannot spawn sh, /bin/true, or /bin/false — environment is broken");
+    eprintln!("shako: could not construct exit status for code {code}");
     std::process::exit(1);
 }
 

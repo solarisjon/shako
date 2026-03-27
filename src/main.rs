@@ -335,6 +335,7 @@ fn main() -> Result<()> {
                 }
 
                 // Multiline continuation: trailing \ or unclosed quotes
+                let mut cont_interrupted = false;
                 while needs_continuation(&input) {
                     let cont_prompt = reedline::DefaultPrompt::new(
                         reedline::DefaultPromptSegment::Basic("... ".to_string()),
@@ -347,11 +348,17 @@ fn main() -> Result<()> {
                                 input.push(' ');
                             } else {
                                 // Treat each continuation line as a new statement so
-                                // that keywords like `done`/`fi` form their own segment
+                                // that keywords like `end`/`done`/`fi` form their own segment
                                 // and are recognised by control_depth / split_semicolons.
                                 input.push_str("; ");
                             }
                             input.push_str(next.trim());
+                        }
+                        Ok(Signal::CtrlC) => {
+                            // Discard the partial input and return to the main prompt.
+                            eprintln!();
+                            cont_interrupted = true;
+                            break;
                         }
                         _ => break,
                     }
