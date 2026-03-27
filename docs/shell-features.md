@@ -182,45 +182,45 @@ Background jobs get their own process group. `Ctrl-C` only reaches the foregroun
 
 ### Conditionals
 
-```bash
-if [ -f config.toml ]; then
+```fish
+if test -f config.toml
     echo "config found"
-elif [ -f config.json ]; then
+else if test -f config.json
     echo "JSON config found"
 else
     echo "no config"
-fi
+end
 ```
 
 ### Loops
 
-```bash
-for f in *.rs; do
-    echo "$f"
-done
+```fish
+for f in *.rs
+    echo $f
+end
 
-for i in {1..5}; do
+for i in {1..5}
     echo "iteration $i"
-done
+end
 
-while [ $count -lt 10 ]; do
+while test $count -lt 10
     echo $count
-    count=$((count + 1))
-done
+    set count (math $count + 1)
+end
 ```
 
 ### Loop Control
 
-```bash
-for f in *.txt; do
-    if [ "$f" = "skip.txt" ]; then
+```fish
+for f in *.txt
+    if test "$f" = "skip.txt"
         continue
-    fi
-    if [ "$f" = "stop.txt" ]; then
+    end
+    if test "$f" = "stop.txt"
         break
-    fi
-    echo "$f"
-done
+    end
+    echo $f
+end
 ```
 
 ### Local Variables
