@@ -59,6 +59,7 @@ enum Kw {
     For,
     Do,
     Done,
+    End,
     While,
     Break,
     Continue,
@@ -133,14 +134,15 @@ fn leading_keyword(seg: &str) -> Option<(Kw, &str)> {
         ("elif", Kw::Elif),
         ("else", Kw::Else),
         ("then", Kw::Then),
-        ("done", Kw::Done),
+        ("done", Kw::Done),   // bash compat alias for end
+        ("end", Kw::End),     // fish canonical block closer
         ("while", Kw::While),
         ("local", Kw::Local),
         ("continue", Kw::Continue),
         ("break", Kw::Break),
-        ("fi", Kw::Fi),
+        ("fi", Kw::Fi),       // bash compat alias for end
         ("for", Kw::For),
-        ("do", Kw::Do),
+        ("do", Kw::Do),       // bash compat, optional in fish
         ("if", Kw::If),
     ];
     for (kw_str, kw) in KWS {
@@ -226,6 +228,17 @@ impl Parser {
         }
     }
 
+    /// Skip the next token if it is any recognised block-closer:
+    /// `end` (fish canonical) or `done` / `fi` (bash compat aliases).
+    fn skip_end_kw(&mut self) {
+        if matches!(
+            self.tokens.get(self.pos),
+            Some(BodyToken::Kw(Kw::End | Kw::Done | Kw::Fi))
+        ) {
+            self.pos += 1;
+        }
+    }
+
     /// Parse all statements until EOF.
     fn parse_all(&mut self) -> Vec<Statement> {
         self.parse_until(&[])
@@ -248,8 +261,8 @@ impl Parser {
             BodyToken::Kw(Kw::If) => {
                 self.pos += 1;
                 let condition = self.take_cmd();
-                self.skip_kw(&Kw::Then);
-                let then_body = self.parse_until(&[Kw::Elif, Kw::Else, Kw::Fi]);
+                self.skip_kw(&Kw::Then); // optional in fish syntax
+                let then_body = self.parse_until(&[Kw::Elif, Kw::Else, Kw::End, Kw::Fi]);
 
                 let mut elif_branches = Vec::new();
                 let mut else_body = Vec::new();
@@ -259,17 +272,17 @@ impl Parser {
                         Some(Kw::Elif) => {
                             self.pos += 1;
                             let elif_cond = self.take_cmd();
-                            self.skip_kw(&Kw::Then);
-                            let body = self.parse_until(&[Kw::Elif, Kw::Else, Kw::Fi]);
+                            self.skip_kw(&Kw::Then); // optional in fish syntax
+                            let body = self.parse_until(&[Kw::Elif, Kw::Else, Kw::End, Kw::Fi]);
                             elif_branches.push((elif_cond, body));
                         }
                         Some(Kw::Else) => {
                             self.pos += 1;
-                            else_body = self.parse_until(&[Kw::Fi]);
-                            self.skip_kw(&Kw::Fi);
+                            else_body = self.parse_until(&[Kw::End, Kw::Fi]);
+                            self.skip_end_kw(); // accept end / fi
                             break;
                         }
-                        Some(Kw::Fi) => { self.pos += 1; break; }
+                        Some(Kw::End) | Some(Kw::Fi) => { self.skip_end_kw(); break; }
                         _ => break,
                     }
                 }
@@ -281,18 +294,18 @@ impl Parser {
                 self.pos += 1;
                 let spec = self.take_cmd();
                 let (var, items_expr) = parse_for_spec(&spec);
-                self.skip_kw(&Kw::Do);
-                let body = self.parse_until(&[Kw::Done]);
-                self.skip_kw(&Kw::Done);
+                self.skip_kw(&Kw::Do); // optional in fish syntax
+                let body = self.parse_until(&[Kw::End, Kw::Done]);
+                self.skip_end_kw(); // accept end / done
                 Some(Statement::For { var, items_expr, body })
             }
 
             BodyToken::Kw(Kw::While) => {
                 self.pos += 1;
                 let condition = self.take_cmd();
-                self.skip_kw(&Kw::Do);
-                let body = self.parse_until(&[Kw::Done]);
-                self.skip_kw(&Kw::Done);
+                self.skip_kw(&Kw::Do); // optional in fish syntax
+                let body = self.parse_until(&[Kw::End, Kw::Done]);
+                self.skip_end_kw(); // accept end / done
                 Some(Statement::While { condition, body })
             }
 

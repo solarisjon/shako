@@ -31,6 +31,9 @@ const TOOL_PREFERENCES: &[(&str, &str)] = &[
          (e.g. `fd -e md` finds all .md files — do NOT use `fd .md` or `fd -t f .md`), \
          `fd -t f` files only, `fd -t d` dirs only, `fd -H` include hidden, \
          `fd --size +100m` to find files larger than 100 MB (supports k/m/g suffixes). \
+         IMPORTANT flag constraints: `-l` (--list-details) and `-a` (--absolute-path) \
+         are MUTUALLY EXCLUSIVE — never combine them. Use `-l` for detailed listing OR \
+         `-a` for absolute paths, never both. \
          Always search from `.` (current dir) unless a different path is given.",
     ),
     (
