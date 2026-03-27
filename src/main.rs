@@ -335,6 +335,7 @@ fn main() -> Result<()> {
                 }
 
                 // Multiline continuation: trailing \ or unclosed quotes
+                let mut cont_interrupted = false;
                 while needs_continuation(&input) {
                     let cont_prompt = reedline::DefaultPrompt::new(
                         reedline::DefaultPromptSegment::Basic("... ".to_string()),
