@@ -200,6 +200,83 @@ pub async fn query_llm(
     ))
 }
 
+/// Result of the startup AI session probe.
+pub enum AiCheckResult {
+    Ready,
+    Disabled,
+    NoApiKey(String),
+    AuthFailed(u16),
+    Unreachable(String),
+}
+
+/// Probe the configured LLM endpoint at startup and return its status.
+/// Hits `GET /v1/models` with a 3-second timeout — fast enough not to stall startup.
+pub async fn check_ai_session(config: &crate::config::LlmConfig, ai_enabled: bool) -> AiCheckResult {
+    if !ai_enabled {
+        return AiCheckResult::Disabled;
+    }
+
+    let api_key = std::env::var(&config.api_key_env).unwrap_or_default();
+    let endpoint = normalize_endpoint(&config.endpoint);
+
+    // Derive the /v1/models URL from the same origin as the chat endpoint.
+    let models_url = match endpoint.parse::<reqwest::Url>() {
+        Ok(parsed) => {
+            let origin = match parsed.port() {
+                Some(port) => format!(
+                    "{}://{}:{}",
+                    parsed.scheme(),
+                    parsed.host_str().unwrap_or("localhost"),
+                    port
+                ),
+                None => format!(
+                    "{}://{}",
+                    parsed.scheme(),
+                    parsed.host_str().unwrap_or("localhost")
+                ),
+            };
+            format!("{origin}/v1/models")
+        }
+        Err(_) => return AiCheckResult::Unreachable("invalid endpoint URL".to_string()),
+    };
+
+    // Warn early about a missing API key for non-local endpoints.
+    let is_local = models_url.contains("localhost") || models_url.contains("127.0.0.1");
+    if api_key.is_empty() && !is_local {
+        return AiCheckResult::NoApiKey(config.api_key_env.clone());
+    }
+
+    let client = match reqwest::Client::builder()
+        .danger_accept_invalid_certs(!config.verify_ssl)
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return AiCheckResult::Unreachable(e.to_string()),
+    };
+
+    let mut req = client.get(&models_url);
+    if !api_key.is_empty() {
+        req = req.bearer_auth(&api_key);
+    }
+
+    match req.send().await {
+        Ok(resp) => match resp.status().as_u16() {
+            200..=299 => AiCheckResult::Ready,
+            401 | 403 => AiCheckResult::AuthFailed(resp.status().as_u16()),
+            code => AiCheckResult::Unreachable(format!("HTTP {code}")),
+        },
+        Err(e) => {
+            let reason = if e.is_connect() || e.is_timeout() {
+                "endpoint unreachable".to_string()
+            } else {
+                e.to_string()
+            };
+            AiCheckResult::Unreachable(reason)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

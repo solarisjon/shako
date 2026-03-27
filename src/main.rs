@@ -111,9 +111,15 @@ fn main() -> Result<()> {
     }
 
     let (config, first_run) = ShakoConfig::load()?;
+    let rt = tokio::runtime::Runtime::new()?;
 
     if !quiet {
         print_banner(&config);
+        let ai_status = rt.block_on(ai::client::check_ai_session(
+            config.active_llm(),
+            config.behavior.ai_enabled,
+        ));
+        print_ai_status(&ai_status, config.active_llm());
     }
 
     if first_run {
@@ -176,7 +182,6 @@ fn main() -> Result<()> {
         .with_edit_mode(edit_mode);
 
     let prompt = StarshipPrompt::new();
-    let rt = tokio::runtime::Runtime::new()?;
     let mut state = ShellState::new(history_path.clone());
 
     // Interactive shell signal setup.
@@ -806,6 +811,31 @@ fn print_banner(config: &ShakoConfig) {
          \x1b[33m{provider_name}\x1b[0m  {model}  \x1b[90m{endpoint_display}\x1b[0m",
         model = llm.model,
     );
+}
+
+fn print_ai_status(status: &ai::client::AiCheckResult, llm: &config::LlmConfig) {
+    match status {
+        ai::client::AiCheckResult::Ready => {
+            eprintln!("\x1b[90m  AI\x1b[0m  \x1b[32m✓ session ready\x1b[0m");
+        }
+        ai::client::AiCheckResult::Disabled => {}
+        ai::client::AiCheckResult::NoApiKey(env_var) => {
+            eprintln!(
+                "\x1b[90m  AI\x1b[0m  \x1b[33m⚠ no API key\x1b[0m  \x1b[90m({env_var} not set — AI will be unavailable)\x1b[0m"
+            );
+        }
+        ai::client::AiCheckResult::AuthFailed(code) => {
+            eprintln!(
+                "\x1b[90m  AI\x1b[0m  \x1b[31m✗ auth failed\x1b[0m  \x1b[90m(HTTP {code} — check {})\x1b[0m",
+                llm.api_key_env
+            );
+        }
+        ai::client::AiCheckResult::Unreachable(reason) => {
+            eprintln!(
+                "\x1b[90m  AI\x1b[0m  \x1b[31m✗ unreachable\x1b[0m  \x1b[90m({reason})\x1b[0m"
+            );
+        }
+    }
 }
 
 /// Infer a friendly backend label from an endpoint URL.
