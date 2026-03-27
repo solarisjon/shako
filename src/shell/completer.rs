@@ -5,6 +5,38 @@ use std::sync::{Arc, RwLock};
 
 use crate::path_cache::PathCache;
 
+const GIT_COMMIT_FLAGS: &[&str] = &[
+    "--message", "--amend", "--all", "--no-edit", "--allow-empty",
+    "--author", "--date", "--signoff", "--verbose", "--dry-run",
+];
+const GIT_LOG_FLAGS: &[&str] = &[
+    "--oneline", "--graph", "--all", "--author", "--since", "--until",
+    "--stat", "--patch", "--follow", "--decorate", "--format",
+];
+const GIT_PUSH_FLAGS: &[&str] = &[
+    "--force", "--force-with-lease", "--set-upstream", "--tags",
+    "--dry-run", "--verbose", "--all",
+];
+const GIT_PULL_FLAGS: &[&str] = &[
+    "--rebase", "--no-rebase", "--ff-only", "--all", "--tags", "--verbose",
+];
+const GIT_DIFF_FLAGS: &[&str] = &[
+    "--stat", "--name-only", "--cached", "--staged", "--word-diff",
+    "--color-words", "--unified",
+];
+const CARGO_BUILD_FLAGS: &[&str] = &[
+    "--release", "--features", "--all-features", "--no-default-features",
+    "--target", "--manifest-path", "--verbose", "--quiet",
+];
+const CARGO_TEST_FLAGS: &[&str] = &[
+    "--release", "--features", "--all-features", "--no-default-features",
+    "--verbose", "--quiet", "--no-run", "--test", "--lib", "--bin",
+];
+const CARGO_RUN_FLAGS: &[&str] = &[
+    "--release", "--features", "--all-features", "--bin",
+    "--example", "--manifest-path", "--verbose",
+];
+
 const GIT_SUBCOMMANDS: &[&str] = &[
     "add",
     "bisect",
@@ -563,6 +595,35 @@ impl Completer for ShakoCompleter {
 
             if let Some(subs) = subcommands {
                 return self.subcommand_completions(subs, partial, start, pos);
+            }
+        }
+
+        // Flag completion: triggered when partial starts with '-'
+        if partial.starts_with('-') && parts.len() >= 3 {
+            let subcmd = parts[1];
+            let flags: &[&str] = match (first_cmd, subcmd) {
+                ("git", "commit") => GIT_COMMIT_FLAGS,
+                ("git", "log") => GIT_LOG_FLAGS,
+                ("git", "push") => GIT_PUSH_FLAGS,
+                ("git", "pull") => GIT_PULL_FLAGS,
+                ("git", "diff") => GIT_DIFF_FLAGS,
+                ("cargo", "build") => CARGO_BUILD_FLAGS,
+                ("cargo", "test") => CARGO_TEST_FLAGS,
+                ("cargo", "run") => CARGO_RUN_FLAGS,
+                _ => &[],
+            };
+            let completions: Vec<Suggestion> = flags
+                .iter()
+                .filter(|f| f.starts_with(partial))
+                .map(|f| Suggestion {
+                    value: f.to_string(),
+                    span: Span::new(start, pos),
+                    append_whitespace: true,
+                    ..Default::default()
+                })
+                .collect();
+            if !completions.is_empty() {
+                return completions;
             }
         }
 

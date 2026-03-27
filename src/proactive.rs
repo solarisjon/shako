@@ -17,7 +17,37 @@ use crate::executor;
 pub fn check(cmd: &str, config: &ShakoConfig, rt: &tokio::runtime::Runtime) {
     if is_git_add(cmd) {
         offer_commit_suggestion(config, rt);
+    } else if let Some(suggestion) = check_passive(cmd) {
+        eprintln!("\x1b[90mshako: {suggestion}\x1b[0m");
     }
+}
+
+/// Check for lightweight passive suggestions that don't require user interaction.
+/// Returns a formatted suggestion string or `None`.
+fn check_passive(cmd: &str) -> Option<String> {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    let first = *parts.first()?;
+    let second = parts.get(1).copied().unwrap_or("");
+
+    // After `git clone <url>`, suggest `cd <repo-name>`
+    if first == "git" && second == "clone" {
+        let repo_name = extract_repo_name(parts.last()?)?;
+        return Some(format!("tip: cd {repo_name}"));
+    }
+
+    // After successful `cd`, check for a Makefile
+    if first == "cd" {
+        let cwd = std::env::current_dir().ok()?;
+        if cwd.join("Makefile").exists() {
+            let targets = read_make_targets(&cwd.join("Makefile"));
+            if !targets.is_empty() {
+                let shown = targets[..targets.len().min(3)].join(", ");
+                return Some(format!("make targets available: {shown}"));
+            }
+        }
+    }
+
+    None
 }
 
 // ── git add → commit message ──────────────────────────────────────────────────
@@ -157,6 +187,49 @@ fn shell_quote(s: &str) -> String {
     }
 }
 
+/// Extract the likely repository directory name from a git clone URL.
+/// `git clone https://github.com/owner/repo.git` → `"repo"`
+fn extract_repo_name(url: &str) -> Option<String> {
+    // Strip trailing slashes
+    let url = url.trim_end_matches('/');
+    // Take the last path segment
+    let segment = url.split('/').next_back()?;
+    // Strip .git suffix
+    let name = segment.strip_suffix(".git").unwrap_or(segment);
+    if name.is_empty() { None } else { Some(name.to_string()) }
+}
+
+/// Parse a Makefile and return the list of public targets (no leading dot/underscore,
+/// no special make variables).  Returns at most the first `limit` targets.
+fn read_make_targets(makefile: &std::path::Path) -> Vec<String> {
+    let Ok(contents) = std::fs::read_to_string(makefile) else {
+        return vec![];
+    };
+    let mut targets = Vec::new();
+    for line in contents.lines() {
+        // A target line starts with an identifier followed by `:` but not `:=`
+        if let Some(target) = line.split(':').next() {
+            let target = target.trim();
+            if target.is_empty()
+                || target.starts_with('.')
+                || target.starts_with('_')
+                || target.starts_with('#')
+                || target.contains('$')
+                || target.contains(' ')
+                || target.contains('\t')
+            {
+                continue;
+            }
+            // Must have at least one colon after the target name (not `:=`)
+            let after = &line[target.len()..];
+            if after.starts_with(':') && !after.starts_with(":=") {
+                targets.push(target.to_string());
+            }
+        }
+    }
+    targets
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -200,5 +273,42 @@ mod tests {
         // should use escaped double quotes
         assert!(quoted.starts_with('"'));
         assert!(quoted.contains(r#"\""#));
+    }
+
+    #[test]
+    fn test_extract_repo_name_https() {
+        assert_eq!(
+            extract_repo_name("https://github.com/owner/myrepo.git"),
+            Some("myrepo".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_repo_name_no_git_suffix() {
+        assert_eq!(
+            extract_repo_name("https://github.com/owner/myrepo"),
+            Some("myrepo".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_repo_name_ssh() {
+        assert_eq!(
+            extract_repo_name("git@github.com:owner/myrepo.git"),
+            Some("myrepo".to_string())
+        );
+    }
+
+    #[test]
+    fn test_check_passive_git_clone() {
+        let suggestion = check_passive("git clone https://github.com/owner/shako.git");
+        assert_eq!(suggestion, Some("tip: cd shako".to_string()));
+    }
+
+    #[test]
+    fn test_check_passive_non_matching() {
+        // `git status` should return None (no passive suggestion)
+        assert!(check_passive("git status").is_none());
+        assert!(check_passive("ls -la").is_none());
     }
 }
