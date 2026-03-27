@@ -180,6 +180,7 @@ pub(super) fn builtin_bg(args: &[&str], state: &mut ShellState) {
         // On Unix, send SIGCONT to the most recent job
         #[cfg(unix)]
         {
+            // Safety: guarded by `state.jobs.is_empty()` check above — always Some here.
             let job = state.jobs.last().unwrap();
             let pid = nix::unistd::Pid::from_raw(job.pid as i32);
             let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGCONT);

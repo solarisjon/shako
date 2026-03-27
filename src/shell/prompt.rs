@@ -136,7 +136,9 @@ impl Prompt for StarshipPrompt {
         let handle = std::thread::spawn(move || {
             Self::run_starship(true, status, duration, &width_clone, jobs)
         });
-        *self.right_handle.lock().unwrap() = Some(handle);
+        // Recover from mutex poison: if the spawned thread panicked while holding
+        // this lock, `into_inner()` gives back the guard so we can still write.
+        *self.right_handle.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
 
         Cow::Owned(Self::run_starship(false, status, duration, &width, jobs))
     }
@@ -147,7 +149,9 @@ impl Prompt for StarshipPrompt {
         }
 
         // Join the thread started during left render.
-        let handle = self.right_handle.lock().unwrap().take();
+        // Recover from mutex poison: if the background thread panicked while holding
+        // the lock we still get back the guard so we can take the handle (or None).
+        let handle = self.right_handle.lock().unwrap_or_else(|e| e.into_inner()).take();
         match handle {
             Some(h) => Cow::Owned(h.join().unwrap_or_default()),
             // Fallback: render inline if left wasn't called first (shouldn't happen).

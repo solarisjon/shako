@@ -209,10 +209,17 @@ impl ShakoCompleter {
             .ok();
         let Some(out) = output else { return vec![] };
         let stdout = String::from_utf8_lossy(&out.stdout);
+        // Filter before allocating: only call trim()/to_string() on lines that match.
         let mut branches: Vec<String> = stdout
             .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|b| !b.is_empty() && b.starts_with(partial))
+            .filter_map(|l| {
+                let t = l.trim();
+                if !t.is_empty() && t.starts_with(partial) {
+                    Some(t.to_string())
+                } else {
+                    None
+                }
+            })
             .collect();
         branches.sort();
         branches.dedup();
@@ -238,15 +245,17 @@ impl ShakoCompleter {
             .filter(|p| p.exists());
         let Some(path) = config_path else { return vec![] };
         let Ok(contents) = fs::read_to_string(&path) else { return vec![] };
+        // Filter fully before calling to_string() — only allocate for matching hosts.
         let mut hosts: Vec<String> = contents
             .lines()
             .filter_map(|line| {
                 let line = line.trim();
-                let key = line.split_whitespace().next()?;
+                let mut words = line.split_whitespace();
+                let key = words.next()?;
                 if !key.eq_ignore_ascii_case("Host") {
                     return None;
                 }
-                let host = line.split_whitespace().nth(1)?;
+                let host = words.next()?;
                 // Skip wildcard patterns
                 if host.contains('*') || host.contains('?') {
                     return None;
@@ -479,22 +488,28 @@ impl Completer for ShakoCompleter {
         };
         let start = pos - partial.len();
 
-        // First token: complete commands from PATH + builtins + aliases + functions
+        // First token: complete commands from PATH + builtins + aliases + functions.
+        // We collect &str references from all sources, sort/dedup them, then
+        // allocate Strings only for the filtered suggestions — avoiding a full
+        // clone of the path commands Vec<String> on every Tab press.
         if completing_first_token {
-            let mut commands: Vec<String> = self.path_commands().to_vec();
-            for &b in crate::builtins::BUILTINS {
-                commands.push(b.to_string());
-            }
-            if let Ok(extra) = self.extra_completions.read() {
-                commands.extend(extra.iter().cloned());
-            }
-            commands.sort();
-            commands.dedup();
-            return commands
+            let path_cmds = self.path_commands();
+            let extra_guard = self.extra_completions.read().ok();
+            let extra_slice: &[String] = extra_guard.as_deref().map_or(&[], |v| v);
+
+            let mut all_refs: Vec<&str> = Vec::with_capacity(
+                path_cmds.len() + crate::builtins::BUILTINS.len() + extra_slice.len(),
+            );
+            all_refs.extend(path_cmds.iter().map(String::as_str));
+            all_refs.extend(crate::builtins::BUILTINS.iter().copied());
+            all_refs.extend(extra_slice.iter().map(String::as_str));
+            all_refs.sort_unstable();
+            all_refs.dedup();
+            return all_refs
                 .into_iter()
                 .filter(|cmd| cmd.starts_with(partial))
                 .map(|cmd| Suggestion {
-                    value: cmd,
+                    value: cmd.to_string(),
                     display_override: None,
                     description: None,
                     style: None,

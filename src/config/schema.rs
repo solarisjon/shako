@@ -207,7 +207,7 @@ impl ShakoConfig {
                 } else {
                     std::fs::remove_file(&path)?;
                 }
-                eprintln!("  removed {}", path.display());
+                eprintln!("shako: removed {}", path.display());
             }
         }
 

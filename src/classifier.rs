@@ -96,9 +96,10 @@ impl Classifier {
         // Check if first token resolves to a binary in $PATH.
         // Even if it does, the rest of the input might be prose rather than
         // shell arguments (e.g. "find all the .md files in this directory").
+        // Collect args once and reuse for both the PATH and typo checks below.
+        let args_after_first: Vec<&str> = trimmed.split_whitespace().skip(1).collect();
         if which(first_token).is_ok() {
-            let args: Vec<&str> = trimmed.split_whitespace().skip(1).collect();
-            if looks_like_natural_language(&args) {
+            if looks_like_natural_language(&args_after_first) {
                 return Classification::NaturalLanguage(trimmed.to_string());
             }
             return Classification::Command(trimmed.to_string());
@@ -107,8 +108,7 @@ impl Classifier {
         // Typo detection: only for short inputs that look like command attempts
         // (not full sentences). 3+ words is likely natural language, and we also
         // check if the args read as prose (e.g. "list all files" has "all" in NL_WORDS).
-        let word_count = trimmed.split_whitespace().count();
-        let args_after_first: Vec<&str> = trimmed.split_whitespace().skip(1).collect();
+        let word_count = args_after_first.len() + 1;
         if word_count <= 2 || (word_count == 3 && !looks_like_natural_language(&args_after_first)) {
             if let Some(suggestion) = self.find_typo_match(first_token) {
                 let corrected = if trimmed.len() > first_token.len() {
@@ -189,7 +189,7 @@ fn looks_like_natural_language(args: &[&str]) -> bool {
 
     // NL words take priority: prose words in the args mean it's natural language
     // even if a path like ~/Documents is also present.
-    if args.iter().any(|a| NL_WORDS.contains(&a.to_ascii_lowercase().as_str())) {
+    if args.iter().any(|a| NL_WORDS.iter().any(|w| a.eq_ignore_ascii_case(w))) {
         return true;
     }
 

@@ -332,8 +332,9 @@ fn brace_list_split(inner: &str) -> Vec<String> {
                 current.push(c);
             }
             ',' if depth == 0 => {
-                parts.push(current.clone());
-                current.clear();
+                // `std::mem::take` moves `current` into `parts` and replaces it
+                // with an empty String, avoiding the clone + clear pair.
+                parts.push(std::mem::take(&mut current));
             }
             _ => current.push(c),
         }
@@ -1302,5 +1303,47 @@ mod tests {
     fn test_brace_expansion_quoted_not_expanded() {
         let args = parse_args(r#"echo "{a,b,c}""#);
         assert_eq!(args, vec!["echo", "{a,b,c}"]);
+    }
+
+    // ── Edge cases: empty / whitespace-only input ───────────────
+
+    #[test]
+    fn test_tokenize_empty_input() {
+        let tokens = tokenize("");
+        assert!(tokens.is_empty(), "empty input should produce no tokens");
+    }
+
+    #[test]
+    fn test_tokenize_whitespace_only() {
+        let tokens = tokenize("   \t  ");
+        assert!(tokens.is_empty(), "whitespace-only input should produce no tokens");
+    }
+
+    #[test]
+    fn test_parse_args_empty_input() {
+        let args = parse_args("");
+        assert!(args.is_empty(), "empty input should produce no args");
+    }
+
+    #[test]
+    fn test_parse_args_whitespace_only() {
+        let args = parse_args("   ");
+        assert!(args.is_empty(), "whitespace-only input should produce no args");
+    }
+
+    // ── Edge case: $() command substitution inside double quotes ─
+
+    #[test]
+    fn test_command_substitution_dollar_in_double_quotes() {
+        // $() inside double quotes should still be expanded
+        let args = parse_args(r#"echo "value=$(echo 42)""#);
+        assert_eq!(args, vec!["echo", "value=42"]);
+    }
+
+    #[test]
+    fn test_command_substitution_dollar_space_in_double_quotes() {
+        // Result of $() with spaces inside double quotes stays as a single token
+        let args = parse_args(r#"echo "$(echo hello world)""#);
+        assert_eq!(args, vec!["echo", "hello world"]);
     }
 }
