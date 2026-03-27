@@ -928,3 +928,4 @@ fn test_herestring_quoted_content() {
     assert!(out.status.success());
     assert_eq!(stdout(&out).trim(), "hello world");
 }
+
