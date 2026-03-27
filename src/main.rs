@@ -343,9 +343,14 @@ fn main() -> Result<()> {
                     match line_editor.read_line(&cont_prompt) {
                         Ok(Signal::Success(next)) => {
                             if input.ends_with('\\') {
-                                input.pop(); // remove trailing backslash
+                                input.pop(); // remove trailing backslash — join as one token
+                                input.push(' ');
+                            } else {
+                                // Treat each continuation line as a new statement so
+                                // that keywords like `done`/`fi` form their own segment
+                                // and are recognised by control_depth / split_semicolons.
+                                input.push_str("; ");
                             }
-                            input.push(' ');
                             input.push_str(next.trim());
                         }
                         _ => break,
@@ -755,7 +760,7 @@ fn control_depth(input: &str) -> i32 {
         let first = seg.split_whitespace().next().unwrap_or("");
         match first {
             "if" | "for" | "while" => depth += 1,
-            "fi" | "done" => depth -= 1,
+            "end" | "fi" | "done" => depth -= 1, // end is canonical (fish); fi/done are bash compat
             _ => {}
         }
     };
