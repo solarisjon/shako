@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     env_logger::init();
 
     if init {
-        eprintln!("shako: reinitializing...");
+        eprintln!("\x1b[1;36mshako:\x1b[0m reinitializing...");
         if let Err(e) = ShakoConfig::reset() {
             eprintln!("shako: reset failed: {e}");
             std::process::exit(1);
@@ -144,14 +144,7 @@ fn main() -> Result<()> {
     let history = Box::new(
         FileBackedHistory::with_file(10_000, history_path.clone()).unwrap_or_else(|e| {
             eprintln!("shako: history: {e}, using in-memory only");
-            // FileBackedHistory::new() creates a pure in-memory ring-buffer (no I/O).
-            // The only failure mode is a capacity of 0 on some versions; use unwrap_or_else
-            // to degrade to a zero-capacity store rather than panicking.
-            FileBackedHistory::new(1000).unwrap_or_else(|e2| {
-                eprintln!("shako: history: in-memory fallback failed ({e2}), history disabled");
-                FileBackedHistory::new(0)
-                    .unwrap_or_else(|_| FileBackedHistory::default())
-            })
+            FileBackedHistory::new(1000).expect("failed to create history")
         }),
     );
 
@@ -336,20 +329,12 @@ fn main() -> Result<()> {
         let sig = line_editor.read_line(&prompt);
         match sig {
             Ok(Signal::Success(input)) => {
-                // Trim in-place: truncate trailing whitespace first, then drain
-                // leading whitespace — avoids allocating a second String when the
-                // line has no surrounding spaces (the common case).
-                let mut input = input;
-                let start = input.len() - input.trim_start().len();
-                input.drain(..start);
-                let end = input.trim_end().len();
-                input.truncate(end);
+                let mut input = input.trim().to_string();
                 if input.is_empty() {
                     continue;
                 }
 
                 // Multiline continuation: trailing \ or unclosed quotes
-                let mut cont_interrupted = false;
                 while needs_continuation(&input) {
                     let cont_prompt = reedline::DefaultPrompt::new(
                         reedline::DefaultPromptSegment::Basic("... ".to_string()),
@@ -362,27 +347,14 @@ fn main() -> Result<()> {
                                 input.push(' ');
                             } else {
                                 // Treat each continuation line as a new statement so
-                                // that keywords like `end` form their own segment
+                                // that keywords like `done`/`fi` form their own segment
                                 // and are recognised by control_depth / split_semicolons.
                                 input.push_str("; ");
                             }
                             input.push_str(next.trim());
                         }
-                        Ok(Signal::CtrlC) => {
-                            // User cancelled the multiline input — discard it and
-                            // return to the main prompt cleanly.
-                            eprintln!();
-                            cont_interrupted = true;
-                            break;
-                        }
-                        _ => {
-                            cont_interrupted = true;
-                            break;
-                        }
+                        _ => break,
                     }
-                }
-                if cont_interrupted {
-                    continue;
                 }
 
                 // History expansion: !! (last command), !$ (last arg)
@@ -495,7 +467,7 @@ fn main() -> Result<()> {
                     }
                     Classification::NaturalLanguage(text) => {
                         if !config.behavior.ai_enabled {
-                            eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         } else {
                         let history = read_recent_history(&history_path, config.behavior.history_context_lines);
                         match rt.block_on(ai::translate_and_execute(&text, &config, history, &mut state.ai_session_memory)) {
@@ -509,7 +481,7 @@ fn main() -> Result<()> {
                     }
                     Classification::ForcedAI(text) => {
                         if !config.behavior.ai_enabled {
-                            eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         } else {
                         let words: Vec<&str> = text.split_whitespace().collect();
                         let is_bare_command = words.len() == 1
@@ -584,12 +556,12 @@ fn main() -> Result<()> {
                             Err(e) => eprintln!("shako: history search failed: {e}"),
                         }
                         } else {
-                            eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         }
                     }
                     Classification::ExplainCommand(cmd) => {
                         if !config.behavior.ai_enabled {
-                            eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         } else {
                         print!("\x1b[90mexplaining...\x1b[0m");
                         io::stdout().flush().ok();
@@ -774,7 +746,7 @@ fn needs_continuation(input: &str) -> bool {
 }
 
 /// Count nesting depth of control-flow keywords in a (possibly partial) input.
-/// Positive → needs more `end` to close.
+/// Positive → needs more `fi`/`done` to close.
 fn control_depth(input: &str) -> i32 {
     let mut depth = 0i32;
     // Split on unquoted semicolons and check first word of each segment
@@ -788,7 +760,7 @@ fn control_depth(input: &str) -> i32 {
         let first = seg.split_whitespace().next().unwrap_or("");
         match first {
             "if" | "for" | "while" => depth += 1,
-            "end" | "fi" | "done" => depth -= 1, // end is canonical; fi/done accepted for compat
+            "end" | "fi" | "done" => depth -= 1, // end is canonical (fish); fi/done are bash compat
             _ => {}
         }
     };
@@ -820,7 +792,8 @@ fn print_banner(config: &ShakoConfig) {
     let provider_name: String = if let Some(name) = &config.active_provider {
         if !config.providers.contains_key(name.as_str()) {
             eprintln!(
-                "shako: warning: active_provider '{}' not found in config — using defaults\n         add a [providers.{}] block or remove active_provider",
+                "\x1b[33mwarning:\x1b[0m active_provider '{}' not found in config — using defaults.\
+                 \n         Add a [providers.{}] block or remove active_provider.",
                 name, name
             );
         }
@@ -958,12 +931,12 @@ fn is_pure_builtin_call(segment: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{control_depth, needs_continuation};
+    use super::*;
 
-    // ── control_depth ────────────────────────────────────────────
+    // ── control_depth ──────────────────────────────────────────────
 
     #[test]
-    fn test_control_depth_for_open() {
+    fn test_control_depth_open_for() {
         assert_eq!(control_depth("for i in 1 2 3"), 1);
     }
 
@@ -974,69 +947,72 @@ mod tests {
 
     #[test]
     fn test_control_depth_for_closed_with_done() {
-        // bash compat: `done` counts the same as `end`
         assert_eq!(control_depth("for i in 1 2 3; done"), 0);
     }
 
     #[test]
-    fn test_control_depth_if_open() {
+    fn test_control_depth_open_if() {
         assert_eq!(control_depth("if true"), 1);
     }
 
     #[test]
     fn test_control_depth_if_closed_with_end() {
-        assert_eq!(control_depth("if true; end"), 0);
+        assert_eq!(control_depth("if true; echo yes; end"), 0);
     }
 
     #[test]
-    fn test_control_depth_while_open() {
+    fn test_control_depth_if_closed_with_fi() {
+        assert_eq!(control_depth("if true; echo yes; fi"), 0);
+    }
+
+    #[test]
+    fn test_control_depth_open_while() {
         assert_eq!(control_depth("while true"), 1);
     }
 
     #[test]
-    fn test_control_depth_while_closed_with_end() {
-        assert_eq!(control_depth("while true; end"), 0);
-    }
-
-    #[test]
-    fn test_control_depth_while_closed_with_done() {
-        assert_eq!(control_depth("while true; done"), 0);
+    fn test_control_depth_nested() {
+        assert_eq!(control_depth("for i in 1; if true"), 2);
+        assert_eq!(control_depth("for i in 1; if true; end"), 1);
+        assert_eq!(control_depth("for i in 1; if true; end; end"), 0);
     }
 
     #[test]
     fn test_control_depth_plain_command() {
         assert_eq!(control_depth("echo hello"), 0);
+        assert_eq!(control_depth("ls -la"), 0);
     }
 
-    // ── needs_continuation ───────────────────────────────────────
+    // ── needs_continuation ────────────────────────────────────────
 
     #[test]
-    fn test_needs_continuation_for_open() {
+    fn test_needs_continuation_open_for() {
         assert!(needs_continuation("for i in 1 2 3"));
     }
 
     #[test]
-    fn test_needs_continuation_for_closed_with_end() {
-        assert!(!needs_continuation("for i in 1 2 3; end"));
-    }
-
-    #[test]
-    fn test_needs_continuation_plain_echo() {
-        assert!(!needs_continuation("echo hello"));
+    fn test_needs_continuation_closed_for() {
+        assert!(!needs_continuation("for i in 1 2 3; echo $i; end"));
     }
 
     #[test]
     fn test_needs_continuation_trailing_backslash() {
-        assert!(needs_continuation("echo hello\\"));
+        assert!(needs_continuation("echo hello \\"));
     }
 
     #[test]
-    fn test_needs_continuation_unclosed_double_quote() {
-        assert!(needs_continuation("echo \"hello"));
+    fn test_needs_continuation_unclosed_single_quote() {
+        assert!(needs_continuation("echo 'hello"));
     }
 
     #[test]
     fn test_needs_continuation_closed_quotes() {
-        assert!(!needs_continuation("echo \"hello world\""));
+        assert!(!needs_continuation("echo 'hello world'"));
+    }
+
+    #[test]
+    fn test_needs_continuation_plain_command() {
+        assert!(!needs_continuation("echo hello"));
+        assert!(!needs_continuation("ls -la"));
     }
 }
