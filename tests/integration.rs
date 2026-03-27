@@ -836,6 +836,62 @@ fn test_brace_expansion_quoted_not_expanded() {
     assert_eq!(stdout(&out).trim(), "{a,b,c}");
 }
 
+// ── Fish `end` keyword ──────────────────────────────────────────
+
+#[test]
+fn test_for_loop_closed_with_end() {
+    // fish-style: `end` closes the for block instead of `done`
+    let out = shako("for i in a b c; do echo $i; end");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["a", "b", "c"]);
+}
+
+#[test]
+fn test_while_loop_closed_with_end() {
+    // fish-style: `end` closes the while block instead of `done`
+    let out = shako(r#"export N=0; while [ $N -lt 3 ]; do echo $N; export N=$(( N + 1 )); end"#);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["0", "1", "2"]);
+}
+
+#[test]
+fn test_if_closed_with_end() {
+    // fish-style: `end` closes the if block instead of `fi`
+    let out = shako("if true; then echo yes; end");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "yes");
+}
+
+#[test]
+fn test_if_else_closed_with_end() {
+    // fish-style: `end` closes an if/else block
+    let out = shako("if false; then echo yes; else echo no; end");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "no");
+}
+
+#[test]
+fn test_if_elif_closed_with_end() {
+    // fish-style: `end` closes an if/elif/else block
+    let out = shako("if false; then echo a; elif true; then echo b; else echo c; end");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "b");
+}
+
+#[test]
+fn test_nested_for_inside_if_both_using_end() {
+    // both the inner for and the outer if are closed with `end`
+    let out = shako("if true; then for i in 1 2 3; do echo $i; end; end");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let s = stdout(&out);
+    let lines: Vec<&str> = s.trim().lines().collect();
+    assert_eq!(lines, vec!["1", "2", "3"]);
+}
+
 // ── Herestring <<< ──────────────────────────────────────────────
 
 #[test]

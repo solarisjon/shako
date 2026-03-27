@@ -35,10 +35,10 @@ pub async fn translate_and_execute(
         // Safety check on AI-generated commands
         if config.behavior.safety_mode != "off" && crate::safety::is_dangerous(&command) {
             if config.behavior.safety_mode == "block" {
-                eprintln!("\x1b[31;1m⚠ dangerous command blocked:\x1b[0m {command}");
+                eprintln!("shako: dangerous command blocked: {command}");
                 return Ok(());
             }
-            eprintln!("\x1b[31;1m⚠ dangerous command detected:\x1b[0m {command}");
+            eprintln!("shako: dangerous command detected: {command}");
         }
 
         let extra_warning = config.behavior.safety_mode != "off"
@@ -47,7 +47,7 @@ pub async fn translate_and_execute(
         // Show the translated command and ask for confirmation
         if config.behavior.confirm_ai_commands {
             if extra_warning {
-                eprintln!("\x1b[33;1m⚠ this command modifies system state\x1b[0m");
+                eprintln!("shako: warning: this command modifies system state");
             }
             // Show numbered preview for multi-step commands
             confirm::print_multi_command_preview(&command);
@@ -173,7 +173,7 @@ fn collapse_multiline(raw: &str) -> String {
         _ => {
             // Warn the user so they know the model returned multiple candidates
             eprintln!(
-                "\x1b[33mshako: AI returned {} lines — showing first as best guess\x1b[0m",
+                "shako: ai returned {} lines — showing first as best guess",
                 lines.len()
             );
             lines[0].to_string()
