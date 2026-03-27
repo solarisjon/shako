@@ -15,14 +15,28 @@
 | `alias name=value` | Define alias. `alias` with no args lists all aliases |
 | `unalias name` | Remove alias. `-a` clears all |
 | `abbr` | Manage abbreviations (fish-style). `abbr add name value`, `abbr -e name`, `abbr` to list |
+| `echo [args]` | Print arguments to stdout with escape support |
+| `read [-p prompt] VAR` | Read a line from stdin into a variable |
+| `test` / `[` | Conditional evaluation (`-f file`, `-d dir`, `-z str`, `-n str`, `str1 = str2`, numeric comparisons) |
+| `pwd` | Print current working directory |
+| `pushd [dir]` | Push directory onto stack and cd to it |
+| `popd` | Pop directory from stack and cd to it |
+| `dirs` | Display directory stack |
 | `history [N]` | Show last N history entries (default 25) |
 | `source file` | Load aliases, exports, set commands, and functions from file |
 | `type name` | Show how a name resolves: builtin → function → alias → PATH |
+| `command name` | Run a command bypassing aliases and functions |
 | `function name() { body }` | Define a shell function (`;` separates statements) |
 | `functions` | List all defined functions |
 | `jobs` | List background jobs |
 | `fg [%N]` | Bring job N to foreground |
 | `bg [%N]` | Resume stopped job N in background |
+| `disown [%N]` | Remove job from shell tracking so it survives shell exit |
+| `wait [%N]` | Wait for background job(s) to finish |
+| `true` / `false` | Return exit code 0 / 1 (for scripting) |
+| `return [N]` | Return from a function with exit code N |
+| `break` / `continue` | Loop control flow |
+| `local VAR=value` | Set a function-local variable |
 | `fish-import` | Import fish shell configuration (aliases, env, functions) |
 
 ## Pipes
@@ -107,6 +121,42 @@ cd ~/projects                 # expands to $HOME/projects
 ls ~/.config/shako/           # works everywhere
 ```
 
+### Brace Expansion
+
+```bash
+echo {a,b,c}                  # → a b c
+echo file.{txt,md,rs}         # → file.txt file.md file.rs
+echo {1..5}                   # → 1 2 3 4 5
+echo {a..e}                   # → a b c d e
+echo {01..10}                 # → 01 02 03 04 05 06 07 08 09 10 (zero-padded)
+echo {5..1}                   # → 5 4 3 2 1 (reverse)
+mkdir -p src/{api,db,web}     # creates 3 directories
+```
+
+### Herestring
+
+```bash
+grep foo <<< "hello foo bar"  # pipe string to stdin
+wc -w <<< "$MY_VAR"          # works with variables
+cat <<< hello                 # no-space form also works
+```
+
+### Parameter Expansion
+
+```bash
+${VAR:-default}               # use default if VAR is unset or empty
+${VAR:+alternate}             # use alternate if VAR is set and non-empty
+${VAR:?error message}         # error if VAR is unset or empty
+${VAR:=default}               # assign default if unset or empty
+${#VAR}                       # string length
+${VAR#pattern}                # remove shortest prefix match
+${VAR##pattern}               # remove longest prefix match
+${VAR%pattern}                # remove shortest suffix match
+${VAR%%pattern}               # remove longest suffix match
+${VAR/old/new}                # replace first match
+${VAR//old/new}               # replace all matches
+```
+
 ### History Expansion
 
 ```bash
@@ -127,6 +177,60 @@ bg %1                         # resume stopped job in background
 ```
 
 Background jobs get their own process group. `Ctrl-C` only reaches the foreground process.
+
+## Control Flow
+
+### Conditionals
+
+```bash
+if [ -f config.toml ]; then
+    echo "config found"
+elif [ -f config.json ]; then
+    echo "JSON config found"
+else
+    echo "no config"
+fi
+```
+
+### Loops
+
+```bash
+for f in *.rs; do
+    echo "$f"
+done
+
+for i in {1..5}; do
+    echo "iteration $i"
+done
+
+while [ $count -lt 10 ]; do
+    echo $count
+    count=$((count + 1))
+done
+```
+
+### Loop Control
+
+```bash
+for f in *.txt; do
+    if [ "$f" = "skip.txt" ]; then
+        continue
+    fi
+    if [ "$f" = "stop.txt" ]; then
+        break
+    fi
+    echo "$f"
+done
+```
+
+### Local Variables
+
+```bash
+function greet() {
+    local name="$1"
+    echo "hello $name"
+}
+```
 
 ## Multiline Input
 

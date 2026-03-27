@@ -48,6 +48,8 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 - [x] **`pwd`** — avoid exec overhead for trivial operation.
 - [x] **`command`** — run a command bypassing aliases/functions (like fish's `command`).
 - [ ] **`eval`** — evaluate a string as a command.
+- [x] **`true` / `false`** — trivial builtins for scripting.
+- [x] **`local`** — local variable scoping in functions.
 
 ### Parser / Expansion
 
@@ -122,8 +124,7 @@ Living document tracking gaps, bugs, feature ideas, and priorities for making sh
 - [x] **Proactive suggestions** — after `git add`, shako offers an AI-generated commit message from the staged diff (#43).
 - [ ] **AI pipe builder** — `? take output.json, extract emails, sort unique, count` builds the pipeline step-by-step with intermediate previews.
 - [x] **Watch-and-learn** — edits to AI suggestions are logged to `~/.config/shako/learned_prefs.toml`; preferences (e.g. "prefer rg over grep") are injected into future AI prompts (#42).
-- [ ] **Smart history search** — `? what was that command I used to resize images` does semantic search. (Use `??` prefix for history search)
-- [ ] **Natural language aliases** — `alias "deploy to staging" = "kubectl apply -f k8s/staging/"`.
+- [ ] **Natural language aliases** — `alias "deploy to staging" = "kubectl apply -f k8s/staging/".
 
 ---
 
@@ -180,8 +181,7 @@ Missing config options for power users:
 - [x] **Split `builtins.rs`** — split into `builtins/state.rs` (ShellState/Job/ShellFunction), `builtins/jobs.rs` (fg/bg/jobs), `builtins/set.rs` (set + PATH helpers), `builtins/source.rs` (source_fish_string, source_conf_d, load_functions_dir), `builtins/mod.rs` (dispatch + remaining builtins).
 - [x] **Rename `Jbosh*` → `Shako*`** — `ShakoConfig`, `ShakoHighlighter`, `ShakoCompleter` throughout. No more `Jbosh` prefix anywhere.
 - [ ] **Feature-gate `fish_import.rs`** (683 lines) — one-time migration utility; put behind `--features fish-import`.
-- [x] **Integration tests** — `tests/integration.rs` has 90+ end-to-end tests (pipes, chains, redirects, env, glob, quoting, builtins). 97 unit tests + 92 integration = 189 total (and growing). Note: builtins (cd, alias, export, set) can only be tested via the interactive REPL loop, not via `-c` mode (which bypasses `ShellState`).
-- [x] **Startup time instrumentation** — `--timings` / `-T` flag prints wall-clock execution time after each command.
+- [x] **Integration tests** — `tests/integration.rs` has 107 end-to-end tests covering pipes, chains, redirects, env, glob, quoting, builtins, control flow, brace expansion, and herestrings. 119 unit tests + 107 integration = 226 total (and growing). Note: builtins (cd, alias, export, set) can only be tested via the interactive REPL loop, not via `-c` mode (which bypasses `ShellState`).
 
 ---
 
@@ -216,10 +216,10 @@ Missing config options for power users:
 2. ~~Capture stderr for AI diagnosis~~ — done
 3. ~~Wire up `history_context_lines`~~ — done
 
-### Phase 2 — Essential Shell Features
-4. `echo`, `read`, `test` builtins
-5. `${VAR:-default}` parameter expansion
-6. `pushd`/`popd`/`dirs`
+### Phase 2 — Essential Shell Features ✅ Complete
+4. ~~`echo`, `read`, `test` builtins~~ — done
+5. ~~`${VAR:-default}` parameter expansion~~ — done
+6. ~~`pushd`/`popd`/`dirs`~~ — done
 7. ~~Git branch + state in AI context~~ — done
 
 ### Phase 3 — UX Polish ✅ Complete
@@ -228,14 +228,14 @@ Missing config options for power users:
 10. ~~Stream AI responses~~ — done (#37)
 11. ~~`[w]hy` option in AI confirmation~~ — done (#36)
 
-### Phase 4 — Differentiators
+### Phase 4 — Differentiators ✅ Complete
 12. ~~`?` suffix explain mode~~ — done
 13. ~~Per-project `.shako.toml` AI context~~ — done
-14. Session memory for AI
-15. AI-powered history search
+14. ~~Session memory for AI~~ — done (#47)
+15. ~~AI-powered history search~~ — done (`??` prefix, #47)
 
-### Phase 5 — Advanced Shell
-16. `if`/`for`/`while` control flow
-17. Brace expansion
-18. Heredocs / herestrings
-19. Flag + branch completion
+### Phase 5 — Advanced Shell ✅ Complete
+16. ~~`if`/`for`/`while` control flow~~ — done
+17. ~~Brace expansion~~ — done (#49)
+18. ~~Herestrings~~ — done (#49). Heredocs (`<<EOF`) not yet implemented.
+19. ~~Flag + branch completion~~ — done (#47)

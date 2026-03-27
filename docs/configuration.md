@@ -121,6 +121,7 @@ gs = "git status -sb"
 | `history_context_lines` | integer | `20` | Number of recent commands sent to AI for context |
 | `safety_mode` | string | `"warn"` | `"warn"` shows warnings, `"block"` prevents execution, `"off"` disables |
 | `edit_mode` | string | `"emacs"` | `"emacs"` (default) or `"vi"` for vi-style keybindings |
+| `ai_enabled` | boolean | `true` | Global kill switch for all AI features |
 
 ## Per-Project Config (`.shako.toml`)
 

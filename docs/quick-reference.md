@@ -15,9 +15,11 @@ A concise cheat sheet for daily use. Print it, pin it, paste it somewhere handy.
 | `? grep` | Explain what `grep` does (single known command → explain) |
 | `chmod 755?` | Explain what `chmod 755` means |
 | `? squash the last 3 commits` | AI translates → `git rebase -i HEAD~3` → confirm |
+| `?? rsync command last week` | AI-powered semantic history search |
+| `ai reset` | Clear AI session memory |
 
-**Confirmation prompt:** `[Y]es / [n]o / [e]dit / [w]hy`  
-Press `Y` or Enter to run, `n` to cancel, `e` to edit the command first, `w` to get an explanation before deciding.
+**Confirmation prompt:** `[Y]es / [n]o / [e]dit / [w]hy / [r]efine`  
+Press `Y` or Enter to run, `n` to cancel, `e` to edit, `w` for explanation, `r` to refine your request.
 
 ---
 
@@ -48,6 +50,20 @@ Press `Y` or Enter to run, `n` to cancel, `e` to edit the command first, `w` to 
 | `jobs` | List background jobs |
 | `fg [%N]` | Bring job N to foreground |
 | `bg [%N]` | Resume stopped job in background |
+| `disown [%N]` | Remove job from shell tracking (survives shell exit) |
+| `wait [%N]` | Wait for background job(s) to finish |
+| `echo [args]` | Print arguments with escape support |
+| `read [-p prompt] VAR` | Read a line from stdin into a variable |
+| `test` / `[` | Conditional evaluation (`-f`, `-d`, `-z`, `-n`, `=`, `-eq`, etc.) |
+| `pwd` | Print current working directory |
+| `pushd [dir]` | Push directory onto stack and cd |
+| `popd` | Pop directory from stack and cd |
+| `dirs` | Display directory stack |
+| `command name` | Run command bypassing aliases/functions |
+| `true` / `false` | Return exit code 0 / 1 |
+| `return [N]` | Return from function with exit code |
+| `break` / `continue` | Loop control |
+| `local VAR=val` | Function-local variable |
 | `fish-import` | Import aliases/env/functions from `~/.config/fish/` |
 
 ---
@@ -107,6 +123,17 @@ echo $(dirname $(pwd))     # nested substitution
 ls *.rs                    # glob expansion
 ls "*.rs"                  # suppressed inside quotes
 cd ~/projects              # tilde expansion
+
+echo {a,b,c}               # brace expansion → a b c
+echo {1..5}                # range expansion → 1 2 3 4 5
+echo {01..10}              # zero-padded → 01 02 ... 10
+
+grep foo <<< "$var"        # herestring → pipe to stdin
+
+${VAR:-default}            # parameter expansion with default
+${VAR#prefix}              # strip prefix
+${VAR/old/new}             # string replacement
+$((2 + 2))                 # arithmetic expansion
 ```
 
 ---
@@ -253,9 +280,9 @@ The AI reads this every time you're in that directory.
 
 ## Tab Completion
 
-Subcommand completions for: `git`, `cargo`, `docker`, `podman`, `kubectl`, `make`, `gmake`, `sudo`, `cd`, `z`, `pushd`.
+Subcommand completions for: `git` (branches+flags), `cargo` (flags), `docker`, `podman`, `kubectl`, `npm`/`pnpm`/`yarn`/`bun`, `brew`, `go`, `rustup`, `helm`, `terraform`, `make`/`just` (dynamic targets), `ssh` (hosts from config), `sudo`, `cd`/`z`/`pushd`.
 
-All `$PATH` executables, builtins, and file paths complete too. Filenames with spaces are auto-escaped.
+All `$PATH` executables, builtins, aliases, functions, and file paths complete too. Filenames with spaces are auto-escaped.
 
 ---
 

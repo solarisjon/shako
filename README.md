@@ -19,24 +19,27 @@ shako -c "ls -la"   # non-interactive: run one command and exit
 
 ```
 $ ls -la                          # runs immediately (via eza if installed)
-$ show me disk usage by folder    # → AI translates → "dust" → [Y/n/e] → runs
+$ show me disk usage by folder    # → AI translates → "dust" → [Y/n/e/w/r] → runs
 $ ? grep                          # explains what grep does
 $ grep -rn?                       # explains what -rn flags do
-$ ? find all large files          # AI translates → fd/find command → [Y/n/e]
+$ ? find all large files          # AI translates → fd/find command → [Y/n/e/w/r]
+$ ?? rsync command last week      # AI-powered semantic history search
 $ gti status                      # typo → "did you mean git status? [Y/n]"
 $ gcc bad.c                       # fails → "ask AI for help? [y/N]" → suggests fix
+$ git add .                       # → proactive: "commit with this message? [Y/n/e]"
 $ z projects                      # zoxide smart jump
 ```
 
 Every input is classified in order:
 
 1. Shell function → run it
-2. `?` or `ai:` prefix → AI mode (explain if bare command, translate otherwise)
-3. Trailing `?` → explain command without executing
-4. Builtin (`cd`, `exit`, `z`, `set`, etc.) → handle internally
-5. Found in `$PATH` → execute directly (unless args look like prose → AI)
-6. Close to a known command → typo suggestion
-7. Everything else → AI translation
+2. `??` prefix → AI-powered history search
+3. `?` or `ai:` prefix → AI mode (explain if bare command, translate otherwise)
+4. Trailing `?` → explain command without executing
+5. Builtin (`cd`, `exit`, `z`, `set`, etc.) → handle internally
+6. Found in `$PATH` → execute directly (unless args look like prose → AI)
+7. Close to a known command → typo suggestion
+8. Everything else → AI translation
 
 ## Key Features
 
@@ -83,4 +86,4 @@ Requires Rust 1.85.0+ (edition 2024).
 
 ## License
 
-MIT
+Apache-2.0

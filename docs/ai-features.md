@@ -37,6 +37,9 @@ After the AI generates a command:
 - **`n`** — cancel
 - **`e`** — edit the command before executing (type your corrected version)
 - **`w`** — explain what the command does, then re-present the prompt
+- **`r`** — refine: add a clarification and let the AI re-translate without starting over
+
+Edits made via `e` are tracked by the [watch-and-learn](#watch-and-learn) system.
 
 ### Safety Layer
 
@@ -45,6 +48,78 @@ AI-generated commands are checked before confirmation:
 - **Blocked** (`safety_mode = "block"`): `rm -rf /`, `mkfs`, `dd if=`, fork bombs
 - **Warned** (`safety_mode = "warn"`): `sudo`, `rm`, `mv /`, `chmod`, `chown`
 - **Off** (`safety_mode = "off"`): no safety checks
+
+## Session Memory
+
+shako's AI remembers the last 5 natural-language → command exchanges within your session. This means follow-up requests work naturally:
+
+```
+$ find all rust files bigger than 1MB
+❯ fd -e rs --size +1m
+[Y] → runs
+
+$ now do the same but only in src/
+❯ fd -e rs --size +1m src/
+```
+
+To clear session memory:
+```
+$ ai reset
+```
+
+## AI History Search
+
+Use the `??` prefix to semantically search your command history:
+
+```
+$ ?? rsync command I used last week
+Found: rsync -avz --progress ./build/ deploy@prod:/var/www/
+[Y]es / [n]o:
+```
+
+The AI searches your shell history for commands matching your description, even if you don't remember the exact syntax.
+
+## Proactive Suggestions
+
+shako offers context-aware suggestions after certain commands:
+
+| Trigger | Suggestion |
+|---|---|
+| `git add` | AI-generated commit message from staged diff |
+| `git clone <url>` | `tip: cd <repo-name>` |
+| `cd` into dir with Makefile | Shows available `make` targets |
+
+Example after `git add .`:
+```
+💡 commit with: "fix: resolve null pointer in user lookup"
+[Y]es / [n]o / [e]dit:
+```
+
+## Watch-and-Learn
+
+When you edit an AI-suggested command (via `[e]dit`), shako records the correction in `~/.config/shako/learned_prefs.toml`. These preferences are injected into future AI prompts:
+
+```
+$ show me files
+❯ find . -type f
+[e]dit → fd --type f
+# shako learns: "user prefers fd over find"
+
+# Next time:
+$ show me files
+❯ fd --type f              # AI now uses fd by default
+```
+
+## AI Kill Switch
+
+Disable all AI features globally:
+
+```toml
+[behavior]
+ai_enabled = false
+```
+
+With AI disabled, natural language input prints `shako: AI is disabled` instead of querying the LLM. All non-AI shell features continue to work.
 
 ## Explain Mode
 
