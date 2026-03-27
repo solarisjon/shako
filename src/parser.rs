@@ -165,10 +165,16 @@ pub fn expand(tokens: Vec<Token>) -> Vec<String> {
         let expanded = expand_tilde(&token.value);
         let expanded = expand_env_vars(&expanded);
 
-        if !token.quoted && contains_glob_chars(&expanded) {
-            match expand_glob(&expanded) {
-                Some(paths) => result.extend(paths),
-                None => result.push(expanded),
+        if !token.quoted {
+            for brace_word in expand_braces(&expanded) {
+                if contains_glob_chars(&brace_word) {
+                    match expand_glob(&brace_word) {
+                        Some(paths) => result.extend(paths),
+                        None => result.push(brace_word),
+                    }
+                } else {
+                    result.push(brace_word);
+                }
             }
         } else {
             result.push(expanded);
@@ -182,6 +188,158 @@ pub fn expand(tokens: Vec<Token>) -> Vec<String> {
 pub fn parse_args(input: &str) -> Vec<String> {
     let tokens = tokenize(input);
     expand(tokens)
+}
+
+/// Expand brace expressions in a single unquoted token.
+///
+/// Handles list form `{a,b,c}` and range form `{1..5}` / `{a..e}`.
+/// Returns a single-element vec if no valid brace expression is found.
+fn expand_braces(token: &str) -> Vec<String> {
+    // Find the first '{'
+    let open_pos = match token.find('{') {
+        Some(p) => p,
+        None => return vec![token.to_string()],
+    };
+
+    // Find the matching '}'
+    let bytes = token.as_bytes();
+    let mut depth = 0usize;
+    let mut close_pos = None;
+    for (i, &byte) in bytes.iter().enumerate().skip(open_pos) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    close_pos = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let close_pos = match close_pos {
+        Some(p) => p,
+        None => return vec![token.to_string()],
+    };
+
+    let prefix = &token[..open_pos];
+    let inner = &token[open_pos + 1..close_pos];
+    let suffix = &token[close_pos + 1..];
+
+    // Empty brace expression is literal
+    if inner.is_empty() {
+        return vec![token.to_string()];
+    }
+
+    // Try range form first, then list form
+    let alternatives: Vec<String> = if let Some(alts) = try_brace_range(inner) {
+        alts
+    } else {
+        brace_list_split(inner)
+    };
+
+    // Single element means no expansion — return as literal
+    if alternatives.len() <= 1 {
+        return vec![token.to_string()];
+    }
+
+    alternatives
+        .iter()
+        .map(|alt| format!("{prefix}{alt}{suffix}"))
+        .collect()
+}
+
+/// Try to parse inner brace content as a range (`start..end`).
+/// Returns `None` if not a valid range expression.
+fn try_brace_range(inner: &str) -> Option<Vec<String>> {
+    let sep = inner.find("..")?;
+    let start_str = &inner[..sep];
+    let end_str = &inner[sep + 2..];
+
+    if start_str.is_empty() || end_str.is_empty() {
+        return None;
+    }
+
+    // Numeric range
+    if let (Ok(start), Ok(end)) = (start_str.parse::<i64>(), end_str.parse::<i64>()) {
+        let zero_pad = (start_str.len() > 1 && start_str.starts_with('0'))
+            || (end_str.len() > 1 && end_str.starts_with('0'));
+        let pad_width = if zero_pad {
+            start_str.len().max(end_str.len())
+        } else {
+            0
+        };
+
+        let nums: Vec<i64> = if start <= end {
+            (start..=end).collect()
+        } else {
+            (end..=start).rev().collect()
+        };
+
+        return Some(
+            nums.iter()
+                .map(|&n| {
+                    if pad_width > 0 {
+                        format!("{n:0>pad_width$}")
+                    } else {
+                        n.to_string()
+                    }
+                })
+                .collect(),
+        );
+    }
+
+    // Character range (single chars only)
+    let mut sc = start_str.chars();
+    let mut ec = end_str.chars();
+    if let (Some(s), None, Some(e), None) = (sc.next(), sc.next(), ec.next(), ec.next()) {
+        let (su, eu) = (s as u32, e as u32);
+        let chars: Vec<String> = if su <= eu {
+            (su..=eu)
+                .filter_map(char::from_u32)
+                .map(|c| c.to_string())
+                .collect()
+        } else {
+            let mut r: Vec<String> = (eu..=su)
+                .filter_map(char::from_u32)
+                .map(|c| c.to_string())
+                .collect();
+            r.reverse();
+            r
+        };
+        return Some(chars);
+    }
+
+    None
+}
+
+/// Split brace list content by commas, respecting nested brace depth.
+fn brace_list_split(inner: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+
+    for c in inner.chars() {
+        match c {
+            '{' => {
+                depth += 1;
+                current.push(c);
+            }
+            '}' if depth > 0 => {
+                depth -= 1;
+                current.push(c);
+            }
+            ',' if depth == 0 => {
+                parts.push(current.clone());
+                current.clear();
+            }
+            _ => current.push(c),
+        }
+    }
+    parts.push(current);
+    parts
 }
 
 /// Expand `~` at the start of a token to `$HOME`.
@@ -1070,5 +1228,79 @@ mod tests {
     fn test_arithmetic_in_double_quotes() {
         let args = parse_args(r#"echo "result=$((3 + 4))""#);
         assert_eq!(args, vec!["echo", "result=7"]);
+    }
+
+    // ── Brace expansion ────────────────────────────────────────────
+
+    #[test]
+    fn test_brace_expansion_list() {
+        let result = expand_braces("{a,b,c}");
+        assert_eq!(result, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_prefix_suffix() {
+        let result = expand_braces("foo{1,2,3}bar");
+        assert_eq!(result, vec!["foo1bar", "foo2bar", "foo3bar"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_with_empty_element() {
+        let result = expand_braces("file{,.bak}");
+        assert_eq!(result, vec!["file", "file.bak"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_numeric_range() {
+        let result = expand_braces("{1..5}");
+        assert_eq!(result, vec!["1", "2", "3", "4", "5"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_char_range() {
+        let result = expand_braces("{a..e}");
+        assert_eq!(result, vec!["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_range_reverse_numeric() {
+        let result = expand_braces("{5..1}");
+        assert_eq!(result, vec!["5", "4", "3", "2", "1"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_range_reverse_char() {
+        let result = expand_braces("{e..a}");
+        assert_eq!(result, vec!["e", "d", "c", "b", "a"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_zero_padded() {
+        let result = expand_braces("{01..05}");
+        assert_eq!(result, vec!["01", "02", "03", "04", "05"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_empty_literal() {
+        let result = expand_braces("{}");
+        assert_eq!(result, vec!["{}"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_single_literal() {
+        let result = expand_braces("{foo}");
+        assert_eq!(result, vec!["{foo}"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_via_parse_args() {
+        let args = parse_args("echo {a,b,c}");
+        assert_eq!(args, vec!["echo", "a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_brace_expansion_quoted_not_expanded() {
+        let args = parse_args(r#"echo "{a,b,c}""#);
+        assert_eq!(args, vec!["echo", "{a,b,c}"]);
     }
 }

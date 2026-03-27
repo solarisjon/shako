@@ -763,3 +763,112 @@ fn test_control_flow_multiple_statements_in_body() {
     let lines: Vec<&str> = s.trim().lines().collect();
     assert_eq!(lines, vec!["start", "1", "end", "start", "2", "end"]);
 }
+
+// ── Brace expansion ─────────────────────────────────────────────
+
+#[test]
+fn test_brace_expansion_list() {
+    let out = shako("echo {a,b,c}");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "a b c");
+}
+
+#[test]
+fn test_brace_expansion_prefix_suffix() {
+    let out = shako("echo foo{1,2,3}bar");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "foo1bar foo2bar foo3bar");
+}
+
+#[test]
+fn test_brace_expansion_with_empty_element() {
+    let out = shako("echo file{,.bak}");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "file file.bak");
+}
+
+#[test]
+fn test_brace_expansion_numeric_range() {
+    let out = shako("echo {1..5}");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "1 2 3 4 5");
+}
+
+#[test]
+fn test_brace_expansion_char_range() {
+    let out = shako("echo {a..e}");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "a b c d e");
+}
+
+#[test]
+fn test_brace_expansion_range_reverse() {
+    let out = shako("echo {5..1}");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "5 4 3 2 1");
+}
+
+#[test]
+fn test_brace_expansion_zero_padded() {
+    let out = shako("echo {01..05}");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "01 02 03 04 05");
+}
+
+#[test]
+fn test_brace_expansion_empty_is_literal() {
+    let out = shako("echo {}");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "{}");
+}
+
+#[test]
+fn test_brace_expansion_single_is_literal() {
+    let out = shako("echo {foo}");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "{foo}");
+}
+
+#[test]
+fn test_brace_expansion_quoted_not_expanded() {
+    let out = shako(r#"echo "{a,b,c}""#);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "{a,b,c}");
+}
+
+// ── Herestring <<< ──────────────────────────────────────────────
+
+#[test]
+fn test_herestring_basic() {
+    let out = shako("cat <<< hello");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "hello");
+}
+
+#[test]
+fn test_herestring_with_grep_match() {
+    let out = shako("grep foo <<< foobar");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "foobar");
+}
+
+#[test]
+fn test_herestring_with_grep_no_match() {
+    let out = shako("grep xyz <<< hello");
+    assert!(!out.status.success());
+    assert!(stdout(&out).trim().is_empty());
+}
+
+#[test]
+fn test_herestring_in_pipeline() {
+    let out = shako("cat <<< hello | tr a-z A-Z");
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "HELLO");
+}
+
+#[test]
+fn test_herestring_quoted_content() {
+    let out = shako(r#"cat <<< "hello world""#);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "hello world");
+}

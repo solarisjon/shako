@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, ExitStatus, Stdio};
 
 use crate::parser;
@@ -162,6 +162,8 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
                 return None;
             }
         }
+    } else if redir.herestring.is_some() {
+        cmd.stdin(Stdio::piped());
     }
 
     if let Some(ref path) = redir.stdout_path {
@@ -184,7 +186,15 @@ pub fn spawn_background(input: &str) -> Option<std::process::Child> {
     apply_stderr_redirect(&mut cmd, &redir);
 
     match cmd.spawn() {
-        Ok(child) => Some(child),
+        Ok(mut child) => {
+            if let Some(ref content) = redir.herestring {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(content.as_bytes());
+                    let _ = stdin.write_all(b"\n");
+                }
+            }
+            Some(child)
+        }
         Err(e) => {
             eprintln!("shako: {program}: {e}");
             None
@@ -383,6 +393,8 @@ fn execute_single(input: &str) -> ExitStatus {
                 return fake_status(1);
             }
         }
+    } else if redir.herestring.is_some() {
+        cmd.stdin(Stdio::piped());
     }
 
     if let Some(ref path) = redir.stdout_path {
@@ -405,7 +417,13 @@ fn execute_single(input: &str) -> ExitStatus {
     apply_stderr_redirect(&mut cmd, &redir);
 
     match cmd.spawn() {
-        Ok(child) => {
+        Ok(mut child) => {
+            if let Some(ref content) = redir.herestring {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(content.as_bytes());
+                    let _ = stdin.write_all(b"\n");
+                }
+            }
             let status = foreground_wait(child);
             if !status.success() {
                 if let Some(code) = status.code() {
@@ -462,6 +480,8 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
                     return fake_status(1);
                 }
             }
+        } else if redir.herestring.is_some() {
+            cmd.stdin(Stdio::piped());
         }
 
         if !is_last {
@@ -487,6 +507,12 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
 
         match cmd.spawn() {
             Ok(mut child) => {
+                if let Some(ref content) = redir.herestring {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        let _ = stdin.write_all(content.as_bytes());
+                        let _ = stdin.write_all(b"\n");
+                    }
+                }
                 let child_pid = child.id() as i32;
                 #[cfg(unix)]
                 {
@@ -566,10 +592,12 @@ struct Redirects {
     stderr_append: bool,
     stdin_path: Option<String>,
     stderr_to_stdout: bool,
+    /// Content for herestring (`<<<`) redirect.
+    herestring: Option<String>,
 }
 
 /// Parse redirects from a command string, preserving quotes.
-/// Supports: >, >>, <, 2>, 2>>, 2>&1
+/// Supports: >, >>, <, <<<, 2>, 2>>, 2>&1
 fn parse_redirects(input: &str) -> Redirects {
     let mut cmd_parts = Vec::new();
     let mut stdout_path = None;
@@ -578,12 +606,22 @@ fn parse_redirects(input: &str) -> Redirects {
     let mut stdout_append = false;
     let mut stderr_append = false;
     let mut stderr_to_stdout = false;
+    // Use quote-aware tokenizer to extract herestring content correctly.
+    let herestring: Option<String> = extract_herestring(input);
 
-    let tokens: Vec<&str> = input.split_whitespace().collect();
+    // Strip <<< and its argument from input so split_whitespace doesn't
+    // accidentally include herestring content in cmd_parts.
+    let cleaned = if herestring.is_some() {
+        strip_herestring_from_input(input)
+    } else {
+        input.to_string()
+    };
+    let tokens: Vec<&str> = cleaned.split_whitespace().collect();
     let mut i = 0;
 
     while i < tokens.len() {
         match tokens[i] {
+
             "2>&1" => {
                 stderr_to_stdout = true;
                 i += 1;
@@ -678,7 +716,85 @@ fn parse_redirects(input: &str) -> Redirects {
         stderr_append,
         stdin_path,
         stderr_to_stdout,
+        herestring,
     }
+}
+
+/// Extract and expand the herestring word from a raw command string.
+///
+/// Uses the parser tokenizer for proper quote handling, so
+/// `cat <<< "hello world"` correctly produces `hello world`.
+/// Also handles the no-space form: `cat <<<word`.
+fn extract_herestring(input: &str) -> Option<String> {
+    let tokens = parser::tokenize(input);
+    let mut i = 0;
+    while i < tokens.len() {
+        if !tokens[i].quoted {
+            if tokens[i].value == "<<<" {
+                if i + 1 < tokens.len() {
+                    // Value is already quote-stripped and env-expanded by the tokenizer
+                    return Some(tokens[i + 1].value.clone());
+                }
+            } else if let Some(word) = tokens[i].value.strip_prefix("<<<") {
+                if !word.is_empty() {
+                    return Some(expand_herestring_word(word));
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Expand a single herestring word token (simple no-space case).
+fn expand_herestring_word(raw: &str) -> String {
+    parser::parse_args(raw).join(" ")
+}
+
+/// Remove `<<<` and its argument from the input string for redirect re-parsing.
+///
+/// Scans character-by-character to respect quoted sections, then strips
+/// the `<<<` operator and the following word so split_whitespace doesn't
+/// accidentally put herestring content into `cmd_parts`.
+fn strip_herestring_from_input(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while i < chars.len() {
+        match chars[i] {
+            '\'' if !in_double => { in_single = !in_single; i += 1; }
+            '"'  if !in_single => { in_double = !in_double; i += 1; }
+            '<' if !in_single && !in_double
+                && i + 2 < chars.len()
+                && chars[i + 1] == '<' && chars[i + 2] == '<' => {
+                let start = i;
+                i += 3; // skip <<<
+                // Skip whitespace between <<< and the word
+                while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') {
+                    i += 1;
+                }
+                // Skip the word, respecting quotes
+                let mut ws = false;
+                let mut wd = false;
+                while i < chars.len() {
+                    match chars[i] {
+                        '\'' if !wd => ws = !ws,
+                        '"'  if !ws => wd = !wd,
+                        ' ' | '\t' if !ws && !wd => break,
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                let before: String = chars[..start].iter().collect();
+                let after: String = chars[i..].iter().collect();
+                return format!("{}{}", before.trim_end(), after);
+            }
+            _ => { i += 1; }
+        }
+    }
+    input.to_string()
 }
 
 /// Create a fake ExitStatus with the given code.
@@ -787,6 +903,21 @@ mod tests {
         assert_eq!(r.cmd, "make");
         assert_eq!(r.stdout_path.unwrap(), "out.log");
         assert_eq!(r.stderr_path.unwrap(), "err.log");
+    }
+
+    #[test]
+    fn test_parse_redirects_herestring() {
+        let r = parse_redirects("cat <<< hello");
+        assert_eq!(r.cmd, "cat");
+        assert_eq!(r.herestring.unwrap(), "hello");
+        assert!(r.stdin_path.is_none());
+    }
+
+    #[test]
+    fn test_parse_redirects_herestring_no_space() {
+        let r = parse_redirects("cat <<<hello");
+        assert_eq!(r.cmd, "cat");
+        assert_eq!(r.herestring.unwrap(), "hello");
     }
 
     #[test]
