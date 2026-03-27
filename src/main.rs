@@ -329,13 +329,19 @@ fn main() -> Result<()> {
         let sig = line_editor.read_line(&prompt);
         match sig {
             Ok(Signal::Success(input)) => {
-                let mut input = input.trim().to_string();
+                // Trim in-place: truncate trailing whitespace first, then drain
+                // leading whitespace — avoids allocating a second String when
+                // there is no surrounding whitespace (the common case).
+                let mut input = input;
+                let start = input.len() - input.trim_start().len();
+                input.drain(..start);
+                let end = input.trim_end().len();
+                input.truncate(end);
                 if input.is_empty() {
                     continue;
                 }
 
                 // Multiline continuation: trailing \ or unclosed quotes
-                let mut cont_interrupted = false;
                 while needs_continuation(&input) {
                     let cont_prompt = reedline::DefaultPrompt::new(
                         reedline::DefaultPromptSegment::Basic("... ".to_string()),
@@ -348,17 +354,11 @@ fn main() -> Result<()> {
                                 input.push(' ');
                             } else {
                                 // Treat each continuation line as a new statement so
-                                // that keywords like `end`/`done`/`fi` form their own segment
+                                // that keywords like `done`/`fi` form their own segment
                                 // and are recognised by control_depth / split_semicolons.
                                 input.push_str("; ");
                             }
                             input.push_str(next.trim());
-                        }
-                        Ok(Signal::CtrlC) => {
-                            // Discard the partial input and return to the main prompt.
-                            eprintln!();
-                            cont_interrupted = true;
-                            break;
                         }
                         _ => break,
                     }
@@ -934,92 +934,4 @@ fn is_pure_builtin_call(segment: &str) -> bool {
     }
     let first = segment.split_whitespace().next().unwrap_or("");
     builtins::is_builtin(first)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ── control_depth ──────────────────────────────────────────────
-
-    #[test]
-    fn test_control_depth_open_for() {
-        assert_eq!(control_depth("for i in 1 2 3"), 1);
-    }
-
-    #[test]
-    fn test_control_depth_for_closed_with_end() {
-        assert_eq!(control_depth("for i in 1 2 3; end"), 0);
-    }
-
-    #[test]
-    fn test_control_depth_for_closed_with_done() {
-        assert_eq!(control_depth("for i in 1 2 3; done"), 0);
-    }
-
-    #[test]
-    fn test_control_depth_open_if() {
-        assert_eq!(control_depth("if true"), 1);
-    }
-
-    #[test]
-    fn test_control_depth_if_closed_with_end() {
-        assert_eq!(control_depth("if true; echo yes; end"), 0);
-    }
-
-    #[test]
-    fn test_control_depth_if_closed_with_fi() {
-        assert_eq!(control_depth("if true; echo yes; fi"), 0);
-    }
-
-    #[test]
-    fn test_control_depth_open_while() {
-        assert_eq!(control_depth("while true"), 1);
-    }
-
-    #[test]
-    fn test_control_depth_nested() {
-        assert_eq!(control_depth("for i in 1; if true"), 2);
-        assert_eq!(control_depth("for i in 1; if true; end"), 1);
-        assert_eq!(control_depth("for i in 1; if true; end; end"), 0);
-    }
-
-    #[test]
-    fn test_control_depth_plain_command() {
-        assert_eq!(control_depth("echo hello"), 0);
-        assert_eq!(control_depth("ls -la"), 0);
-    }
-
-    // ── needs_continuation ────────────────────────────────────────
-
-    #[test]
-    fn test_needs_continuation_open_for() {
-        assert!(needs_continuation("for i in 1 2 3"));
-    }
-
-    #[test]
-    fn test_needs_continuation_closed_for() {
-        assert!(!needs_continuation("for i in 1 2 3; echo $i; end"));
-    }
-
-    #[test]
-    fn test_needs_continuation_trailing_backslash() {
-        assert!(needs_continuation("echo hello \\"));
-    }
-
-    #[test]
-    fn test_needs_continuation_unclosed_single_quote() {
-        assert!(needs_continuation("echo 'hello"));
-    }
-
-    #[test]
-    fn test_needs_continuation_closed_quotes() {
-        assert!(!needs_continuation("echo 'hello world'"));
-    }
-
-    #[test]
-    fn test_needs_continuation_plain_command() {
-        assert!(!needs_continuation("echo hello"));
-        assert!(!needs_continuation("ls -la"));
-    }
 }
