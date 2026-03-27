@@ -318,6 +318,7 @@ fn convert_fish_config(contents: &str, stats: &mut ImportStats) -> String {
 
         // Multi-line fish function → shako function
         if line.starts_with("function ") && !line.contains('{') {
+            // Safety: strip_prefix always succeeds here because `starts_with` was just checked.
             let rest = line.strip_prefix("function ").unwrap().trim();
             let name = rest
                 .split(|c: char| c.is_whitespace() || c == ';')

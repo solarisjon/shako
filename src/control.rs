@@ -1,6 +1,6 @@
 // Control flow engine for shako.
 //
-// Handles `if/elif/else/fi`, `for/do/done`, `while/do/done`, and the
+// Handles `if/elif/else/end`, `for/end`, `while/end`, and the
 // associated `break`, `continue`, and `local` builtins.  Input is a
 // semicolon-separated string (the body of a function or a multi-statement
 // REPL line joined into one string).
@@ -229,7 +229,7 @@ impl Parser {
     }
 
     /// Skip the next token if it is any recognised block-closer:
-    /// `end` (fish canonical) or `done` / `fi` (bash compat aliases).
+    /// `end` (fish canonical; preferred) or `done` / `fi` (accepted for compat).
     fn skip_end_kw(&mut self) {
         if matches!(
             self.tokens.get(self.pos),

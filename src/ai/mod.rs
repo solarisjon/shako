@@ -15,7 +15,7 @@ pub async fn translate_and_execute(
     session_memory: &mut Vec<(String, String)>,
 ) -> Result<()> {
     if !config.behavior.ai_enabled {
-        eprintln!("shako: AI is disabled");
+        eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
         return Ok(());
     }
     let ctx = context::build_context(recent_history, session_memory.clone())?;

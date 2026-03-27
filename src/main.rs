@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     env_logger::init();
 
     if init {
-        eprintln!("\x1b[1;36mshako:\x1b[0m reinitializing...");
+        eprintln!("shako: reinitializing...");
         if let Err(e) = ShakoConfig::reset() {
             eprintln!("shako: reset failed: {e}");
             std::process::exit(1);
@@ -495,7 +495,7 @@ fn main() -> Result<()> {
                     }
                     Classification::NaturalLanguage(text) => {
                         if !config.behavior.ai_enabled {
-                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                            eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
                         } else {
                         let history = read_recent_history(&history_path, config.behavior.history_context_lines);
                         match rt.block_on(ai::translate_and_execute(&text, &config, history, &mut state.ai_session_memory)) {
@@ -509,7 +509,7 @@ fn main() -> Result<()> {
                     }
                     Classification::ForcedAI(text) => {
                         if !config.behavior.ai_enabled {
-                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                            eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
                         } else {
                         let words: Vec<&str> = text.split_whitespace().collect();
                         let is_bare_command = words.len() == 1
@@ -584,12 +584,12 @@ fn main() -> Result<()> {
                             Err(e) => eprintln!("shako: history search failed: {e}"),
                         }
                         } else {
-                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                            eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
                         }
                     }
                     Classification::ExplainCommand(cmd) => {
                         if !config.behavior.ai_enabled {
-                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                            eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
                         } else {
                         print!("\x1b[90mexplaining...\x1b[0m");
                         io::stdout().flush().ok();
@@ -774,7 +774,7 @@ fn needs_continuation(input: &str) -> bool {
 }
 
 /// Count nesting depth of control-flow keywords in a (possibly partial) input.
-/// Positive → needs more `fi`/`done` to close.
+/// Positive → needs more `end` to close.
 fn control_depth(input: &str) -> i32 {
     let mut depth = 0i32;
     // Split on unquoted semicolons and check first word of each segment
@@ -788,7 +788,7 @@ fn control_depth(input: &str) -> i32 {
         let first = seg.split_whitespace().next().unwrap_or("");
         match first {
             "if" | "for" | "while" => depth += 1,
-            "end" | "fi" | "done" => depth -= 1, // end is canonical (fish); fi/done are bash compat
+            "end" | "fi" | "done" => depth -= 1, // end is canonical; fi/done accepted for compat
             _ => {}
         }
     };
