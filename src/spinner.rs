@@ -35,6 +35,10 @@ impl Spinner {
             handle: Some(handle),
         }
     }
+
+    pub fn stop_flag(&self) -> Arc<AtomicBool> {
+        self.running.clone()
+    }
 }
 
 impl Drop for Spinner {

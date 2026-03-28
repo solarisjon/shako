@@ -589,7 +589,11 @@ fn main() -> Result<()> {
 
                             if is_bare_command {
                                 let sp = spinner::Spinner::start("explaining...");
-                                let result = rt.block_on(ai::explain_command(&text, &config));
+                                let result = rt.block_on(ai::explain_command(
+                                    &text,
+                                    &config,
+                                    Some(sp.stop_flag()),
+                                ));
                                 drop(sp);
                                 match result {
                                     Ok(explanation) => {
@@ -688,7 +692,11 @@ fn main() -> Result<()> {
                             eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         } else {
                             let sp = spinner::Spinner::start("explaining...");
-                            let result = rt.block_on(ai::explain_command(&cmd, &config));
+                            let result = rt.block_on(ai::explain_command(
+                                &cmd,
+                                &config,
+                                Some(sp.stop_flag()),
+                            ));
                             drop(sp);
                             match result {
                                 Ok(explanation) => {

@@ -5,6 +5,9 @@ use anyhow::Result;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::config::LlmConfig;
 
 #[derive(Serialize)]
@@ -76,6 +79,24 @@ pub async fn query_llm(
     system_prompt: &str,
     user_input: &str,
     config: &LlmConfig,
+) -> Result<String> {
+    query_llm_inner(system_prompt, user_input, config, None).await
+}
+
+pub async fn query_llm_with_spinner(
+    system_prompt: &str,
+    user_input: &str,
+    config: &LlmConfig,
+    spinner_flag: Arc<AtomicBool>,
+) -> Result<String> {
+    query_llm_inner(system_prompt, user_input, config, Some(spinner_flag)).await
+}
+
+async fn query_llm_inner(
+    system_prompt: &str,
+    user_input: &str,
+    config: &LlmConfig,
+    spinner_flag: Option<Arc<AtomicBool>>,
 ) -> Result<String> {
     let api_key = std::env::var(&config.api_key_env).unwrap_or_default();
     let endpoint = normalize_endpoint(&config.endpoint);
@@ -153,6 +174,16 @@ pub async fn query_llm(
                             if let Ok(chunk_resp) = serde_json::from_str::<StreamResponse>(data) {
                                 if let Some(choice) = chunk_resp.choices.first() {
                                     if let Some(content) = &choice.delta.content {
+                                        if let Some(ref flag) = spinner_flag {
+                                            if flag.load(Ordering::Relaxed) {
+                                                flag.store(false, Ordering::Relaxed);
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(100),
+                                                );
+                                                eprint!("\r\x1b[K");
+                                                let _ = std::io::stderr().flush();
+                                            }
+                                        }
                                         print!("{content}");
                                         let _ = std::io::stdout().flush();
                                         full_text.push_str(content);

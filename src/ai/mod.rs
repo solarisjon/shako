@@ -6,6 +6,8 @@ pub mod prompt;
 use crate::config::ShakoConfig;
 use anyhow::Result;
 use std::io::{self, Write};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Translate natural language to a shell command via LLM, confirm, and execute.
 pub async fn translate_and_execute(
@@ -70,7 +72,7 @@ pub async fn translate_and_execute(
                         break 'translate;
                     }
                     confirm::ConfirmAction::Why => {
-                        match explain_command(&command, config).await {
+                        match explain_command(&command, config, None).await {
                             Ok(explanation) => {
                                 println!("\x1b[90m{explanation}\x1b[0m");
                             }
@@ -183,11 +185,19 @@ fn collapse_multiline(raw: &str) -> String {
 }
 
 /// Explain what a command does without executing it.
-pub async fn explain_command(command: &str, config: &ShakoConfig) -> Result<String> {
+pub async fn explain_command(
+    command: &str,
+    config: &ShakoConfig,
+    spinner_flag: Option<Arc<AtomicBool>>,
+) -> Result<String> {
     let ctx = context::build_context(vec![], vec![])?;
     let system_prompt = prompt::explain_prompt(&ctx);
 
-    client::query_llm(&system_prompt, command, config.active_llm()).await
+    if let Some(flag) = spinner_flag {
+        client::query_llm_with_spinner(&system_prompt, command, config.active_llm(), flag).await
+    } else {
+        client::query_llm(&system_prompt, command, config.active_llm()).await
+    }
 }
 
 /// Search shell history using AI semantic matching.
