@@ -982,15 +982,17 @@ fn print_styled_banner(config: &ShakoConfig, ai_status: &ai::client::AiCheckResu
     let w1 = visible_len(&line1);
     let w2 = visible_len(&line2);
     let w3 = visible_len(&line3);
-    let inner_width = w1.max(w2).max(w3) + 4;
+    let content_width = w1.max(w2).max(w3);
+    let inner_width = content_width + 4;
 
     let term_width = crossterm::terminal::size()
         .map(|(w, _)| w as usize)
         .unwrap_or(80);
     let inner_width = inner_width.min(term_width.saturating_sub(4));
+    let content_width = inner_width.saturating_sub(4);
 
     let pad_line = |s: &str, visible: usize| -> String {
-        let pad = inner_width.saturating_sub(visible);
+        let pad = content_width.saturating_sub(visible);
         format!("{s}{}", " ".repeat(pad))
     };
 
