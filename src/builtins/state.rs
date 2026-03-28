@@ -113,10 +113,8 @@ impl ShellState {
                 if let Ok(contents) = std::fs::read_to_string(&path) {
                     let body = super::source::parse_fish_function_file(&contents);
                     if !body.is_empty() {
-                        self.functions.insert(
-                            name.to_string(),
-                            ShellFunction { body },
-                        );
+                        self.functions
+                            .insert(name.to_string(), ShellFunction { body });
                         return true;
                     }
                 }

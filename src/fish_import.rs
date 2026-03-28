@@ -39,23 +39,9 @@ pub fn run_import() {
         .unwrap_or_else(|| home.join(".config"))
         .join("shako");
 
-    writeln!(
-        out,
-        "\x1b[1;36m fish → shako config import\x1b[0m\n"
-    )
-    .ok();
-    writeln!(
-        out,
-        " \x1b[90mfrom:\x1b[0m {}",
-        fish_dir.display()
-    )
-    .ok();
-    writeln!(
-        out,
-        " \x1b[90m  to:\x1b[0m {}\n",
-        shako_dir.display()
-    )
-    .ok();
+    writeln!(out, "\x1b[1;36m fish → shako config import\x1b[0m\n").ok();
+    writeln!(out, " \x1b[90mfrom:\x1b[0m {}", fish_dir.display()).ok();
+    writeln!(out, " \x1b[90m  to:\x1b[0m {}\n", shako_dir.display()).ok();
 
     fs::create_dir_all(shako_dir.join("conf.d")).ok();
     fs::create_dir_all(shako_dir.join("functions")).ok();
@@ -80,11 +66,7 @@ pub fn run_import() {
                 } else {
                     fs::write(&dest, &converted).ok();
                 }
-                writeln!(
-                    out,
-                    " \x1b[32m✓\x1b[0m config.fish → config.shako"
-                )
-                .ok();
+                writeln!(out, " \x1b[32m✓\x1b[0m config.fish → config.shako").ok();
             }
             Err(e) => {
                 writeln!(out, " \x1b[31m✗\x1b[0m config.fish: {e}").ok();
@@ -99,11 +81,7 @@ pub fn run_import() {
             .into_iter()
             .flatten()
             .flatten()
-            .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .ends_with(".fish")
-            })
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".fish"))
             .collect();
         files.sort_by_key(|e| e.file_name());
 
@@ -118,11 +96,7 @@ pub fn run_import() {
                     let converted = convert_fish_config(&contents, &mut stats);
                     if !converted.trim().is_empty() {
                         fs::write(&dest, &converted).ok();
-                        writeln!(
-                            out,
-                            " \x1b[32m✓\x1b[0m conf.d/{name} → conf.d/{dest_name}"
-                        )
-                        .ok();
+                        writeln!(out, " \x1b[32m✓\x1b[0m conf.d/{name} → conf.d/{dest_name}").ok();
                     } else {
                         writeln!(
                             out,
@@ -270,9 +244,7 @@ fn convert_fish_config(contents: &str, stats: &mut ImportStats) -> String {
             || line.starts_with("while ")
         {
             // Extract useful content from `if status is-interactive` blocks
-            if line.contains("status is-interactive")
-                || line.contains("status --is-interactive")
-            {
+            if line.contains("status is-interactive") || line.contains("status --is-interactive") {
                 let mut depth = 1;
                 while i < lines.len() && depth > 0 {
                     let inner = lines[i].trim();
@@ -286,8 +258,7 @@ fn convert_fish_config(contents: &str, stats: &mut ImportStats) -> String {
                         depth -= 1;
                     } else if depth == 1 && inner != "else" && !inner.starts_with("else if") {
                         // Recursively process lines inside the interactive block
-                        let inner_result =
-                            convert_fish_config(&format!("{inner}\n"), stats);
+                        let inner_result = convert_fish_config(&format!("{inner}\n"), stats);
                         let inner_result = inner_result.trim();
                         if !inner_result.is_empty() {
                             output.push(inner_result.to_string());
@@ -505,10 +476,7 @@ fn convert_set_line(line: &str, seen: &mut HashMap<String, bool>) -> Option<Stri
                 .iter()
                 .filter(|p| {
                     // Skip default system paths and fish internals
-                    !matches!(
-                        **p,
-                        "/usr/bin" | "/bin" | "/usr/sbin" | "/sbin" | "$PATH"
-                    )
+                    !matches!(**p, "/usr/bin" | "/bin" | "/usr/sbin" | "/sbin" | "$PATH")
                 })
                 .map(|p| format!("fish_add_path {p}"))
                 .collect();
@@ -676,9 +644,23 @@ fn is_fish_internal_function(name: &str) -> bool {
         || name.starts_with("__")
         || matches!(
             name,
-            "cd" | "ls" | "ll" | "la" | "help" | "man" | "open"
-                | "N" | "Y" | "alias" | "history" | "type"
-                | "isatty" | "realpath" | "suspend" | "trap" | "umask"
-                | "vared" | "wait"
+            "cd" | "ls"
+                | "ll"
+                | "la"
+                | "help"
+                | "man"
+                | "open"
+                | "N"
+                | "Y"
+                | "alias"
+                | "history"
+                | "type"
+                | "isatty"
+                | "realpath"
+                | "suspend"
+                | "trap"
+                | "umask"
+                | "vared"
+                | "wait"
         )
 }

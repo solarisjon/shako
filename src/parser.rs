@@ -447,15 +447,21 @@ fn expand_brace_param(chars: &[char], i: &mut usize) -> String {
     // Collect everything up to the matching '}'
     let mut depth = 1usize;
     while *i < chars.len() {
-        if chars[*i] == '{' { depth += 1; }
+        if chars[*i] == '{' {
+            depth += 1;
+        }
         if chars[*i] == '}' {
             depth -= 1;
-            if depth == 0 { break; }
+            if depth == 0 {
+                break;
+            }
         }
         *i += 1;
     }
     let inner: String = chars[start..*i].iter().collect();
-    if *i < chars.len() { *i += 1; } // skip '}'
+    if *i < chars.len() {
+        *i += 1;
+    } // skip '}'
 
     // ${#VAR} — string length
     if let Some(varname) = inner.strip_prefix('#') {
@@ -480,14 +486,29 @@ fn expand_brace_param(chars: &[char], i: &mut usize) -> String {
     let value = env::var(varname).unwrap_or_default();
 
     if let Some(word) = rest.strip_prefix(":-") {
-        return if value.is_empty() { word.to_string() } else { value };
+        return if value.is_empty() {
+            word.to_string()
+        } else {
+            value
+        };
     }
     if let Some(word) = rest.strip_prefix(":+") {
-        return if value.is_empty() { String::new() } else { word.to_string() };
+        return if value.is_empty() {
+            String::new()
+        } else {
+            word.to_string()
+        };
     }
     if let Some(word) = rest.strip_prefix(":?") {
         if value.is_empty() {
-            eprintln!("shako: {varname}: {}", if word.is_empty() { "parameter null or not set" } else { word });
+            eprintln!(
+                "shako: {varname}: {}",
+                if word.is_empty() {
+                    "parameter null or not set"
+                } else {
+                    word
+                }
+            );
             return String::new();
         }
         return value;
@@ -583,7 +604,11 @@ fn fnmatch(pat: &str, s: &str) -> bool {
             ([], []) => true,
             (['*', rest_p @ ..], _) => {
                 // * matches 0 or more chars
-                for i in 0..=s.len() { if m(rest_p, &s[i..]) { return true; } }
+                for i in 0..=s.len() {
+                    if m(rest_p, &s[i..]) {
+                        return true;
+                    }
+                }
                 false
             }
             (['?', rest_p @ ..], [_, rest_s @ ..]) => m(rest_p, rest_s),
@@ -593,8 +618,6 @@ fn fnmatch(pat: &str, s: &str) -> bool {
     }
     m(&pat, &s)
 }
-
-
 
 /// Expand a glob pattern into matching file paths.
 fn expand_glob(pattern: &str) -> Option<Vec<String>> {
@@ -711,7 +734,11 @@ fn arith_parse_cmp(chars: &[char], pos: &mut usize) -> i64 {
         return left;
     }
     let c = chars[*pos];
-    let n = if *pos + 1 < chars.len() { chars[*pos + 1] } else { '\0' };
+    let n = if *pos + 1 < chars.len() {
+        chars[*pos + 1]
+    } else {
+        '\0'
+    };
     if c == '=' && n == '=' {
         *pos += 2;
         let right = arith_parse_add(chars, pos);
@@ -762,7 +789,8 @@ fn arith_parse_mul(chars: &[char], pos: &mut usize) -> i64 {
     let mut left = arith_parse_pow(chars, pos);
     loop {
         arith_skip_ws(chars, pos);
-        if *pos < chars.len() && chars[*pos] == '*'
+        if *pos < chars.len()
+            && chars[*pos] == '*'
             && (*pos + 1 >= chars.len() || chars[*pos + 1] != '*')
         {
             *pos += 1;
@@ -788,7 +816,9 @@ fn arith_parse_pow(chars: &[char], pos: &mut usize) -> i64 {
     if *pos + 1 < chars.len() && chars[*pos] == '*' && chars[*pos + 1] == '*' {
         *pos += 2;
         let exp = arith_parse_unary(chars, pos);
-        if exp < 0 { return 0; }
+        if exp < 0 {
+            return 0;
+        }
         base.wrapping_pow(exp as u32)
     } else {
         base
@@ -1316,7 +1346,10 @@ mod tests {
     #[test]
     fn test_tokenize_whitespace_only() {
         let tokens = tokenize("   \t  ");
-        assert!(tokens.is_empty(), "whitespace-only input should produce no tokens");
+        assert!(
+            tokens.is_empty(),
+            "whitespace-only input should produce no tokens"
+        );
     }
 
     #[test]
@@ -1328,7 +1361,10 @@ mod tests {
     #[test]
     fn test_parse_args_whitespace_only() {
         let args = parse_args("   ");
-        assert!(args.is_empty(), "whitespace-only input should produce no args");
+        assert!(
+            args.is_empty(),
+            "whitespace-only input should produce no args"
+        );
     }
 
     // ── Edge case: $() command substitution inside double quotes ─

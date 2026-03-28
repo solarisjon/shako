@@ -28,6 +28,8 @@ $ gti status                      # typo → "did you mean git status? [Y/n]"
 $ gcc bad.c                       # fails → "ask AI for help? [y/N]" → suggests fix
 $ git add .                       # → proactive: "commit with this message? [Y/n/e]"
 $ z projects                      # zoxide smart jump
+$ /validate                       # slash command → validate AI endpoint
+$ /safety off                     # slash command → change safety mode (session)
 ```
 
 Every input is classified in order:
@@ -36,10 +38,11 @@ Every input is classified in order:
 2. `??` prefix → AI-powered history search
 3. `?` or `ai:` prefix → AI mode (explain if bare command, translate otherwise)
 4. Trailing `?` → explain command without executing
-5. Builtin (`cd`, `exit`, `z`, `set`, etc.) → handle internally
-6. Found in `$PATH` → execute directly (unless args look like prose → AI)
-7. Close to a known command → typo suggestion
-8. Everything else → AI translation
+5. `/word` → slash command (shako meta-commands)
+6. Builtin (`cd`, `exit`, `z`, `set`, etc.) → handle internally
+7. Found in `$PATH` → execute directly (unless args look like prose → AI)
+8. Close to a known command → typo suggestion
+9. Everything else → AI translation
 
 ## Key Features
 
@@ -55,6 +58,7 @@ Every input is classified in order:
 | **History context** | AI sees your recent commands for follow-up queries |
 | **Syntax highlighting** | Full-line: commands, flags, strings, pipes, variables, comments |
 | **Tab completion** | git, cargo, docker, kubectl, make targets, paths, commands |
+| **Slash commands** | `/validate`, `/config`, `/model`, `/safety`, `/provider` — configure shako inline |
 | **Typo correction** | Levenshtein distance detection with `[Y/n]` prompt |
 | **Fish compatibility** | `set -x`, fish config import, conf.d, functions directory |
 | **Starship prompt** | Native integration with parallel left/right rendering |
@@ -69,6 +73,7 @@ Every input is classified in order:
 | [Shell Features](docs/shell-features.md) | Builtins, pipes, redirects, job control, functions, history |
 | [Smart Defaults](docs/smart-defaults.md) | Tool detection, auto-aliases, AI tool preferences |
 | [Configuration](docs/configuration.md) | Full config reference, LLM providers, behavior settings |
+| [Slash Commands](docs/slash-commands.md) | `/validate`, `/config`, `/model`, `/safety`, `/provider`, `/help` |
 | [ROADMAP](ROADMAP.md) | Planned features and architecture improvements |
 | [SCOPE](SCOPE.md) | Original design document |
 

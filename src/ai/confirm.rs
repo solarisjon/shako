@@ -47,12 +47,13 @@ pub fn print_multi_command_preview(command: &str) -> bool {
     // Split on common chain operators and newlines (simple, not quote-aware)
     let mut steps: Vec<&str> = vec![command];
     for sep in [" && ", " || ", " ; ", "\n"] {
-        steps = steps
-            .into_iter()
-            .flat_map(|s| s.split(sep))
-            .collect();
+        steps = steps.into_iter().flat_map(|s| s.split(sep)).collect();
     }
-    let steps: Vec<&str> = steps.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let steps: Vec<&str> = steps
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
 
     if steps.len() < 2 {
         return false;

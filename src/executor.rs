@@ -269,7 +269,9 @@ pub fn execute_command_with_stderr(input: &str) -> (Option<ExitStatus>, String) 
 
     if let Some(ref path) = redir.stdin_path {
         match File::open(path) {
-            Ok(f) => { cmd.stdin(Stdio::from(f)); }
+            Ok(f) => {
+                cmd.stdin(Stdio::from(f));
+            }
             Err(e) => {
                 eprintln!("shako: {path}: {e}");
                 return (Some(fake_status(1)), String::new());
@@ -284,7 +286,9 @@ pub fn execute_command_with_stderr(input: &str) -> (Option<ExitStatus>, String) 
             File::create(path)
         };
         match file {
-            Ok(f) => { cmd.stdout(Stdio::from(f)); }
+            Ok(f) => {
+                cmd.stdout(Stdio::from(f));
+            }
             Err(e) => {
                 eprintln!("shako: {path}: {e}");
                 return (Some(fake_status(1)), String::new());
@@ -553,10 +557,7 @@ fn execute_pipeline(segments: &[String]) -> ExitStatus {
     let shell_pgid = nix::unistd::getpgrp();
     #[cfg(unix)]
     if pipeline_pgid != 0 {
-        let _ = nix::unistd::tcsetpgrp(
-            std::io::stdin(),
-            nix::unistd::Pid::from_raw(pipeline_pgid),
-        );
+        let _ = nix::unistd::tcsetpgrp(std::io::stdin(), nix::unistd::Pid::from_raw(pipeline_pgid));
     }
 
     let mut last_status = fake_status(0);
@@ -621,7 +622,6 @@ fn parse_redirects(input: &str) -> Redirects {
 
     while i < tokens.len() {
         match tokens[i] {
-
             "2>&1" => {
                 stderr_to_stdout = true;
                 i += 1;
@@ -764,11 +764,20 @@ fn strip_herestring_from_input(input: &str) -> String {
 
     while i < chars.len() {
         match chars[i] {
-            '\'' if !in_double => { in_single = !in_single; i += 1; }
-            '"'  if !in_single => { in_double = !in_double; i += 1; }
-            '<' if !in_single && !in_double
+            '\'' if !in_double => {
+                in_single = !in_single;
+                i += 1;
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                i += 1;
+            }
+            '<' if !in_single
+                && !in_double
                 && i + 2 < chars.len()
-                && chars[i + 1] == '<' && chars[i + 2] == '<' => {
+                && chars[i + 1] == '<'
+                && chars[i + 2] == '<' =>
+            {
                 let start = i;
                 i += 3; // skip <<<
                 // Skip whitespace between <<< and the word
@@ -781,7 +790,7 @@ fn strip_herestring_from_input(input: &str) -> String {
                 while i < chars.len() {
                     match chars[i] {
                         '\'' if !wd => ws = !ws,
-                        '"'  if !ws => wd = !wd,
+                        '"' if !ws => wd = !wd,
                         ' ' | '\t' if !ws && !wd => break,
                         _ => {}
                     }
@@ -791,7 +800,9 @@ fn strip_herestring_from_input(input: &str) -> String {
                 let after: String = chars[i..].iter().collect();
                 return format!("{}{}", before.trim_end(), after);
             }
-            _ => { i += 1; }
+            _ => {
+                i += 1;
+            }
         }
     }
     input.to_string()
@@ -801,7 +812,10 @@ fn strip_herestring_from_input(input: &str) -> String {
 /// Tries `sh -c "exit N"` first; falls back to `/bin/true` or `/bin/false`
 /// in restricted environments where `sh` is unavailable (containers, sandboxes).
 fn fake_status(code: i32) -> ExitStatus {
-    if let Ok(s) = Command::new("sh").args(["-c", &format!("exit {code}")]).status() {
+    if let Ok(s) = Command::new("sh")
+        .args(["-c", &format!("exit {code}")])
+        .status()
+    {
         return s;
     }
     let fallback = if code == 0 { "/bin/true" } else { "/bin/false" };

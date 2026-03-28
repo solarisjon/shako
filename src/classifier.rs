@@ -23,6 +23,8 @@ pub enum Classification {
     Typo { suggestion: String },
     /// Command ending with `?` — explain what it does without executing.
     ExplainCommand(String),
+    /// Slash command — internal shako meta-command (e.g. `/validate`, `/help`).
+    SlashCommand { name: String, args: String },
     /// Empty input.
     Empty,
 }
@@ -77,6 +79,23 @@ impl Classifier {
             let cmd = trimmed.trim_end_matches('?').trim();
             if !cmd.is_empty() {
                 return Classification::ExplainCommand(cmd.to_string());
+            }
+        }
+
+        // Slash commands: `/word` where word is alphabetic (not a filesystem path).
+        // e.g. `/validate`, `/help`, `/config` — but not `/usr/bin/ls`.
+        if let Some(rest) = trimmed.strip_prefix('/') {
+            let cmd_part = rest.split_whitespace().next().unwrap_or("");
+            if !cmd_part.is_empty()
+                && cmd_part
+                    .chars()
+                    .all(|c| c.is_ascii_alphabetic() || c == '-' || c == '_')
+            {
+                let args = rest[cmd_part.len()..].trim().to_string();
+                return Classification::SlashCommand {
+                    name: cmd_part.to_string(),
+                    args,
+                };
             }
         }
 
@@ -138,19 +157,17 @@ impl Classifier {
         // Check builtins
         for &builtin in BUILTINS {
             let dist = damerau_levenshtein(token, builtin);
-            if dist > 0 && dist <= 2
-                && best.as_ref().is_none_or(|(_, d)| dist < *d) {
-                    best = Some((builtin.to_string(), dist));
-                }
+            if dist > 0 && dist <= 2 && best.as_ref().is_none_or(|(_, d)| dist < *d) {
+                best = Some((builtin.to_string(), dist));
+            }
         }
 
         // Check PATH commands
         for cmd in &self.cache.commands {
             let dist = damerau_levenshtein(token, cmd);
-            if dist > 0 && dist <= 2
-                && best.as_ref().is_none_or(|(_, d)| dist < *d) {
-                    best = Some((cmd.clone(), dist));
-                }
+            if dist > 0 && dist <= 2 && best.as_ref().is_none_or(|(_, d)| dist < *d) {
+                best = Some((cmd.clone(), dist));
+            }
         }
 
         best.map(|(cmd, _)| cmd)
@@ -173,23 +190,82 @@ fn looks_like_natural_language(args: &[&str]) -> bool {
 
     // Common words that appear in English prose but never as shell arguments.
     const NL_WORDS: &[&str] = &[
-        "the", "a", "an", "all", "every", "each", "any", "some",
-        "in", "on", "at", "to", "for", "of", "by", "with", "from", "into",
-        "this", "that", "these", "those",
-        "my", "me", "i",
-        "file", "files", "directory", "folder", "folders",
-        "which", "what", "how", "where", "when",
-        "are", "is", "was", "were", "be", "been", "have", "has",
-        "over", "under", "above", "below", "than", "between",
-        "larger", "smaller", "bigger", "size", "sized",
-        "modified", "created", "changed", "named", "called",
-        "today", "yesterday", "recent", "latest",
-        "largest", "smallest", "biggest", "newest", "oldest",
+        "the",
+        "a",
+        "an",
+        "all",
+        "every",
+        "each",
+        "any",
+        "some",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "by",
+        "with",
+        "from",
+        "into",
+        "this",
+        "that",
+        "these",
+        "those",
+        "my",
+        "me",
+        "i",
+        "file",
+        "files",
+        "directory",
+        "folder",
+        "folders",
+        "which",
+        "what",
+        "how",
+        "where",
+        "when",
+        "are",
+        "is",
+        "was",
+        "were",
+        "be",
+        "been",
+        "have",
+        "has",
+        "over",
+        "under",
+        "above",
+        "below",
+        "than",
+        "between",
+        "larger",
+        "smaller",
+        "bigger",
+        "size",
+        "sized",
+        "modified",
+        "created",
+        "changed",
+        "named",
+        "called",
+        "today",
+        "yesterday",
+        "recent",
+        "latest",
+        "largest",
+        "smallest",
+        "biggest",
+        "newest",
+        "oldest",
     ];
 
     // NL words take priority: prose words in the args mean it's natural language
     // even if a path like ~/Documents is also present.
-    if args.iter().any(|a| NL_WORDS.iter().any(|w| a.eq_ignore_ascii_case(w))) {
+    if args
+        .iter()
+        .any(|a| NL_WORDS.iter().any(|w| a.eq_ignore_ascii_case(w)))
+    {
         return true;
     }
 
@@ -358,6 +434,63 @@ mod tests {
         assert!(
             matches!(result, Classification::NaturalLanguage(_)),
             "expected NaturalLanguage for 'list all files', got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_slash_command_basic() {
+        let c = test_classifier();
+        let result = c.classify("/help");
+        assert!(
+            matches!(result, Classification::SlashCommand { ref name, .. } if name == "help"),
+            "expected SlashCommand 'help', got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_slash_command_with_args() {
+        let c = test_classifier();
+        let result = c.classify("/safety warn");
+        match result {
+            Classification::SlashCommand { name, args } => {
+                assert_eq!(name, "safety");
+                assert_eq!(args, "warn");
+            }
+            other => panic!("expected SlashCommand, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_slash_command_with_hyphen() {
+        let c = test_classifier();
+        let result = c.classify("/my-command");
+        assert!(
+            matches!(result, Classification::SlashCommand { ref name, .. } if name == "my-command"),
+            "expected SlashCommand 'my-command', got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_absolute_path_not_slash_command() {
+        let c = test_classifier();
+        let result = c.classify("/usr/bin/ls");
+        assert!(
+            matches!(result, Classification::Command(_)),
+            "expected Command for absolute path, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_slash_root_not_slash_command() {
+        let c = test_classifier();
+        let result = c.classify("/bin/echo hello");
+        assert!(
+            matches!(result, Classification::Command(_)),
+            "expected Command for /bin/echo, got {:?}",
             result
         );
     }

@@ -78,7 +78,10 @@ const TOOL_PREFERENCES: &[(&str, &str)] = &[
 ];
 
 /// Build context from the current environment.
-pub fn build_context(recent_history: Vec<String>, session_memory: Vec<(String, String)>) -> Result<ShellContext> {
+pub fn build_context(
+    recent_history: Vec<String>,
+    session_memory: Vec<(String, String)>,
+) -> Result<ShellContext> {
     let cwd = env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "unknown".to_string());

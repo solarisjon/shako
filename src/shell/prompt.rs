@@ -147,7 +147,11 @@ impl Prompt for StarshipPrompt {
         }
 
         // Join the thread started during left render.
-        let handle = self.right_handle.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let handle = self
+            .right_handle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         match handle {
             Some(h) => Cow::Owned(h.join().unwrap_or_default()),
             // Fallback: render inline if left wasn't called first (shouldn't happen).

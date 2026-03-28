@@ -284,8 +284,13 @@ fn tokenize_for_highlighting(line: &str) -> Vec<HlToken> {
         if c == '-' && (i == 0 || chars[i - 1].is_whitespace()) {
             let start = i;
             i += 1;
-            while i < len && !chars[i].is_whitespace() && chars[i] != '|' && chars[i] != '>'
-                && chars[i] != '<' && chars[i] != ';' && chars[i] != '&'
+            while i < len
+                && !chars[i].is_whitespace()
+                && chars[i] != '|'
+                && chars[i] != '>'
+                && chars[i] != '<'
+                && chars[i] != ';'
+                && chars[i] != '&'
             {
                 i += 1;
             }
