@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::time::Instant;
 
 use anyhow::Result;
 use reedline::{
@@ -30,9 +31,12 @@ use config::ShakoConfig;
 use shell::prompt::{self, CommandTimer, StarshipPrompt};
 
 fn main() -> Result<()> {
+    let t_total = Instant::now();
+
     let args: Vec<String> = std::env::args().collect();
     let quiet = args.iter().any(|a| a == "--quiet" || a == "-q");
     let init = args.iter().any(|a| a == "--init");
+    let timings = args.iter().any(|a| a == "--timings");
     let cmd_mode = args
         .iter()
         .position(|a| a == "-c")
@@ -113,25 +117,35 @@ fn main() -> Result<()> {
         std::process::exit(last_code);
     }
 
+    let t_phase = Instant::now();
     let (mut config, first_run) = ShakoConfig::load()?;
     let rt = tokio::runtime::Runtime::new()?;
+    let dt_config = t_phase.elapsed();
 
+    let dt_ai_check;
     if !quiet {
         print_banner(&config);
+        let t_phase = Instant::now();
         let ai_status = rt.block_on(ai::client::check_ai_session(
             config.active_llm(),
             config.behavior.ai_enabled,
         ));
+        dt_ai_check = t_phase.elapsed();
         print_ai_status(&ai_status, config.active_llm());
+    } else {
+        dt_ai_check = std::time::Duration::ZERO;
     }
 
     if first_run {
         setup::check_recommended_tools();
     }
 
+    let t_phase = Instant::now();
     let path_cache = path_cache::PathCache::new();
     let classifier = Classifier::new(path_cache.clone());
+    let dt_path_scan = t_phase.elapsed();
 
+    let t_phase = Instant::now();
     let highlighter = shell::highlighter::ShakoHighlighter::new(path_cache.clone());
     let extra_completions: std::sync::Arc<std::sync::RwLock<Vec<String>>> =
         std::sync::Arc::new(std::sync::RwLock::new(vec![]));
@@ -201,6 +215,7 @@ fn main() -> Result<()> {
 
     let prompt = StarshipPrompt::new();
     let mut state = ShellState::new(history_path.clone());
+    let dt_reedline = t_phase.elapsed();
 
     // Interactive shell signal setup.
     //
@@ -241,10 +256,12 @@ fn main() -> Result<()> {
     }
 
     // Apply smart defaults (modern tools), user config takes priority
+    let t_phase = Instant::now();
     let smart_aliases = smart_defaults::detect_smart_defaults(&state.aliases);
     for (name, value) in smart_aliases {
         state.aliases.entry(name).or_insert(value);
     }
+    let dt_smart_defaults = t_phase.elapsed();
 
     // Track shell nesting level
     let shlvl: i32 = std::env::var("SHLVL")
@@ -259,6 +276,7 @@ fn main() -> Result<()> {
     //  3. Load  ~/.config/shako/functions/            (autoloaded functions)
     //  4. Optionally source fish config               (if [fish] source_config = true)
 
+    let t_phase = Instant::now();
     if let Some(ref dir) = shako_config_dir {
         // 1. conf.d/ — config snippets sourced alphabetically
         let conf_d = dir.join("conf.d");
@@ -314,6 +332,54 @@ fn main() -> Result<()> {
             }
         }
     }
+
+    let dt_shell_init = t_phase.elapsed();
+
+    let dt_total = t_total.elapsed();
+
+    if timings {
+        eprintln!("\x1b[1mstartup timings\x1b[0m");
+        eprintln!(
+            "  config load      {:>7.1}ms",
+            dt_config.as_secs_f64() * 1000.0
+        );
+        eprintln!(
+            "  ai session check {:>7.1}ms",
+            dt_ai_check.as_secs_f64() * 1000.0
+        );
+        eprintln!(
+            "  PATH scan        {:>7.1}ms",
+            dt_path_scan.as_secs_f64() * 1000.0
+        );
+        eprintln!(
+            "  reedline setup   {:>7.1}ms",
+            dt_reedline.as_secs_f64() * 1000.0
+        );
+        eprintln!(
+            "  smart defaults   {:>7.1}ms",
+            dt_smart_defaults.as_secs_f64() * 1000.0
+        );
+        eprintln!(
+            "  shell init       {:>7.1}ms",
+            dt_shell_init.as_secs_f64() * 1000.0
+        );
+        eprintln!("  ─────────────────────────");
+        eprintln!(
+            "  total            {:>7.1}ms",
+            dt_total.as_secs_f64() * 1000.0
+        );
+        eprintln!();
+    }
+    log::info!(
+        "startup: config={:.1}ms ai_check={:.1}ms path_scan={:.1}ms reedline={:.1}ms smart_defaults={:.1}ms shell_init={:.1}ms total={:.1}ms",
+        dt_config.as_secs_f64() * 1000.0,
+        dt_ai_check.as_secs_f64() * 1000.0,
+        dt_path_scan.as_secs_f64() * 1000.0,
+        dt_reedline.as_secs_f64() * 1000.0,
+        dt_smart_defaults.as_secs_f64() * 1000.0,
+        dt_shell_init.as_secs_f64() * 1000.0,
+        dt_total.as_secs_f64() * 1000.0,
+    );
 
     let mut last_command = String::new();
     let mut ran_foreground = false;
