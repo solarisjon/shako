@@ -13,6 +13,7 @@ cargo build --release
 make install        # installs to ~/.local/bin/shako
 shako               # first run launches interactive setup wizard
 shako -c "ls -la"   # non-interactive: run one command and exit
+shako --timings     # print startup phase breakdown
 ```
 
 ## How It Works

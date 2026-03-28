@@ -116,7 +116,7 @@ gs = "git status -sb"
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `confirm_ai_commands` | boolean | `true` | Show `[Y/n/e]` before executing AI commands |
+| `confirm_ai_commands` | boolean | `true` | Show `[Y/n/e]` before executing AI commands. When `false`, also auto-executes typo corrections without prompting |
 | `auto_correct_typos` | boolean | `true` | Offer typo corrections for near-miss commands |
 | `history_context_lines` | integer | `20` | Number of recent commands sent to AI for context |
 | `safety_mode` | string | `"warn"` | `"warn"` shows warnings, `"block"` prevents execution, `"off"` disables |

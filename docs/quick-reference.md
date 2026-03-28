@@ -177,6 +177,7 @@ shako -c "git status && git diff"      # run a chain
 | Flag | Effect |
 |---|---|
 | `--quiet` / `-q` | Suppress the startup banner |
+| `--timings` | Print startup phase timing breakdown |
 | `--init` | Re-run the setup wizard |
 | `-c "cmd"` | Run command non-interactively and exit |
 
@@ -358,6 +359,23 @@ edit_mode = "emacs"              # "emacs" | "vi"
 | `~/.config/shako/starship.toml` | shako-specific Starship prompt config |
 
 History: `~/Library/Application Support/shako/history.txt` (macOS) or `~/.local/share/shako/history.txt` (Linux)
+
+---
+
+## Slash Commands
+
+Meta-commands for inspecting and configuring shako at runtime:
+
+| Command | What it does |
+|---|---|
+| `/help` | List all slash commands |
+| `/validate` | Validate AI endpoint (connectivity, auth, model) |
+| `/config` | Show full current configuration |
+| `/model` | Show active AI model and provider |
+| `/safety [mode]` | Show or change safety mode (`warn`/`block`/`off`, session only) |
+| `/provider [name]` | Show or switch LLM provider (session only) |
+
+See [Slash Commands](slash-commands.md) for details.
 
 ---
 
