@@ -124,14 +124,13 @@ fn main() -> Result<()> {
 
     let dt_ai_check;
     if !quiet {
-        print_banner(&config);
         let t_phase = Instant::now();
         let ai_status = rt.block_on(ai::client::check_ai_session(
             config.active_llm(),
             config.behavior.ai_enabled,
         ));
         dt_ai_check = t_phase.elapsed();
-        print_ai_status(&ai_status, config.active_llm());
+        print_styled_banner(&config, &ai_status);
     } else {
         dt_ai_check = std::time::Duration::ZERO;
     }
@@ -911,11 +910,10 @@ fn control_depth(input: &str) -> i32 {
     depth
 }
 
-fn print_banner(config: &ShakoConfig) {
+fn print_styled_banner(config: &ShakoConfig, ai_status: &ai::client::AiCheckResult) {
     let version = env!("CARGO_PKG_VERSION");
     let llm = config.active_llm();
 
-    // Derive a display name for the provider.
     let provider_name: String = if let Some(name) = &config.active_provider {
         if !config.providers.contains_key(name.as_str()) {
             eprintln!(
@@ -926,48 +924,143 @@ fn print_banner(config: &ShakoConfig) {
         }
         name.clone()
     } else {
-        // No named provider — infer a friendly label from the endpoint.
         endpoint_label(&llm.endpoint)
     };
 
-    // Show the normalized endpoint so users see what URL will actually be used.
-    let endpoint = ai::client::normalize_endpoint(&llm.endpoint);
-    let endpoint_display = if endpoint.len() > 60 {
-        format!("{}…", &endpoint[..60])
-    } else {
-        endpoint
+    let ai_line = match ai_status {
+        ai::client::AiCheckResult::Ready => {
+            format!(
+                "\x1b[32m✓\x1b[0m ai ready  \x1b[90m{provider_name} · {}\x1b[0m",
+                llm.model
+            )
+        }
+        ai::client::AiCheckResult::Disabled => "\x1b[90m· ai disabled\x1b[0m".to_string(),
+        ai::client::AiCheckResult::NoApiKey(env_var) => {
+            format!("\x1b[33m⚠\x1b[0m no api key  \x1b[90m(set ${env_var})\x1b[0m")
+        }
+        ai::client::AiCheckResult::AuthFailed(code) => {
+            format!("\x1b[31m✗\x1b[0m auth failed  \x1b[90m(HTTP {code})\x1b[0m")
+        }
+        ai::client::AiCheckResult::Unreachable(reason) => {
+            format!("\x1b[31m✗\x1b[0m unreachable  \x1b[90m({reason})\x1b[0m")
+        }
+    };
+
+    let config_line = format!(
+        "\x1b[90msafety: {}  ·  edit: {}  ·  typo-fix: {}\x1b[0m",
+        config.behavior.safety_mode,
+        config.behavior.edit_mode,
+        if config.behavior.auto_correct_typos {
+            "on"
+        } else {
+            "off"
+        },
+    );
+
+    let line1 = format!("\x1b[1;36mshako\x1b[0m \x1b[90mv{version}\x1b[0m");
+    let line2 = ai_line;
+    let line3 = config_line;
+
+    // Measure visible width of each line (strip ANSI escapes)
+    let visible_len = |s: &str| -> usize {
+        let mut len = 0;
+        let mut in_esc = false;
+        for c in s.chars() {
+            if c == '\x1b' {
+                in_esc = true;
+            } else if in_esc {
+                if c.is_ascii_alphabetic() {
+                    in_esc = false;
+                }
+            } else {
+                len += unicode_display_width(c);
+            }
+        }
+        len
+    };
+
+    let w1 = visible_len(&line1);
+    let w2 = visible_len(&line2);
+    let w3 = visible_len(&line3);
+    let inner_width = w1.max(w2).max(w3) + 4;
+
+    let term_width = crossterm::terminal::size()
+        .map(|(w, _)| w as usize)
+        .unwrap_or(80);
+    let inner_width = inner_width.min(term_width.saturating_sub(4));
+
+    let pad_line = |s: &str, visible: usize| -> String {
+        let pad = inner_width.saturating_sub(visible);
+        format!("{s}{}", " ".repeat(pad))
+    };
+
+    // Gradient border colors: teal (38;5;30) → cyan (38;5;45)
+    let grad: &[u8] = &[30, 31, 32, 37, 38, 44, 45];
+    let top_bar = gradient_repeat('─', inner_width, grad);
+    let bot_bar = gradient_repeat('─', inner_width, grad);
+
+    let border = |c: char| -> String {
+        let idx = grad.len() / 2;
+        format!("\x1b[38;5;{}m{c}\x1b[0m", grad[idx])
     };
 
     eprintln!(
-        "\x1b[1;36mshako\x1b[0m \x1b[90mv{version}\x1b[0m  \x1b[90m·\x1b[0m  \
-         \x1b[33m{provider_name}\x1b[0m  {model}  \x1b[90m{endpoint_display}\x1b[0m",
-        model = llm.model,
+        " {tl}{top}{tr}",
+        tl = border('╭'),
+        top = top_bar,
+        tr = border('╮'),
+    );
+    eprintln!(
+        " {b}  {l1}  {b}",
+        b = border('│'),
+        l1 = pad_line(&line1, w1),
+    );
+    eprintln!(
+        " {b}  {l2}  {b}",
+        b = border('│'),
+        l2 = pad_line(&line2, w2),
+    );
+    eprintln!(
+        " {b}  {l3}  {b}",
+        b = border('│'),
+        l3 = pad_line(&line3, w3),
+    );
+    eprintln!(
+        " {bl}{bot}{br}",
+        bl = border('╰'),
+        bot = bot_bar,
+        br = border('╯'),
     );
 }
 
-fn print_ai_status(status: &ai::client::AiCheckResult, llm: &config::LlmConfig) {
-    match status {
-        ai::client::AiCheckResult::Ready => {
-            eprintln!("\x1b[90m  AI\x1b[0m  \x1b[32m✓ session ready\x1b[0m");
-        }
-        ai::client::AiCheckResult::Disabled => {}
-        ai::client::AiCheckResult::NoApiKey(env_var) => {
-            eprintln!(
-                "\x1b[90m  AI\x1b[0m  \x1b[33m⚠ no API key\x1b[0m  \x1b[90m({env_var} not set — AI will be unavailable)\x1b[0m"
-            );
-        }
-        ai::client::AiCheckResult::AuthFailed(code) => {
-            eprintln!(
-                "\x1b[90m  AI\x1b[0m  \x1b[31m✗ auth failed\x1b[0m  \x1b[90m(HTTP {code} — check {})\x1b[0m",
-                llm.api_key_env
-            );
-        }
-        ai::client::AiCheckResult::Unreachable(reason) => {
-            eprintln!(
-                "\x1b[90m  AI\x1b[0m  \x1b[31m✗ unreachable\x1b[0m  \x1b[90m({reason})\x1b[0m"
-            );
-        }
+fn unicode_display_width(c: char) -> usize {
+    if ('\u{1100}'..='\u{115F}').contains(&c)
+        || ('\u{2E80}'..='\u{9FFF}').contains(&c)
+        || ('\u{F900}'..='\u{FAFF}').contains(&c)
+        || ('\u{FE10}'..='\u{FE6F}').contains(&c)
+        || ('\u{FF01}'..='\u{FF60}').contains(&c)
+        || ('\u{FFE0}'..='\u{FFE6}').contains(&c)
+        || ('\u{1F300}'..='\u{1F9FF}').contains(&c)
+        || ('\u{20000}'..='\u{2FA1F}').contains(&c)
+    {
+        2
+    } else {
+        1
     }
+}
+
+fn gradient_repeat(ch: char, width: usize, colors: &[u8]) -> String {
+    let mut out = String::new();
+    for i in 0..width {
+        let idx = if width <= 1 {
+            0
+        } else {
+            i * (colors.len() - 1) / (width - 1)
+        };
+        out.push_str(&format!("\x1b[38;5;{}m{ch}", colors[idx]));
+    }
+    out.push_str("\x1b[0m");
+    out
 }
 
 /// Infer a friendly backend label from an endpoint URL.
