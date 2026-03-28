@@ -105,12 +105,19 @@ fn get_staged_info() -> Option<StagedInfo> {
     let full_diff = String::from_utf8_lossy(&diff_out.stdout).to_string();
     const DIFF_CAP: usize = 4_000;
     let diff = if full_diff.len() > DIFF_CAP {
-        format!("{}\n[...diff truncated at {DIFF_CAP} bytes...]", &full_diff[..DIFF_CAP])
+        format!(
+            "{}\n[...diff truncated at {DIFF_CAP} bytes...]",
+            &full_diff[..DIFF_CAP]
+        )
     } else {
         full_diff
     };
 
-    Some(StagedInfo { stat, diff, file_count })
+    Some(StagedInfo {
+        stat,
+        diff,
+        file_count,
+    })
 }
 
 /// Offer an AI-generated commit message to the user.
@@ -119,7 +126,11 @@ fn offer_commit_suggestion(config: &ShakoConfig, rt: &tokio::runtime::Runtime) {
         return;
     };
 
-    let file_word = if staged.file_count == 1 { "file" } else { "files" };
+    let file_word = if staged.file_count == 1 {
+        "file"
+    } else {
+        "files"
+    };
     print!(
         "\x1b[90mshako: {} {} staged — suggest a commit message? [y/N] \x1b[0m",
         staged.file_count, file_word
@@ -196,7 +207,11 @@ fn extract_repo_name(url: &str) -> Option<String> {
     let segment = url.split('/').next_back()?;
     // Strip .git suffix
     let name = segment.strip_suffix(".git").unwrap_or(segment);
-    if name.is_empty() { None } else { Some(name.to_string()) }
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
 }
 
 /// Parse a Makefile and return the list of public targets (no leading dot/underscore,
@@ -247,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_is_git_add_excluded() {
-        assert!(!is_git_add("git add"));           // no target
+        assert!(!is_git_add("git add")); // no target
         assert!(!is_git_add("git add --help"));
         assert!(!is_git_add("git add --version"));
         assert!(!is_git_add("git commit -m test"));
@@ -263,7 +278,10 @@ mod tests {
     #[test]
     fn test_shell_quote_has_double_quotes() {
         // falls back to single quotes when message contains "
-        assert_eq!(shell_quote(r#"fix: handle "empty" input"#), r#"'fix: handle "empty" input'"#);
+        assert_eq!(
+            shell_quote(r#"fix: handle "empty" input"#),
+            r#"'fix: handle "empty" input'"#
+        );
     }
 
     #[test]

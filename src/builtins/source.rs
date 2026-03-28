@@ -105,7 +105,8 @@ pub fn source_fish_string(contents: &str, state: &mut ShellState) {
                     || inner.starts_with("begin ")
                 {
                     depth += 1;
-                } else if inner == "end" || inner.starts_with("end ") || inner.starts_with("end\t") {
+                } else if inner == "end" || inner.starts_with("end ") || inner.starts_with("end\t")
+                {
                     depth -= 1;
                     if depth == 0 {
                         i += 1;
@@ -118,9 +119,7 @@ pub fn source_fish_string(contents: &str, state: &mut ShellState) {
 
             let body = body_lines.join("; ");
             if !body.is_empty() {
-                state
-                    .functions
-                    .insert(name, ShellFunction { body });
+                state.functions.insert(name, ShellFunction { body });
             }
             continue;
         }
@@ -153,9 +152,8 @@ pub fn source_fish_string(contents: &str, state: &mut ShellState) {
         // export KEY=VALUE — expand command substitution and env vars
         if let Some(rest) = line.strip_prefix("export ") {
             if let Some((key, value)) = rest.split_once('=') {
-                let expanded = crate::parser::parse_args(
-                    value.trim_matches('\'').trim_matches('"'),
-                );
+                let expanded =
+                    crate::parser::parse_args(value.trim_matches('\'').trim_matches('"'));
                 let value = expanded.join(" ");
                 unsafe { std::env::set_var(key.trim(), &value) };
             }

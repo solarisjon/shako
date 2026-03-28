@@ -21,6 +21,7 @@ mod proactive;
 mod safety;
 mod setup;
 mod shell;
+mod slash;
 mod smart_defaults;
 
 use builtins::ShellState;
@@ -32,7 +33,9 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let quiet = args.iter().any(|a| a == "--quiet" || a == "-q");
     let init = args.iter().any(|a| a == "--init");
-    let cmd_mode = args.iter().position(|a| a == "-c")
+    let cmd_mode = args
+        .iter()
+        .position(|a| a == "-c")
         .map(|i| args.get(i + 1).cloned().unwrap_or_default());
 
     env_logger::init();
@@ -110,7 +113,7 @@ fn main() -> Result<()> {
         std::process::exit(last_code);
     }
 
-    let (config, first_run) = ShakoConfig::load()?;
+    let (mut config, first_run) = ShakoConfig::load()?;
     let rt = tokio::runtime::Runtime::new()?;
 
     if !quiet {
@@ -132,7 +135,10 @@ fn main() -> Result<()> {
     let highlighter = shell::highlighter::ShakoHighlighter::new(path_cache.clone());
     let extra_completions: std::sync::Arc<std::sync::RwLock<Vec<String>>> =
         std::sync::Arc::new(std::sync::RwLock::new(vec![]));
-    let completer = shell::completer::ShakoCompleter::new(path_cache, std::sync::Arc::clone(&extra_completions));
+    let completer = shell::completer::ShakoCompleter::new(
+        path_cache,
+        std::sync::Arc::clone(&extra_completions),
+    );
     let hinter = shell::hinter::create_hinter();
 
     let history_path = dirs::data_dir()
@@ -163,13 +169,25 @@ fn main() -> Result<()> {
     let edit_mode: Box<dyn EditMode> = if config.behavior.edit_mode == "vi" {
         // Add Tab completion to vi insert mode — Vi::default() has no completion binding.
         let mut insert_kb = default_vi_insert_keybindings();
-        insert_kb.add_binding(KeyModifiers::NONE, KeyCode::Tab, tab_completion_binding.clone());
-        insert_kb.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
+        insert_kb.add_binding(
+            KeyModifiers::NONE,
+            KeyCode::Tab,
+            tab_completion_binding.clone(),
+        );
+        insert_kb.add_binding(
+            KeyModifiers::SHIFT,
+            KeyCode::BackTab,
+            ReedlineEvent::MenuPrevious,
+        );
         Box::new(Vi::new(insert_kb, default_vi_normal_keybindings()))
     } else {
         let mut keybindings = default_emacs_keybindings();
         keybindings.add_binding(KeyModifiers::NONE, KeyCode::Tab, tab_completion_binding);
-        keybindings.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
+        keybindings.add_binding(
+            KeyModifiers::SHIFT,
+            KeyCode::BackTab,
+            ReedlineEvent::MenuPrevious,
+        );
         Box::new(Emacs::new(keybindings))
     };
 
@@ -272,8 +290,7 @@ fn main() -> Result<()> {
 
     // 4. Source fish config if enabled (reuse existing fish setup)
     if config.fish.source_config {
-        let fish_config_dir = dirs::home_dir()
-            .map(|h| h.join(".config").join("fish"));
+        let fish_config_dir = dirs::home_dir().map(|h| h.join(".config").join("fish"));
 
         if let Some(ref fish_dir) = fish_config_dir {
             // Fish conf.d/ snippets first
@@ -428,20 +445,19 @@ fn main() -> Result<()> {
                 match classifier.classify(&input) {
                     Classification::Command(cmd) => {
                         ran_foreground = true;
-                        let (status, stderr_output) =
-                            executor::execute_command_with_stderr(&cmd);
+                        let (status, stderr_output) = executor::execute_command_with_stderr(&cmd);
                         set_exit_code(status);
                         if let Some(s) = status {
                             if !s.success() {
                                 if config.behavior.ai_enabled {
-                                offer_ai_recovery(
-                                    &cmd,
-                                    s.code().unwrap_or(1),
-                                    &stderr_output,
-                                    &config,
-                                    &rt,
-                                    &history_path,
-                                );
+                                    offer_ai_recovery(
+                                        &cmd,
+                                        s.code().unwrap_or(1),
+                                        &stderr_output,
+                                        &config,
+                                        &rt,
+                                        &history_path,
+                                    );
                                 }
                             } else if config.behavior.ai_enabled {
                                 proactive::check(&cmd, &config, &rt);
@@ -468,7 +484,9 @@ fn main() -> Result<()> {
                                 parser::ChainOp::Or => last_code == 0,
                                 _ => false,
                             };
-                            if stop { break; }
+                            if stop {
+                                break;
+                            }
                         }
                         prompt::set_last_status(last_code);
                     }
@@ -476,45 +494,16 @@ fn main() -> Result<()> {
                         if !config.behavior.ai_enabled {
                             eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         } else {
-                        let history = read_recent_history(&history_path, config.behavior.history_context_lines);
-                        match rt.block_on(ai::translate_and_execute(&text, &config, history, &mut state.ai_session_memory)) {
-                            Ok(_) => prompt::set_last_status(0),
-                            Err(e) => {
-                                eprintln!("shako: ai error: {e}");
-                                prompt::set_last_status(1);
-                            }
-                        }
-                        }
-                    }
-                    Classification::ForcedAI(text) => {
-                        if !config.behavior.ai_enabled {
-                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
-                        } else {
-                        let words: Vec<&str> = text.split_whitespace().collect();
-                        let is_bare_command = words.len() == 1
-                            && (which::which(words[0]).is_ok()
-                                || builtins::is_builtin(words[0]));
-
-                        if is_bare_command {
-                            print!("\x1b[90mexplaining...\x1b[0m");
-                            io::stdout().flush().ok();
-                            rt.block_on(async {
-                                match ai::explain_command(&text, &config).await {
-                                    Ok(explanation) => {
-                                        print!("\r\x1b[K");
-                                        eprintln!("\x1b[36m{text}\x1b[0m");
-                                        eprintln!("{explanation}");
-                                    }
-                                    Err(e) => {
-                                        print!("\r\x1b[K");
-                                        eprintln!("shako: ai error: {e}");
-                                        prompt::set_last_status(1);
-                                    }
-                                }
-                            });
-                        } else {
-                            let history = read_recent_history(&history_path, config.behavior.history_context_lines);
-                            match rt.block_on(ai::translate_and_execute(&text, &config, history, &mut state.ai_session_memory)) {
+                            let history = read_recent_history(
+                                &history_path,
+                                config.behavior.history_context_lines,
+                            );
+                            match rt.block_on(ai::translate_and_execute(
+                                &text,
+                                &config,
+                                history,
+                                &mut state.ai_session_memory,
+                            )) {
                                 Ok(_) => prompt::set_last_status(0),
                                 Err(e) => {
                                     eprintln!("shako: ai error: {e}");
@@ -522,18 +511,71 @@ fn main() -> Result<()> {
                                 }
                             }
                         }
+                    }
+                    Classification::ForcedAI(text) => {
+                        if !config.behavior.ai_enabled {
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                        } else {
+                            let words: Vec<&str> = text.split_whitespace().collect();
+                            let is_bare_command = words.len() == 1
+                                && (which::which(words[0]).is_ok()
+                                    || builtins::is_builtin(words[0]));
+
+                            if is_bare_command {
+                                print!("\x1b[90mexplaining...\x1b[0m");
+                                io::stdout().flush().ok();
+                                rt.block_on(async {
+                                    match ai::explain_command(&text, &config).await {
+                                        Ok(explanation) => {
+                                            print!("\r\x1b[K");
+                                            eprintln!("\x1b[36m{text}\x1b[0m");
+                                            eprintln!("{explanation}");
+                                        }
+                                        Err(e) => {
+                                            print!("\r\x1b[K");
+                                            eprintln!("shako: ai error: {e}");
+                                            prompt::set_last_status(1);
+                                        }
+                                    }
+                                });
+                            } else {
+                                let history = read_recent_history(
+                                    &history_path,
+                                    config.behavior.history_context_lines,
+                                );
+                                match rt.block_on(ai::translate_and_execute(
+                                    &text,
+                                    &config,
+                                    history,
+                                    &mut state.ai_session_memory,
+                                )) {
+                                    Ok(_) => prompt::set_last_status(0),
+                                    Err(e) => {
+                                        eprintln!("shako: ai error: {e}");
+                                        prompt::set_last_status(1);
+                                    }
+                                }
+                            }
                         } // end ai_enabled check
                     }
                     Classification::Typo { suggestion, .. } => {
                         if config.behavior.auto_correct_typos {
-                            print!(
-                                "\x1b[33mshako: did you mean \x1b[1m{suggestion}\x1b[0m\x1b[33m? [Y/n]\x1b[0m "
-                            );
-                            io::stdout().flush().ok();
-                            let mut answer = String::new();
-                            io::stdin().read_line(&mut answer).ok();
-                            let answer = answer.trim().to_lowercase();
-                            if answer.is_empty() || answer == "y" || answer == "yes" {
+                            let should_run = if config.behavior.confirm_ai_commands {
+                                print!(
+                                    "\x1b[33mshako: did you mean \x1b[1m{suggestion}\x1b[0m\x1b[33m? [Y/n]\x1b[0m "
+                                );
+                                io::stdout().flush().ok();
+                                let mut answer = String::new();
+                                io::stdin().read_line(&mut answer).ok();
+                                let answer = answer.trim().to_lowercase();
+                                answer.is_empty() || answer == "y" || answer == "yes"
+                            } else {
+                                eprintln!(
+                                    "\x1b[33mshako: auto-corrected to \x1b[1m{suggestion}\x1b[0m"
+                                );
+                                true
+                            };
+                            if should_run {
                                 let first = suggestion.split_whitespace().next().unwrap_or("");
                                 if builtins::is_builtin(first) {
                                     let code = builtins::run_builtin(&suggestion, &mut state);
@@ -544,8 +586,16 @@ fn main() -> Result<()> {
                                 }
                             }
                         } else {
-                            let history = read_recent_history(&history_path, config.behavior.history_context_lines);
-                            match rt.block_on(ai::translate_and_execute(&suggestion, &config, history, &mut state.ai_session_memory)) {
+                            let history = read_recent_history(
+                                &history_path,
+                                config.behavior.history_context_lines,
+                            );
+                            match rt.block_on(ai::translate_and_execute(
+                                &suggestion,
+                                &config,
+                                history,
+                                &mut state.ai_session_memory,
+                            )) {
                                 Ok(_) => prompt::set_last_status(0),
                                 Err(e) => {
                                     eprintln!("shako: ai error: {e}");
@@ -555,13 +605,17 @@ fn main() -> Result<()> {
                         }
                     }
                     Classification::Empty => {}
+                    Classification::SlashCommand { name, args } => {
+                        let code = slash::run(&name, &args, &mut config, &rt);
+                        prompt::set_last_status(code);
+                    }
                     Classification::HistorySearch(query) => {
                         if config.behavior.ai_enabled {
-                        let history = read_recent_history(&history_path, 200);
-                        match rt.block_on(ai::search_history(&query, &history, &config)) {
-                            Ok(result) => println!("{result}"),
-                            Err(e) => eprintln!("shako: history search failed: {e}"),
-                        }
+                            let history = read_recent_history(&history_path, 200);
+                            match rt.block_on(ai::search_history(&query, &history, &config)) {
+                                Ok(result) => println!("{result}"),
+                                Err(e) => eprintln!("shako: history search failed: {e}"),
+                            }
                         } else {
                             eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         }
@@ -570,21 +624,21 @@ fn main() -> Result<()> {
                         if !config.behavior.ai_enabled {
                             eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         } else {
-                        print!("\x1b[90mexplaining...\x1b[0m");
-                        io::stdout().flush().ok();
-                        rt.block_on(async {
-                            match ai::explain_command(&cmd, &config).await {
-                                Ok(explanation) => {
-                                    print!("\r\x1b[K");
-                                    eprintln!("\x1b[36m{cmd}\x1b[0m");
-                                    eprintln!("{explanation}");
+                            print!("\x1b[90mexplaining...\x1b[0m");
+                            io::stdout().flush().ok();
+                            rt.block_on(async {
+                                match ai::explain_command(&cmd, &config).await {
+                                    Ok(explanation) => {
+                                        print!("\r\x1b[K");
+                                        eprintln!("\x1b[36m{cmd}\x1b[0m");
+                                        eprintln!("{explanation}");
+                                    }
+                                    Err(e) => {
+                                        print!("\r\x1b[K");
+                                        eprintln!("shako: ai error: {e}");
+                                    }
                                 }
-                                Err(e) => {
-                                    print!("\r\x1b[K");
-                                    eprintln!("shako: ai error: {e}");
-                                }
-                            }
-                        });
+                            });
                         } // end ai_enabled check
                     }
                 }
@@ -881,10 +935,7 @@ fn expand_history_bangs(input: &str, last_command: &str) -> String {
         return input.to_string();
     }
 
-    let last_arg = last_command
-        .split_whitespace()
-        .last()
-        .unwrap_or("");
+    let last_arg = last_command.split_whitespace().last().unwrap_or("");
 
     let mut result = input.replace("!!", last_command);
     result = result.replace("!$", last_arg);
@@ -905,10 +956,7 @@ fn read_recent_history(history_path: &std::path::Path, n: usize) -> Vec<String> 
         Ok(contents) => {
             let lines: Vec<&str> = contents.lines().collect();
             let start = lines.len().saturating_sub(n);
-            lines[start..]
-                .iter()
-                .map(|l| l.to_string())
-                .collect()
+            lines[start..].iter().map(|l| l.to_string()).collect()
         }
         Err(_) => Vec::new(),
     }

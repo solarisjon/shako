@@ -79,25 +79,70 @@ pub fn run_builtin(input: &str, state: &mut ShellState) -> i32 {
 
     match parts[0] {
         "cd" => builtin_cd(&parts[1..]),
-        "z" => { builtin_z(&parts[1..]); 0 }
-        "zi" => { builtin_zi(); 0 }
+        "z" => {
+            builtin_z(&parts[1..]);
+            0
+        }
+        "zi" => {
+            builtin_zi();
+            0
+        }
         "exit" => std::process::exit(0),
-        "export" => { builtin_export(&parts[1..]); 0 }
-        "unset" => { builtin_unset(&parts[1..]); 0 }
-        "set" => { set::builtin_set(&parts[1..]); 0 }
-        "history" => { builtin_history(&parts[1..], state); 0 }
-        "alias" => { builtin_alias(&parts[1..], state); 0 }
-        "unalias" => { builtin_unalias(&parts[1..], state); 0 }
-        "abbr" => { builtin_abbr(&parts[1..], state); 0 }
-        "fish-import" => { crate::fish_import::run_import(); 0 }
-        "source" => { source::builtin_source(&parts[1..], state); 0 }
+        "export" => {
+            builtin_export(&parts[1..]);
+            0
+        }
+        "unset" => {
+            builtin_unset(&parts[1..]);
+            0
+        }
+        "set" => {
+            set::builtin_set(&parts[1..]);
+            0
+        }
+        "history" => {
+            builtin_history(&parts[1..], state);
+            0
+        }
+        "alias" => {
+            builtin_alias(&parts[1..], state);
+            0
+        }
+        "unalias" => {
+            builtin_unalias(&parts[1..], state);
+            0
+        }
+        "abbr" => {
+            builtin_abbr(&parts[1..], state);
+            0
+        }
+        "fish-import" => {
+            crate::fish_import::run_import();
+            0
+        }
+        "source" => {
+            source::builtin_source(&parts[1..], state);
+            0
+        }
         "type" => builtin_type(&parts[1..], state),
-        "jobs" => { jobs::builtin_jobs(state); 0 }
-        "fg" => { jobs::builtin_fg(&parts[1..], state); 0 }
-        "bg" => { jobs::builtin_bg(&parts[1..], state); 0 }
+        "jobs" => {
+            jobs::builtin_jobs(state);
+            0
+        }
+        "fg" => {
+            jobs::builtin_fg(&parts[1..], state);
+            0
+        }
+        "bg" => {
+            jobs::builtin_bg(&parts[1..], state);
+            0
+        }
         "disown" => jobs::builtin_disown(&parts[1..], state),
         "wait" => jobs::builtin_wait(&parts[1..], state),
-        "functions" => { builtin_functions(state); 0 }
+        "functions" => {
+            builtin_functions(state);
+            0
+        }
         // Phase 2
         "echo" => builtin_echo(&parts[1..]),
         "read" => builtin_read(&parts[1..]),
@@ -106,14 +151,23 @@ pub fn run_builtin(input: &str, state: &mut ShellState) -> i32 {
             let args: Vec<&str> = parts[1..].iter().copied().filter(|a| *a != "]").collect();
             builtin_test(&args)
         }
-        "pwd" => { println!("{}", std::env::current_dir().unwrap_or_default().display()); 0 }
+        "pwd" => {
+            println!("{}", std::env::current_dir().unwrap_or_default().display());
+            0
+        }
         "pushd" => builtin_pushd(&parts[1..], state),
         "popd" => builtin_popd(&parts[1..], state),
-        "dirs" => { builtin_dirs(state); 0 }
+        "dirs" => {
+            builtin_dirs(state);
+            0
+        }
         "true" => 0,
         "false" => 1,
         "return" => {
-            let code = parts.get(1).and_then(|n| n.parse::<i32>().ok()).unwrap_or(0);
+            let code = parts
+                .get(1)
+                .and_then(|n| n.parse::<i32>().ok())
+                .unwrap_or(0);
             FUNCTION_RETURN.with(|r| r.set(Some(code)));
             code
         }
@@ -137,7 +191,10 @@ pub fn run_builtin(input: &str, state: &mut ShellState) -> i32 {
                 .and_then(|s| s.code())
                 .unwrap_or(0)
         }
-        other => { eprintln!("shako: unknown builtin: {other}"); 1 }
+        other => {
+            eprintln!("shako: unknown builtin: {other}");
+            1
+        }
     }
 }
 
@@ -258,18 +315,30 @@ fn run_builtin_no_state(first: &str, line: &str) -> i32 {
             let args: Vec<&str> = parts[1..].iter().copied().filter(|a| *a != "]").collect();
             builtin_test(&args)
         }
-        "pwd" => { println!("{}", std::env::current_dir().unwrap_or_default().display()); 0 }
+        "pwd" => {
+            println!("{}", std::env::current_dir().unwrap_or_default().display());
+            0
+        }
         "true" => 0,
         "false" => 1,
         "return" => {
-            let code = parts.get(1).and_then(|n| n.parse::<i32>().ok()).unwrap_or(0);
+            let code = parts
+                .get(1)
+                .and_then(|n| n.parse::<i32>().ok())
+                .unwrap_or(0);
             FUNCTION_RETURN.with(|r| r.set(Some(code)));
             code
         }
         "exit" => std::process::exit(0),
         "cd" => builtin_cd(&parts[1..]),
-        "export" => { builtin_export(&parts[1..]); 0 }
-        "unset" => { builtin_unset(&parts[1..]); 0 }
+        "export" => {
+            builtin_export(&parts[1..]);
+            0
+        }
+        "unset" => {
+            builtin_unset(&parts[1..]);
+            0
+        }
         "break" | "continue" => {
             eprintln!("shako: {first}: only meaningful inside a loop");
             1
@@ -584,15 +653,29 @@ fn builtin_echo(args: &[&str]) -> i32 {
 
     for (i, arg) in args.iter().enumerate() {
         match *arg {
-            "-n" => { newline = false; arg_start = i + 1; }
-            "-e" => { interpret = true; arg_start = i + 1; }
-            "-ne" | "-en" => { newline = false; interpret = true; arg_start = i + 1; }
+            "-n" => {
+                newline = false;
+                arg_start = i + 1;
+            }
+            "-e" => {
+                interpret = true;
+                arg_start = i + 1;
+            }
+            "-ne" | "-en" => {
+                newline = false;
+                interpret = true;
+                arg_start = i + 1;
+            }
             _ => break,
         }
     }
 
     let output = args[arg_start..].join(" ");
-    let output = if interpret { unescape_echo(&output) } else { output };
+    let output = if interpret {
+        unescape_echo(&output)
+    } else {
+        output
+    };
 
     if newline {
         println!("{output}");
@@ -617,7 +700,10 @@ fn unescape_echo(s: &str) -> String {
                 Some('b') => result.push('\x08'),
                 Some('\\') => result.push('\\'),
                 Some('0') => result.push('\0'),
-                Some(other) => { result.push('\\'); result.push(other); }
+                Some(other) => {
+                    result.push('\\');
+                    result.push(other);
+                }
                 None => result.push('\\'),
             }
         } else {
@@ -640,10 +726,14 @@ fn builtin_read(args: &[&str]) -> i32 {
         match args[i] {
             "-p" => {
                 i += 1;
-                if i < args.len() { prompt = args[i]; }
+                if i < args.len() {
+                    prompt = args[i];
+                }
             }
             "-r" => {}
-            arg if !arg.starts_with('-') => { var_name = arg; }
+            arg if !arg.starts_with('-') => {
+                var_name = arg;
+            }
             _ => {}
         }
         i += 1;
@@ -659,7 +749,10 @@ fn builtin_read(args: &[&str]) -> i32 {
     match std::io::stdin().read_line(&mut line) {
         Ok(0) => return 1,
         Ok(_) => {}
-        Err(e) => { eprintln!("shako: read: {e}"); return 1; }
+        Err(e) => {
+            eprintln!("shako: read: {e}");
+            return 1;
+        }
     }
 
     let value = line.trim_end_matches('\n').trim_end_matches('\r');
@@ -699,18 +792,27 @@ fn test_unary(op: &str, operand: &str) -> bool {
         "-d" => path.is_dir(),
         "-r" => {
             use std::os::unix::fs::PermissionsExt;
-            path.metadata().map(|m| m.permissions().mode() & 0o444 != 0).unwrap_or(false)
+            path.metadata()
+                .map(|m| m.permissions().mode() & 0o444 != 0)
+                .unwrap_or(false)
         }
         "-w" => {
             use std::os::unix::fs::PermissionsExt;
-            path.metadata().map(|m| m.permissions().mode() & 0o222 != 0).unwrap_or(false)
+            path.metadata()
+                .map(|m| m.permissions().mode() & 0o222 != 0)
+                .unwrap_or(false)
         }
         "-x" => {
             use std::os::unix::fs::PermissionsExt;
-            path.metadata().map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+            path.metadata()
+                .map(|m| m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
         }
         "-s" => path.metadata().map(|m| m.len() > 0).unwrap_or(false),
-        "-L" | "-h" => path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false),
+        "-L" | "-h" => path
+            .symlink_metadata()
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false),
         "-z" => operand.is_empty(),
         "-n" => !operand.is_empty(),
         _ => !op.is_empty(),
@@ -743,7 +845,10 @@ fn builtin_pushd(args: &[&str], state: &mut ShellState) -> i32 {
     }
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { eprintln!("shako: pushd: {e}"); return 1; }
+        Err(e) => {
+            eprintln!("shako: pushd: {e}");
+            return 1;
+        }
     };
     let code = builtin_cd(args);
     if code == 0 {
@@ -759,10 +864,15 @@ fn builtin_popd(_args: &[&str], state: &mut ShellState) -> i32 {
         Some(dir) => {
             let dir_str = dir.display().to_string();
             let code = builtin_cd(&[dir_str.as_str()]);
-            if code == 0 { builtin_dirs(state); }
+            if code == 0 {
+                builtin_dirs(state);
+            }
             code
         }
-        None => { eprintln!("shako: popd: directory stack empty"); 1 }
+        None => {
+            eprintln!("shako: popd: directory stack empty");
+            1
+        }
     }
 }
 

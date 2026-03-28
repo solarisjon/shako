@@ -73,11 +73,7 @@ pub fn run_wizard(config_path: &Path) -> Result<String> {
                 " \x1b[36m?\x1b[0m Found fish config at \x1b[33m{}\x1b[0m",
                 fd.display()
             )?;
-            let answer = prompt_line(
-                &mut out,
-                " Import fish config into shako? [Y/n]: ",
-                "y",
-            )?;
+            let answer = prompt_line(&mut out, " Import fish config into shako? [Y/n]: ", "y")?;
             if matches!(answer.trim().to_lowercase().as_str(), "" | "y" | "yes") {
                 writeln!(out)?;
                 drop(out);
@@ -165,18 +161,12 @@ fn wizard_custom_proxy(out: &mut impl Write) -> Result<String> {
     let mut endpoint = endpoint.trim().to_string();
     if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
         endpoint = format!("https://{endpoint}");
-        writeln!(
-            out,
-            " \x1b[90m(added https:// → {endpoint})\x1b[0m"
-        )?;
+        writeln!(out, " \x1b[90m(added https:// → {endpoint})\x1b[0m")?;
     }
     if let Ok(parsed) = reqwest::Url::parse(&endpoint) {
         if parsed.path() == "/" || parsed.path().is_empty() {
             endpoint = format!("{}/v1/chat/completions", endpoint.trim_end_matches('/'));
-            writeln!(
-                out,
-                " \x1b[90m(added API path → {endpoint})\x1b[0m"
-            )?;
+            writeln!(out, " \x1b[90m(added API path → {endpoint})\x1b[0m")?;
         }
     }
 
@@ -354,15 +344,50 @@ fn prompt_line(out: &mut impl Write, prompt: &str, default: &str) -> Result<Stri
 /// Recommended tools with (binary, name, description, impact level).
 /// Impact: "core" = significant shako experience uplift, "nice" = useful but optional.
 const RECOMMENDED_TOOLS: &[(&str, &str, &str, &str)] = &[
-    ("starship", "Starship", "cross-shell prompt with git, rust, node info", "core"),
-    ("eza", "eza", "modern ls with icons, git status, tree view", "core"),
-    ("bat", "bat", "cat with syntax highlighting and line numbers", "core"),
+    (
+        "starship",
+        "Starship",
+        "cross-shell prompt with git, rust, node info",
+        "core",
+    ),
+    (
+        "eza",
+        "eza",
+        "modern ls with icons, git status, tree view",
+        "core",
+    ),
+    (
+        "bat",
+        "bat",
+        "cat with syntax highlighting and line numbers",
+        "core",
+    ),
     ("fd", "fd", "faster find with simpler syntax", "core"),
-    ("rg", "ripgrep", "faster grep that respects .gitignore", "core"),
-    ("zoxide", "zoxide", "smart cd that learns your habits (powers z/zi)", "core"),
-    ("fzf", "fzf", "fuzzy finder for interactive selection (powers zi)", "core"),
+    (
+        "rg",
+        "ripgrep",
+        "faster grep that respects .gitignore",
+        "core",
+    ),
+    (
+        "zoxide",
+        "zoxide",
+        "smart cd that learns your habits (powers z/zi)",
+        "core",
+    ),
+    (
+        "fzf",
+        "fzf",
+        "fuzzy finder for interactive selection (powers zi)",
+        "core",
+    ),
     ("dust", "dust", "visual disk usage (replaces du)", "nice"),
-    ("delta", "delta", "side-by-side diff with syntax highlighting", "nice"),
+    (
+        "delta",
+        "delta",
+        "side-by-side diff with syntax highlighting",
+        "nice",
+    ),
     ("procs", "procs", "modern ps with color and search", "nice"),
     ("sd", "sd", "simpler sed for find-and-replace", "nice"),
 ];
@@ -403,11 +428,7 @@ pub fn check_recommended_tools() {
     writeln!(out).ok();
 
     if all_installed {
-        writeln!(
-            out,
-            " \x1b[32m✓ All recommended tools installed!\x1b[0m\n"
-        )
-        .ok();
+        writeln!(out, " \x1b[32m✓ All recommended tools installed!\x1b[0m\n").ok();
         return;
     }
 
@@ -426,17 +447,9 @@ pub fn check_recommended_tools() {
     if !missing_nice.is_empty() {
         let tools = missing_nice.join(" ");
         if missing_core.is_empty() {
-            writeln!(
-                out,
-                " \x1b[90mOptional:\x1b[0m\n   {install_cmd} {tools}"
-            )
-            .ok();
+            writeln!(out, " \x1b[90mOptional:\x1b[0m\n   {install_cmd} {tools}").ok();
         } else {
-            writeln!(
-                out,
-                "\n \x1b[90mOptional:\x1b[0m\n   {install_cmd} {tools}"
-            )
-            .ok();
+            writeln!(out, "\n \x1b[90mOptional:\x1b[0m\n   {install_cmd} {tools}").ok();
         }
     }
 

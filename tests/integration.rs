@@ -69,7 +69,10 @@ fn test_pipe_multi() {
     let out = shako("echo -e 'c\nb\na' | sort | head -1");
     let result = stdout(&out).trim().to_string();
     // On macOS, echo -e may not be supported; accept either result
-    assert!(result == "a" || result.contains("a"), "sort should produce 'a' first, got: {result}");
+    assert!(
+        result == "a" || result.contains("a"),
+        "sort should produce 'a' first, got: {result}"
+    );
 }
 
 #[test]
@@ -371,7 +374,10 @@ fn test_popd_returns_to_original() {
     let lines: Vec<&str> = s.trim().lines().collect();
     let last = lines.last().unwrap_or(&"");
     // Should be back to the original dir (not /tmp)
-    assert!(!last.ends_with("tmp"), "popd should restore cwd, got: {last}");
+    assert!(
+        !last.ends_with("tmp"),
+        "popd should restore cwd, got: {last}"
+    );
 }
 
 #[test]
@@ -379,7 +385,10 @@ fn test_dirs_shows_stack() {
     let out = shako("dirs");
     assert!(out.status.success());
     let result = stdout(&out).trim().to_string();
-    assert!(result.starts_with('/'), "dirs should show an absolute path, got: {result}");
+    assert!(
+        result.starts_with('/'),
+        "dirs should show an absolute path, got: {result}"
+    );
 }
 
 #[test]
@@ -435,7 +444,10 @@ fn test_param_strip_prefix_longest() {
     assert!(out.status.success());
     let result = stdout(&out).trim().to_string();
     // /Users/jbowman → jbowman (no slash)
-    assert!(!result.contains('/'), "## should strip longest prefix, got: {result}");
+    assert!(
+        !result.contains('/'),
+        "## should strip longest prefix, got: {result}"
+    );
 }
 
 #[test]
@@ -443,15 +455,20 @@ fn test_param_replace_first() {
     let out = shako("echo ${HOME/Users/home}");
     assert!(out.status.success());
     let result = stdout(&out).trim().to_string();
-    assert!(result.contains("home"), "/ should replace first occurrence, got: {result}");
+    assert!(
+        result.contains("home"),
+        "/ should replace first occurrence, got: {result}"
+    );
 }
-
 
 #[test]
 fn test_glob_expansion() {
     let out = shako("echo src/*.rs");
     let result = stdout(&out);
-    assert!(result.contains("main.rs"), "glob should expand src/*.rs to include main.rs");
+    assert!(
+        result.contains("main.rs"),
+        "glob should expand src/*.rs to include main.rs"
+    );
 }
 
 #[test]
@@ -526,7 +543,11 @@ fn test_builtin_type_external() {
 fn test_builtin_type_not_found() {
     let out = shako("type definitely_not_a_real_command_xyz_123");
     // /usr/bin/type exits non-zero and prints "not found" style message
-    assert!(!out.status.success() || stderr(&out).contains("not found") || stdout(&out).contains("not found"));
+    assert!(
+        !out.status.success()
+            || stderr(&out).contains("not found")
+            || stdout(&out).contains("not found")
+    );
 }
 
 // ── Phase 3: arithmetic expansion $((expr)) ────────────────────
@@ -729,7 +750,9 @@ fn test_while_loop_with_counter() {
 
 #[test]
 fn test_while_break() {
-    let out = shako(r#"export I=0; while true; do echo $I; export I=$(( I + 1 )); if [ $I -ge 2 ]; then break; fi; done"#);
+    let out = shako(
+        r#"export I=0; while true; do echo $I; export I=$(( I + 1 )); if [ $I -ge 2 ]; then break; fi; done"#,
+    );
     assert!(out.status.success());
     let s = stdout(&out);
     let lines: Vec<&str> = s.trim().lines().collect();
@@ -928,4 +951,3 @@ fn test_herestring_quoted_content() {
     assert!(out.status.success());
     assert_eq!(stdout(&out).trim(), "hello world");
 }
-

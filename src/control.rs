@@ -108,15 +108,28 @@ fn split_semicolons(s: &str) -> Vec<String> {
             continue;
         }
         match c {
-            '\\' if !in_single => { prev_bs = true; current.push(c); }
-            '\'' if !in_double => { in_single = !in_single; current.push(c); }
-            '"' if !in_single => { in_double = !in_double; current.push(c); }
+            '\\' if !in_single => {
+                prev_bs = true;
+                current.push(c);
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+                current.push(c);
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+                current.push(c);
+            }
             ';' if !in_single && !in_double => {
                 let t = current.trim().to_string();
-                if !t.is_empty() { result.push(t); }
+                if !t.is_empty() {
+                    result.push(t);
+                }
                 current.clear();
             }
-            _ => { current.push(c); }
+            _ => {
+                current.push(c);
+            }
         }
     }
     let tail = current.trim().to_string();
@@ -134,15 +147,15 @@ fn leading_keyword(seg: &str) -> Option<(Kw, &str)> {
         ("elif", Kw::Elif),
         ("else", Kw::Else),
         ("then", Kw::Then),
-        ("done", Kw::Done),   // bash compat alias for end
-        ("end", Kw::End),     // fish canonical block closer
+        ("done", Kw::Done), // bash compat alias for end
+        ("end", Kw::End),   // fish canonical block closer
         ("while", Kw::While),
         ("local", Kw::Local),
         ("continue", Kw::Continue),
         ("break", Kw::Break),
-        ("fi", Kw::Fi),       // bash compat alias for end
+        ("fi", Kw::Fi), // bash compat alias for end
         ("for", Kw::For),
-        ("do", Kw::Do),       // bash compat, optional in fish
+        ("do", Kw::Do), // bash compat, optional in fish
         ("if", Kw::If),
     ];
     for (kw_str, kw) in KWS {
@@ -163,7 +176,9 @@ fn leading_keyword(seg: &str) -> Option<(Kw, &str)> {
 /// in the remainder after each keyword is extracted.
 fn emit_segment(seg: &str, tokens: &mut Vec<BodyToken>) {
     let seg = seg.trim();
-    if seg.is_empty() { return; }
+    if seg.is_empty() {
+        return;
+    }
     if let Some((kw, rest)) = leading_keyword(seg) {
         tokens.push(BodyToken::Kw(kw));
         emit_segment(rest, tokens);
@@ -216,14 +231,22 @@ impl Parser {
 
     fn take_cmd(&mut self) -> String {
         match self.tokens.get(self.pos) {
-            Some(BodyToken::Cmd(c)) => { let s = c.clone(); self.pos += 1; s }
+            Some(BodyToken::Cmd(c)) => {
+                let s = c.clone();
+                self.pos += 1;
+                s
+            }
             _ => String::new(),
         }
     }
 
     fn take_kw(&mut self) -> Option<Kw> {
         match self.tokens.get(self.pos) {
-            Some(BodyToken::Kw(k)) => { let k = k.clone(); self.pos += 1; Some(k) }
+            Some(BodyToken::Kw(k)) => {
+                let k = k.clone();
+                self.pos += 1;
+                Some(k)
+            }
             _ => None,
         }
     }
@@ -282,12 +305,20 @@ impl Parser {
                             self.skip_end_kw(); // accept end / fi
                             break;
                         }
-                        Some(Kw::End) | Some(Kw::Fi) => { self.skip_end_kw(); break; }
+                        Some(Kw::End) | Some(Kw::Fi) => {
+                            self.skip_end_kw();
+                            break;
+                        }
                         _ => break,
                     }
                 }
 
-                Some(Statement::If { condition, then_body, elif_branches, else_body })
+                Some(Statement::If {
+                    condition,
+                    then_body,
+                    elif_branches,
+                    else_body,
+                })
             }
 
             BodyToken::Kw(Kw::For) => {
@@ -297,7 +328,11 @@ impl Parser {
                 self.skip_kw(&Kw::Do); // optional in fish syntax
                 let body = self.parse_until(&[Kw::End, Kw::Done]);
                 self.skip_end_kw(); // accept end / done
-                Some(Statement::For { var, items_expr, body })
+                Some(Statement::For {
+                    var,
+                    items_expr,
+                    body,
+                })
             }
 
             BodyToken::Kw(Kw::While) => {
@@ -309,16 +344,29 @@ impl Parser {
                 Some(Statement::While { condition, body })
             }
 
-            BodyToken::Kw(Kw::Break) => { self.pos += 1; Some(Statement::Break) }
-            BodyToken::Kw(Kw::Continue) => { self.pos += 1; Some(Statement::Continue) }
+            BodyToken::Kw(Kw::Break) => {
+                self.pos += 1;
+                Some(Statement::Break)
+            }
+            BodyToken::Kw(Kw::Continue) => {
+                self.pos += 1;
+                Some(Statement::Continue)
+            }
             BodyToken::Kw(Kw::Local) => {
                 self.pos += 1;
                 let spec = self.take_cmd();
-                if spec.is_empty() { None } else { Some(Statement::Local(spec)) }
+                if spec.is_empty() {
+                    None
+                } else {
+                    Some(Statement::Local(spec))
+                }
             }
 
             // Stray structural keywords at statement level — skip silently
-            BodyToken::Kw(_) => { self.take_kw(); None }
+            BodyToken::Kw(_) => {
+                self.take_kw();
+                None
+            }
 
             BodyToken::Cmd(cmd) => {
                 self.pos += 1;
@@ -326,7 +374,11 @@ impl Parser {
                 // didn't separate `local` from its argument in the original body.
                 if let Some(rest) = cmd.strip_prefix("local ") {
                     let rest = rest.trim().to_string();
-                    if rest.is_empty() { None } else { Some(Statement::Local(rest)) }
+                    if rest.is_empty() {
+                        None
+                    } else {
+                        Some(Statement::Local(rest))
+                    }
                 } else {
                     Some(Statement::Simple(cmd))
                 }
@@ -380,7 +432,12 @@ fn exec_one(stmt: &Statement, locals: &mut Vec<(String, Option<String>)>) -> Exe
     match stmt {
         Statement::Simple(cmd) => exec_simple(cmd, locals),
 
-        Statement::If { condition, then_body, elif_branches, else_body } => {
+        Statement::If {
+            condition,
+            then_body,
+            elif_branches,
+            else_body,
+        } => {
             if run_condition(condition) == 0 {
                 exec_statements(then_body, locals)
             } else {
@@ -393,7 +450,11 @@ fn exec_one(stmt: &Statement, locals: &mut Vec<(String, Option<String>)>) -> Exe
             }
         }
 
-        Statement::For { var, items_expr, body } => {
+        Statement::For {
+            var,
+            items_expr,
+            body,
+        } => {
             let items = crate::parser::parse_args(items_expr);
             let mut last = 0i32;
             'for_loop: for item in &items {
@@ -412,7 +473,9 @@ fn exec_one(stmt: &Statement, locals: &mut Vec<(String, Option<String>)>) -> Exe
         Statement::While { condition, body } => {
             let mut last = 0i32;
             'while_loop: loop {
-                if run_condition(condition) != 0 { break; }
+                if run_condition(condition) != 0 {
+                    break;
+                }
                 match exec_statements(body, locals) {
                     ExecSignal::Normal(c) => last = c,
                     ExecSignal::Continue => continue 'while_loop,
@@ -454,7 +517,9 @@ fn declare_local(var: &str, locals: &mut Vec<(String, Option<String>)>) {
 /// Execute a simple command, checking the FUNCTION_RETURN thread-local after.
 fn exec_simple(cmd: &str, _locals: &mut Vec<(String, Option<String>)>) -> ExecSignal {
     let cmd = cmd.trim();
-    if cmd.is_empty() { return ExecSignal::Normal(0); }
+    if cmd.is_empty() {
+        return ExecSignal::Normal(0);
+    }
 
     let first = cmd.split_whitespace().next().unwrap_or("");
     let code = if crate::builtins::is_builtin(first) {
@@ -476,7 +541,9 @@ fn exec_simple(cmd: &str, _locals: &mut Vec<(String, Option<String>)>) -> ExecSi
 /// Run a condition and return its exit code.
 fn run_condition(condition: &str) -> i32 {
     let condition = condition.trim();
-    if condition.is_empty() { return 0; }
+    if condition.is_empty() {
+        return 0;
+    }
 
     let first = condition.split_whitespace().next().unwrap_or("");
     if crate::builtins::is_builtin(first) {
@@ -560,7 +627,13 @@ mod tests {
     fn test_parse_body_if_simple() {
         let stmts = parse_body("if true; then echo yes; fi");
         assert_eq!(stmts.len(), 1);
-        let Statement::If { condition, then_body, else_body, elif_branches } = &stmts[0] else {
+        let Statement::If {
+            condition,
+            then_body,
+            else_body,
+            elif_branches,
+        } = &stmts[0]
+        else {
             panic!("expected If");
         };
         assert_eq!(condition, "true");
@@ -573,7 +646,14 @@ mod tests {
     fn test_parse_body_if_else() {
         let stmts = parse_body("if false; then echo yes; else echo no; fi");
         assert_eq!(stmts.len(), 1);
-        let Statement::If { then_body, else_body, .. } = &stmts[0] else { panic!() };
+        let Statement::If {
+            then_body,
+            else_body,
+            ..
+        } = &stmts[0]
+        else {
+            panic!()
+        };
         assert_eq!(then_body.len(), 1);
         assert_eq!(else_body.len(), 1);
     }
@@ -581,7 +661,14 @@ mod tests {
     #[test]
     fn test_parse_body_if_elif_else() {
         let stmts = parse_body("if false; then echo a; elif true; then echo b; else echo c; fi");
-        let Statement::If { elif_branches, else_body, .. } = &stmts[0] else { panic!() };
+        let Statement::If {
+            elif_branches,
+            else_body,
+            ..
+        } = &stmts[0]
+        else {
+            panic!()
+        };
         assert_eq!(elif_branches.len(), 1);
         assert_eq!(else_body.len(), 1);
     }
@@ -590,7 +677,14 @@ mod tests {
     fn test_parse_body_for() {
         let stmts = parse_body("for i in 1 2 3; do echo $i; done");
         assert_eq!(stmts.len(), 1);
-        let Statement::For { var, items_expr, body } = &stmts[0] else { panic!() };
+        let Statement::For {
+            var,
+            items_expr,
+            body,
+        } = &stmts[0]
+        else {
+            panic!()
+        };
         assert_eq!(var, "i");
         assert_eq!(items_expr, "1 2 3");
         assert_eq!(body.len(), 1);
@@ -600,28 +694,36 @@ mod tests {
     fn test_parse_body_while() {
         let stmts = parse_body("while false; do echo hi; done");
         assert_eq!(stmts.len(), 1);
-        let Statement::While { condition, .. } = &stmts[0] else { panic!() };
+        let Statement::While { condition, .. } = &stmts[0] else {
+            panic!()
+        };
         assert_eq!(condition, "false");
     }
 
     #[test]
     fn test_parse_body_break_in_for() {
         let stmts = parse_body("for i in 1; do break; done");
-        let Statement::For { body, .. } = &stmts[0] else { panic!() };
+        let Statement::For { body, .. } = &stmts[0] else {
+            panic!()
+        };
         assert!(matches!(body[0], Statement::Break));
     }
 
     #[test]
     fn test_parse_body_continue_in_for() {
         let stmts = parse_body("for i in 1 2; do continue; echo skip; done");
-        let Statement::For { body, .. } = &stmts[0] else { panic!() };
+        let Statement::For { body, .. } = &stmts[0] else {
+            panic!()
+        };
         assert!(matches!(body[0], Statement::Continue));
     }
 
     #[test]
     fn test_parse_body_nested_if() {
         let stmts = parse_body("if true; then if true; then echo deep; fi; fi");
-        let Statement::If { then_body, .. } = &stmts[0] else { panic!() };
+        let Statement::If { then_body, .. } = &stmts[0] else {
+            panic!()
+        };
         assert!(matches!(then_body[0], Statement::If { .. }));
     }
 

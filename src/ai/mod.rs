@@ -24,7 +24,8 @@ pub async fn translate_and_execute(
     let mut current_input = input.to_string();
 
     'translate: loop {
-        let response = client::query_llm(&system_prompt, &current_input, config.active_llm()).await?;
+        let response =
+            client::query_llm(&system_prompt, &current_input, config.active_llm()).await?;
         let command = collapse_multiline(response.trim());
 
         if command == "SHAKO_CANNOT_TRANSLATE" || command.is_empty() {
@@ -182,10 +183,7 @@ fn collapse_multiline(raw: &str) -> String {
 }
 
 /// Explain what a command does without executing it.
-pub async fn explain_command(
-    command: &str,
-    config: &ShakoConfig,
-) -> Result<String> {
+pub async fn explain_command(command: &str, config: &ShakoConfig) -> Result<String> {
     let ctx = context::build_context(vec![], vec![])?;
     let system_prompt = prompt::explain_prompt(&ctx);
 
@@ -193,7 +191,11 @@ pub async fn explain_command(
 }
 
 /// Search shell history using AI semantic matching.
-pub async fn search_history(query: &str, history: &[String], config: &ShakoConfig) -> Result<String> {
+pub async fn search_history(
+    query: &str,
+    history: &[String],
+    config: &ShakoConfig,
+) -> Result<String> {
     if history.is_empty() {
         return Ok("No history available.".to_string());
     }
@@ -205,7 +207,8 @@ pub async fn search_history(query: &str, history: &[String], config: &ShakoConfi
         .join("\n");
 
     let system = "You are a shell history search assistant. Given a list of shell commands and a search query, find the most relevant commands. Return just the matching commands, one per line, most relevant first. If nothing matches well, say so briefly.";
-    let user_msg = format!("Search query: {query}\n\nShell history (most recent last):\n{history_text}");
+    let user_msg =
+        format!("Search query: {query}\n\nShell history (most recent last):\n{history_text}");
 
     client::query_llm(system, &user_msg, config.active_llm()).await
 }

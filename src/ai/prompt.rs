@@ -43,11 +43,16 @@ Rules:
     }
 
     if !ctx.project_context.is_empty() {
-        prompt.push_str(&format!("\n\nProject instructions:\n{}", ctx.project_context));
+        prompt.push_str(&format!(
+            "\n\nProject instructions:\n{}",
+            ctx.project_context
+        ));
     }
 
     if !ctx.session_memory.is_empty() {
-        prompt.push_str("\n\nRecent AI conversation context (use this to understand follow-up queries):\n");
+        prompt.push_str(
+            "\n\nRecent AI conversation context (use this to understand follow-up queries):\n",
+        );
         for (user_input, ai_cmd) in &ctx.session_memory {
             prompt.push_str(&format!("  User: {user_input}\n  Command: {ai_cmd}\n"));
         }
@@ -115,7 +120,10 @@ Rules:
     }
 
     if !ctx.project_context.is_empty() {
-        prompt.push_str(&format!("\n\nProject instructions:\n{}", ctx.project_context));
+        prompt.push_str(&format!(
+            "\n\nProject instructions:\n{}",
+            ctx.project_context
+        ));
     }
 
     if !ctx.recent_history.is_empty() {

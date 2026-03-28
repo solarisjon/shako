@@ -122,7 +122,9 @@ pub async fn query_llm(
                 if !response.status().is_success() {
                     let status = response.status();
                     let body = response.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("LLM API {endpoint} returned {status}: {body}"));
+                    return Err(anyhow::anyhow!(
+                        "LLM API {endpoint} returned {status}: {body}"
+                    ));
                 }
 
                 // Collect raw bytes while streaming SSE tokens to stdout
@@ -174,8 +176,9 @@ pub async fn query_llm(
                 // Fallback: server returned plain JSON instead of SSE
                 log::debug!("stream yielded no content, falling back to non-streaming parse");
                 let body = String::from_utf8_lossy(&raw_bytes);
-                let chat_response: ChatResponse = serde_json::from_str(&body)
-                    .map_err(|e| anyhow::anyhow!("failed to parse LLM response: {e}\nbody: {body}"))?;
+                let chat_response: ChatResponse = serde_json::from_str(&body).map_err(|e| {
+                    anyhow::anyhow!("failed to parse LLM response: {e}\nbody: {body}")
+                })?;
                 return chat_response
                     .choices
                     .first()
@@ -211,7 +214,10 @@ pub enum AiCheckResult {
 
 /// Probe the configured LLM endpoint at startup and return its status.
 /// Hits `GET /v1/models` with a 3-second timeout — fast enough not to stall startup.
-pub async fn check_ai_session(config: &crate::config::LlmConfig, ai_enabled: bool) -> AiCheckResult {
+pub async fn check_ai_session(
+    config: &crate::config::LlmConfig,
+    ai_enabled: bool,
+) -> AiCheckResult {
     if !ai_enabled {
         return AiCheckResult::Disabled;
     }
