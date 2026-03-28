@@ -24,6 +24,7 @@ mod setup;
 mod shell;
 mod slash;
 mod smart_defaults;
+mod spinner;
 
 use builtins::ShellState;
 use classifier::{Classification, Classifier};
@@ -587,22 +588,19 @@ fn main() -> Result<()> {
                                     || builtins::is_builtin(words[0]));
 
                             if is_bare_command {
-                                print!("\x1b[90mexplaining...\x1b[0m");
-                                io::stdout().flush().ok();
-                                rt.block_on(async {
-                                    match ai::explain_command(&text, &config).await {
-                                        Ok(explanation) => {
-                                            print!("\r\x1b[K");
-                                            eprintln!("\x1b[36m{text}\x1b[0m");
-                                            eprintln!("{explanation}");
-                                        }
-                                        Err(e) => {
-                                            print!("\r\x1b[K");
-                                            eprintln!("shako: ai error: {e}");
-                                            prompt::set_last_status(1);
-                                        }
+                                let sp = spinner::Spinner::start("explaining...");
+                                let result = rt.block_on(ai::explain_command(&text, &config));
+                                drop(sp);
+                                match result {
+                                    Ok(explanation) => {
+                                        eprintln!("\x1b[36m{text}\x1b[0m");
+                                        eprintln!("{explanation}");
                                     }
-                                });
+                                    Err(e) => {
+                                        eprintln!("shako: ai error: {e}");
+                                        prompt::set_last_status(1);
+                                    }
+                                }
                             } else {
                                 let history = read_recent_history(
                                     &history_path,
@@ -689,21 +687,18 @@ fn main() -> Result<()> {
                         if !config.behavior.ai_enabled {
                             eprintln!("shako: AI is disabled (ai_enabled = false in config)");
                         } else {
-                            print!("\x1b[90mexplaining...\x1b[0m");
-                            io::stdout().flush().ok();
-                            rt.block_on(async {
-                                match ai::explain_command(&cmd, &config).await {
-                                    Ok(explanation) => {
-                                        print!("\r\x1b[K");
-                                        eprintln!("\x1b[36m{cmd}\x1b[0m");
-                                        eprintln!("{explanation}");
-                                    }
-                                    Err(e) => {
-                                        print!("\r\x1b[K");
-                                        eprintln!("shako: ai error: {e}");
-                                    }
+                            let sp = spinner::Spinner::start("explaining...");
+                            let result = rt.block_on(ai::explain_command(&cmd, &config));
+                            drop(sp);
+                            match result {
+                                Ok(explanation) => {
+                                    eprintln!("\x1b[36m{cmd}\x1b[0m");
+                                    eprintln!("{explanation}");
                                 }
-                            });
+                                Err(e) => {
+                                    eprintln!("shako: ai error: {e}");
+                                }
+                            }
                         } // end ai_enabled check
                     }
                 }
@@ -757,82 +752,81 @@ fn offer_ai_recovery(
         return;
     }
 
-    print!("\x1b[90mthinking...\x1b[0m");
-    io::stdout().flush().ok();
+    let sp = spinner::Spinner::start("thinking...");
 
-    rt.block_on(async {
+    let result = rt.block_on(async {
         let history = read_recent_history(history_path, config.behavior.history_context_lines);
-        match ai::diagnose_error(command, exit_code, stderr_output, config, history).await {
-            Ok(response) => {
-                // Clear the "thinking..." text
-                print!("\r\x1b[K");
+        ai::diagnose_error(command, exit_code, stderr_output, config, history).await
+    });
 
-                let response = response.trim();
+    drop(sp);
 
-                // Parse CAUSE and FIX from response
-                let mut cause = String::new();
-                let mut fix = String::new();
+    match result {
+        Ok(response) => {
+            let response = response.trim();
 
-                for line in response.lines() {
-                    let line = line.trim();
-                    if let Some(c) = line.strip_prefix("CAUSE:") {
-                        cause = c.trim().to_string();
-                    } else if let Some(f) = line.strip_prefix("FIX:") {
-                        fix = f.trim().to_string();
-                    } else if !fix.is_empty() && !line.is_empty() && line != "SHAKO_NO_FIX" {
-                        // Multi-line fix
-                        fix.push('\n');
-                        fix.push_str(line);
-                    }
+            // Parse CAUSE and FIX from response
+            let mut cause = String::new();
+            let mut fix = String::new();
+
+            for line in response.lines() {
+                let line = line.trim();
+                if let Some(c) = line.strip_prefix("CAUSE:") {
+                    cause = c.trim().to_string();
+                } else if let Some(f) = line.strip_prefix("FIX:") {
+                    fix = f.trim().to_string();
+                } else if !fix.is_empty() && !line.is_empty() && line != "SHAKO_NO_FIX" {
+                    // Multi-line fix
+                    fix.push('\n');
+                    fix.push_str(line);
                 }
+            }
 
-                if !cause.is_empty() {
-                    eprintln!("\x1b[36m  cause:\x1b[0m {cause}");
-                }
+            if !cause.is_empty() {
+                eprintln!("\x1b[36m  cause:\x1b[0m {cause}");
+            }
 
-                if fix.is_empty() || fix == "SHAKO_NO_FIX" {
-                    return;
-                }
+            if fix.is_empty() || fix == "SHAKO_NO_FIX" {
+                return;
+            }
 
-                // Show suggested fix and offer to run it
-                println!("\x1b[36m  fix:\x1b[0m \x1b[1m{fix}\x1b[0m");
-                print!("\x1b[90m  [Y]es / [n]o / [e]dit:\x1b[0m ");
-                io::stdout().flush().ok();
+            // Show suggested fix and offer to run it
+            println!("\x1b[36m  fix:\x1b[0m \x1b[1m{fix}\x1b[0m");
+            print!("\x1b[90m  [Y]es / [n]o / [e]dit:\x1b[0m ");
+            io::stdout().flush().ok();
 
-                let mut answer = String::new();
-                io::stdin().read_line(&mut answer).ok();
-                let answer = answer.trim().to_lowercase();
+            let mut answer = String::new();
+            io::stdin().read_line(&mut answer).ok();
+            let answer = answer.trim().to_lowercase();
 
-                match answer.as_str() {
-                    "" | "y" | "yes" => {
-                        for line in fix.lines() {
-                            let line = line.trim();
-                            if !line.is_empty() {
-                                let status = executor::execute_command(line);
-                                set_exit_code(status);
-                            }
-                        }
-                    }
-                    "e" | "edit" => {
-                        print!("\x1b[36m  ❯\x1b[0m ");
-                        io::stdout().flush().ok();
-                        let mut edited = String::new();
-                        io::stdin().read_line(&mut edited).ok();
-                        let edited = edited.trim();
-                        if !edited.is_empty() {
-                            let status = executor::execute_command(edited);
+            match answer.as_str() {
+                "" | "y" | "yes" => {
+                    for line in fix.lines() {
+                        let line = line.trim();
+                        if !line.is_empty() {
+                            let status = executor::execute_command(line);
                             set_exit_code(status);
                         }
                     }
-                    _ => {}
                 }
-            }
-            Err(e) => {
-                print!("\r\x1b[K");
-                eprintln!("shako: ai error: {e}");
+                "e" | "edit" => {
+                    print!("\x1b[36m  ❯\x1b[0m ");
+                    io::stdout().flush().ok();
+                    let mut edited = String::new();
+                    io::stdin().read_line(&mut edited).ok();
+                    let edited = edited.trim();
+                    if !edited.is_empty() {
+                        let status = executor::execute_command(edited);
+                        set_exit_code(status);
+                    }
+                }
+                _ => {}
             }
         }
-    });
+        Err(e) => {
+            eprintln!("shako: ai error: {e}");
+        }
+    }
 }
 
 /// Check if the input line needs continuation (trailing \, unclosed quotes,
