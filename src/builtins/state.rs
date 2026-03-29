@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// A background job tracked by the shell.
@@ -60,7 +60,8 @@ impl ShellState {
 
     /// Reap finished background jobs and report their completion.
     pub fn reap_jobs(&mut self) {
-        let mut completed = Vec::new();
+        // HashSet so the retain predicate below is O(1) per job.
+        let mut completed: HashSet<usize> = HashSet::new();
         for job in &mut self.jobs {
             match job.child.try_wait() {
                 Ok(Some(status)) => {
@@ -70,11 +71,11 @@ impl ShellState {
                     } else {
                         eprintln!("[{}] exit {code}  {}", job.id, job.command);
                     }
-                    completed.push(job.id);
+                    completed.insert(job.id);
                 }
                 Ok(None) => {} // still running
                 Err(_) => {
-                    completed.push(job.id);
+                    completed.insert(job.id);
                 }
             }
         }
