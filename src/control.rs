@@ -457,8 +457,11 @@ fn exec_one(stmt: &Statement, locals: &mut Vec<(String, Option<String>)>) -> Exe
         } => {
             let items = crate::parser::parse_args(items_expr);
             let mut last = 0i32;
+            // Save the loop variable's pre-loop value once, before the first
+            // iteration. Calling declare_local inside the loop would push
+            // redundant save entries on every iteration.
+            declare_local(var, locals);
             'for_loop: for item in &items {
-                declare_local(var, locals);
                 unsafe { std::env::set_var(var, item) };
                 match exec_statements(body, locals) {
                     ExecSignal::Normal(c) => last = c,
