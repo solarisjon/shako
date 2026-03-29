@@ -59,7 +59,13 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 '$' if i + 2 < chars.len() && chars[i + 1] == '(' && chars[i + 2] == '(' => {
                     i += 3; // skip '$(('
                     let expr = extract_arithmetic_expr(&chars, &mut i);
-                    current.push_str(&eval_arithmetic(&expr).to_string());
+                    match eval_arithmetic(&expr) {
+                        Ok(v) => current.push_str(&v.to_string()),
+                        Err(e) => {
+                            eprintln!("shako: arithmetic: {e}");
+                            current.push('0');
+                        }
+                    }
                 }
                 '$' if i + 1 < chars.len() && chars[i + 1] == '(' => {
                     i += 2; // skip '$('
@@ -114,7 +120,13 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 '$' if i + 2 < chars.len() && chars[i + 1] == '(' && chars[i + 2] == '(' => {
                     i += 3; // skip '$(('
                     let expr = extract_arithmetic_expr(&chars, &mut i);
-                    current.push_str(&eval_arithmetic(&expr).to_string());
+                    match eval_arithmetic(&expr) {
+                        Ok(v) => current.push_str(&v.to_string()),
+                        Err(e) => {
+                            eprintln!("shako: arithmetic: {e}");
+                            current.push('0');
+                        }
+                    }
                 }
                 '$' if i + 1 < chars.len() && chars[i + 1] == '(' => {
                     i += 2; // skip '$('
@@ -393,7 +405,13 @@ fn expand_env_at(chars: &[char], i: &mut usize) -> String {
     if chars[*i] == '(' && *i + 1 < chars.len() && chars[*i + 1] == '(' {
         *i += 2; // skip '(('
         let expr = extract_arithmetic_expr(chars, i);
-        return eval_arithmetic(&expr).to_string();
+        match eval_arithmetic(&expr) {
+            Ok(v) => return v.to_string(),
+            Err(e) => {
+                eprintln!("shako: arithmetic: {e}");
+                return "0".to_string();
+            }
+        }
     }
 
     // $(...) — command substitution
@@ -656,8 +674,8 @@ fn extract_arithmetic_expr(chars: &[char], i: &mut usize) -> String {
 
 /// Evaluate a POSIX arithmetic expression string like `"2 + 3 * 4"` or `"$x ** 2"`.
 /// Variable references (`$VAR` or bare `VAR`) are expanded via the environment.
-/// Returns the integer result as `i64`.
-fn eval_arithmetic(expr: &str) -> i64 {
+/// Returns `Err` on division by zero, integer overflow, or unparseable numbers.
+fn eval_arithmetic(expr: &str) -> Result<i64, String> {
     let expr = expand_arith_vars(expr.trim());
     let chars: Vec<char> = expr.chars().collect();
     let mut pos = 0;
@@ -693,45 +711,45 @@ fn arith_skip_ws(chars: &[char], pos: &mut usize) {
     }
 }
 
-fn arith_parse_expr(chars: &[char], pos: &mut usize) -> i64 {
+fn arith_parse_expr(chars: &[char], pos: &mut usize) -> Result<i64, String> {
     arith_parse_or(chars, pos)
 }
 
-fn arith_parse_or(chars: &[char], pos: &mut usize) -> i64 {
-    let mut left = arith_parse_and(chars, pos);
+fn arith_parse_or(chars: &[char], pos: &mut usize) -> Result<i64, String> {
+    let mut left = arith_parse_and(chars, pos)?;
     loop {
         arith_skip_ws(chars, pos);
         if *pos + 1 < chars.len() && chars[*pos] == '|' && chars[*pos + 1] == '|' {
             *pos += 2;
-            let right = arith_parse_and(chars, pos);
+            let right = arith_parse_and(chars, pos)?;
             left = if left != 0 || right != 0 { 1 } else { 0 };
         } else {
             break;
         }
     }
-    left
+    Ok(left)
 }
 
-fn arith_parse_and(chars: &[char], pos: &mut usize) -> i64 {
-    let mut left = arith_parse_cmp(chars, pos);
+fn arith_parse_and(chars: &[char], pos: &mut usize) -> Result<i64, String> {
+    let mut left = arith_parse_cmp(chars, pos)?;
     loop {
         arith_skip_ws(chars, pos);
         if *pos + 1 < chars.len() && chars[*pos] == '&' && chars[*pos + 1] == '&' {
             *pos += 2;
-            let right = arith_parse_cmp(chars, pos);
+            let right = arith_parse_cmp(chars, pos)?;
             left = if left != 0 && right != 0 { 1 } else { 0 };
         } else {
             break;
         }
     }
-    left
+    Ok(left)
 }
 
-fn arith_parse_cmp(chars: &[char], pos: &mut usize) -> i64 {
-    let left = arith_parse_add(chars, pos);
+fn arith_parse_cmp(chars: &[char], pos: &mut usize) -> Result<i64, String> {
+    let left = arith_parse_add(chars, pos)?;
     arith_skip_ws(chars, pos);
     if *pos >= chars.len() {
-        return left;
+        return Ok(left);
     }
     let c = chars[*pos];
     let n = if *pos + 1 < chars.len() {
@@ -741,52 +759,58 @@ fn arith_parse_cmp(chars: &[char], pos: &mut usize) -> i64 {
     };
     if c == '=' && n == '=' {
         *pos += 2;
-        let right = arith_parse_add(chars, pos);
-        if left == right { 1 } else { 0 }
+        let right = arith_parse_add(chars, pos)?;
+        Ok(if left == right { 1 } else { 0 })
     } else if c == '!' && n == '=' {
         *pos += 2;
-        let right = arith_parse_add(chars, pos);
-        if left != right { 1 } else { 0 }
+        let right = arith_parse_add(chars, pos)?;
+        Ok(if left != right { 1 } else { 0 })
     } else if c == '<' && n == '=' {
         *pos += 2;
-        let right = arith_parse_add(chars, pos);
-        if left <= right { 1 } else { 0 }
+        let right = arith_parse_add(chars, pos)?;
+        Ok(if left <= right { 1 } else { 0 })
     } else if c == '>' && n == '=' {
         *pos += 2;
-        let right = arith_parse_add(chars, pos);
-        if left >= right { 1 } else { 0 }
+        let right = arith_parse_add(chars, pos)?;
+        Ok(if left >= right { 1 } else { 0 })
     } else if c == '<' && n != '<' {
         *pos += 1;
-        let right = arith_parse_add(chars, pos);
-        if left < right { 1 } else { 0 }
+        let right = arith_parse_add(chars, pos)?;
+        Ok(if left < right { 1 } else { 0 })
     } else if c == '>' && n != '>' {
         *pos += 1;
-        let right = arith_parse_add(chars, pos);
-        if left > right { 1 } else { 0 }
+        let right = arith_parse_add(chars, pos)?;
+        Ok(if left > right { 1 } else { 0 })
     } else {
-        left
+        Ok(left)
     }
 }
 
-fn arith_parse_add(chars: &[char], pos: &mut usize) -> i64 {
-    let mut left = arith_parse_mul(chars, pos);
+fn arith_parse_add(chars: &[char], pos: &mut usize) -> Result<i64, String> {
+    let mut left = arith_parse_mul(chars, pos)?;
     loop {
         arith_skip_ws(chars, pos);
         if *pos < chars.len() && chars[*pos] == '+' {
             *pos += 1;
-            left = left.wrapping_add(arith_parse_mul(chars, pos));
+            let r = arith_parse_mul(chars, pos)?;
+            left = left
+                .checked_add(r)
+                .ok_or_else(|| "arithmetic overflow".to_string())?;
         } else if *pos < chars.len() && chars[*pos] == '-' {
             *pos += 1;
-            left = left.wrapping_sub(arith_parse_mul(chars, pos));
+            let r = arith_parse_mul(chars, pos)?;
+            left = left
+                .checked_sub(r)
+                .ok_or_else(|| "arithmetic overflow".to_string())?;
         } else {
             break;
         }
     }
-    left
+    Ok(left)
 }
 
-fn arith_parse_mul(chars: &[char], pos: &mut usize) -> i64 {
-    let mut left = arith_parse_pow(chars, pos);
+fn arith_parse_mul(chars: &[char], pos: &mut usize) -> Result<i64, String> {
+    let mut left = arith_parse_pow(chars, pos)?;
     loop {
         arith_skip_ws(chars, pos);
         if *pos < chars.len()
@@ -794,67 +818,83 @@ fn arith_parse_mul(chars: &[char], pos: &mut usize) -> i64 {
             && (*pos + 1 >= chars.len() || chars[*pos + 1] != '*')
         {
             *pos += 1;
-            left = left.wrapping_mul(arith_parse_pow(chars, pos));
+            let r = arith_parse_pow(chars, pos)?;
+            left = left
+                .checked_mul(r)
+                .ok_or_else(|| "arithmetic overflow".to_string())?;
         } else if *pos < chars.len() && chars[*pos] == '/' {
             *pos += 1;
-            let r = arith_parse_pow(chars, pos);
-            left = if r == 0 { 0 } else { left.wrapping_div(r) };
+            let r = arith_parse_pow(chars, pos)?;
+            if r == 0 {
+                return Err("division by zero".to_string());
+            }
+            left = left
+                .checked_div(r)
+                .ok_or_else(|| "arithmetic overflow".to_string())?;
         } else if *pos < chars.len() && chars[*pos] == '%' {
             *pos += 1;
-            let r = arith_parse_pow(chars, pos);
-            left = if r == 0 { 0 } else { left.wrapping_rem(r) };
+            let r = arith_parse_pow(chars, pos)?;
+            if r == 0 {
+                return Err("division by zero".to_string());
+            }
+            left = left
+                .checked_rem(r)
+                .ok_or_else(|| "arithmetic overflow".to_string())?;
         } else {
             break;
         }
     }
-    left
+    Ok(left)
 }
 
-fn arith_parse_pow(chars: &[char], pos: &mut usize) -> i64 {
-    let base = arith_parse_unary(chars, pos);
+fn arith_parse_pow(chars: &[char], pos: &mut usize) -> Result<i64, String> {
+    let base = arith_parse_unary(chars, pos)?;
     arith_skip_ws(chars, pos);
     if *pos + 1 < chars.len() && chars[*pos] == '*' && chars[*pos + 1] == '*' {
         *pos += 2;
-        let exp = arith_parse_unary(chars, pos);
+        let exp = arith_parse_unary(chars, pos)?;
         if exp < 0 {
-            return 0;
+            return Ok(0);
         }
-        base.wrapping_pow(exp as u32)
+        base.checked_pow(exp as u32)
+            .ok_or_else(|| "arithmetic overflow".to_string())
     } else {
-        base
+        Ok(base)
     }
 }
 
-fn arith_parse_unary(chars: &[char], pos: &mut usize) -> i64 {
+fn arith_parse_unary(chars: &[char], pos: &mut usize) -> Result<i64, String> {
     arith_skip_ws(chars, pos);
     if *pos < chars.len() && chars[*pos] == '-' {
         *pos += 1;
-        -arith_parse_unary(chars, pos)
+        let v = arith_parse_unary(chars, pos)?;
+        v.checked_neg()
+            .ok_or_else(|| "arithmetic overflow".to_string())
     } else if *pos < chars.len() && chars[*pos] == '+' {
         *pos += 1;
         arith_parse_unary(chars, pos)
     } else if *pos < chars.len() && chars[*pos] == '!' {
         *pos += 1;
-        let v = arith_parse_unary(chars, pos);
-        if v == 0 { 1 } else { 0 }
+        let v = arith_parse_unary(chars, pos)?;
+        Ok(if v == 0 { 1 } else { 0 })
     } else {
         arith_parse_atom(chars, pos)
     }
 }
 
-fn arith_parse_atom(chars: &[char], pos: &mut usize) -> i64 {
+fn arith_parse_atom(chars: &[char], pos: &mut usize) -> Result<i64, String> {
     arith_skip_ws(chars, pos);
     if *pos >= chars.len() {
-        return 0;
+        return Ok(0);
     }
     if chars[*pos] == '(' {
         *pos += 1;
-        let val = arith_parse_expr(chars, pos);
+        let val = arith_parse_expr(chars, pos)?;
         arith_skip_ws(chars, pos);
         if *pos < chars.len() && chars[*pos] == ')' {
             *pos += 1;
         }
-        return val;
+        return Ok(val);
     }
     let start = *pos;
     if chars[*pos].is_ascii_digit() {
@@ -862,19 +902,22 @@ fn arith_parse_atom(chars: &[char], pos: &mut usize) -> i64 {
             *pos += 1;
         }
         let s: String = chars[start..*pos].iter().collect();
-        return s.parse::<i64>().unwrap_or(0);
+        return s
+            .parse::<i64>()
+            .map_err(|_| format!("number too large: {s}"));
     }
     if chars[*pos].is_alphabetic() || chars[*pos] == '_' {
         while *pos < chars.len() && (chars[*pos].is_alphanumeric() || chars[*pos] == '_') {
             *pos += 1;
         }
         let name: String = chars[start..*pos].iter().collect();
-        return std::env::var(&name)
-            .unwrap_or_else(|_| "0".to_string())
+        let val_str = std::env::var(&name).unwrap_or_else(|_| "0".to_string());
+        return val_str
+            .trim()
             .parse::<i64>()
-            .unwrap_or(0);
+            .map_err(|_| format!("${name}: not an integer: {val_str:?}"));
     }
-    0
+    Ok(0)
 }
 
 /// Extract content between balanced delimiters, handling nesting.
@@ -1259,6 +1302,32 @@ mod tests {
     fn test_arithmetic_in_double_quotes() {
         let args = parse_args(r#"echo "result=$((3 + 4))""#);
         assert_eq!(args, vec!["echo", "result=7"]);
+    }
+
+    #[test]
+    fn test_arithmetic_div_by_zero_errors() {
+        // Division by zero must produce "0" (after printing an error) rather than
+        // silently wrapping or panicking.
+        let args = parse_args("echo $((1 / 0))");
+        assert_eq!(args, vec!["echo", "0"]);
+    }
+
+    #[test]
+    fn test_arithmetic_mod_by_zero_errors() {
+        let args = parse_args("echo $((5 % 0))");
+        assert_eq!(args, vec!["echo", "0"]);
+    }
+
+    #[test]
+    fn test_eval_arithmetic_div_by_zero() {
+        assert!(eval_arithmetic("1 / 0").is_err());
+        assert!(eval_arithmetic("9 % 0").is_err());
+    }
+
+    #[test]
+    fn test_eval_arithmetic_overflow() {
+        assert!(eval_arithmetic("9223372036854775807 + 1").is_err());
+        assert!(eval_arithmetic("-9223372036854775808 - 1").is_err());
     }
 
     // ── Brace expansion ────────────────────────────────────────────
