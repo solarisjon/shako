@@ -130,8 +130,13 @@ impl Classifier {
         let word_count = args_after_first.len() + 1;
         if word_count <= 2 || (word_count == 3 && !looks_like_natural_language(&args_after_first)) {
             if let Some(suggestion) = self.find_typo_match(first_token) {
-                let corrected = if trimmed.len() > first_token.len() {
-                    format!("{}{}", suggestion, &trimmed[first_token.len()..])
+                // first_token is a sub-slice of trimmed; use pointer arithmetic
+                // for its byte-end so the slice is valid with multi-byte chars.
+                let token_end =
+                    first_token.as_ptr() as usize - trimmed.as_ptr() as usize + first_token.len();
+                let rest = &trimmed[token_end..];
+                let corrected = if !rest.is_empty() {
+                    format!("{suggestion}{rest}")
                 } else {
                     suggestion.clone()
                 };
