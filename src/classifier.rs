@@ -17,7 +17,7 @@ pub enum Classification {
     NaturalLanguage(String),
     /// Explicit AI request (prefixed with `?` or `ai:`).
     ForcedAI(String),
-    /// AI-powered semantic history search (prefixed with `?? `).
+    /// AI-powered semantic history search (prefixed with `??`).
     HistorySearch(String),
     /// Likely typo — suggested correction.
     Typo { suggestion: String },
@@ -63,8 +63,10 @@ impl Classifier {
             return Classification::ForcedAI(rest.trim().to_string());
         }
 
-        // AI history search: `?? query`
-        if let Some(rest) = trimmed.strip_prefix("?? ") {
+        // AI history search: `??query` or `?? query`
+        // Must be checked before the single-`?` catch-all so that `??foo`
+        // routes to HistorySearch rather than ForcedAI("?foo").
+        if let Some(rest) = trimmed.strip_prefix("??") {
             return Classification::HistorySearch(rest.trim().to_string());
         }
 
@@ -329,6 +331,17 @@ mod tests {
             panic!("expected HistorySearch");
         };
         assert_eq!(query, "git commands");
+    }
+
+    #[test]
+    fn test_history_search_no_space() {
+        // `??query` (no space after ??) must route to HistorySearch, not ForcedAI.
+        let c = test_classifier();
+        let result = c.classify("??git log");
+        assert!(
+            matches!(result, Classification::HistorySearch(ref q) if q == "git log"),
+            "expected HistorySearch('git log'), got {result:?}",
+        );
     }
 
     #[test]
