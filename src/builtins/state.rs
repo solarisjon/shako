@@ -90,7 +90,12 @@ impl ShellState {
             .aliases
             .get(first_token)
             .or_else(|| self.abbreviations.get(first_token))?;
-        let rest = input[first_token.len()..].to_string();
+        // first_token is a sub-slice of input (returned by split_whitespace).
+        // Use pointer arithmetic to find its byte-end so the slice is correct
+        // even when first_token contains multi-byte characters.
+        let token_end =
+            first_token.as_ptr() as usize - input.as_ptr() as usize + first_token.len();
+        let rest = &input[token_end..];
         Some(format!("{replacement}{rest}"))
     }
 
