@@ -6,3 +6,4 @@
 config.toml
 .agents/
 .tasks/
+.crush/
