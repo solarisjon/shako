@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, ExitStatus, Stdio};
@@ -303,23 +304,24 @@ pub fn execute_command_with_stderr(input: &str) -> (Option<ExitStatus>, String) 
             let stderr_pipe = child.stderr.take();
 
             let stderr_thread = std::thread::spawn(move || {
-                let mut collected = Vec::new();
+                // VecDeque so pop_front is O(1) instead of Vec::remove(0) O(n).
+                let mut collected: VecDeque<String> = VecDeque::new();
                 if let Some(pipe) = stderr_pipe {
                     let reader = BufReader::new(pipe);
                     for line in reader.lines() {
                         match line {
                             Ok(line) => {
                                 eprintln!("{line}");
-                                collected.push(line);
+                                collected.push_back(line);
                                 if collected.len() > 20 {
-                                    collected.remove(0);
+                                    collected.pop_front();
                                 }
                             }
                             Err(_) => break,
                         }
                     }
                 }
-                collected.join("\n")
+                collected.into_iter().collect::<Vec<_>>().join("\n")
             });
 
             let status = foreground_wait(child);
