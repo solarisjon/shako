@@ -33,6 +33,18 @@ Any OpenAI-compatible endpoint works. The endpoint is auto-normalized:
 - Bare hostnames get `https://` and `/v1/chat/completions` added
 - `http://localhost:*` keeps `http://`
 
+### Anthropic Native API
+
+To use Anthropic's native API (instead of OpenAI-compatible format), add `provider_type = "anthropic"`:
+
+```toml
+[providers.claude]
+endpoint = "https://api.anthropic.com"
+model = "claude-sonnet-4-5"
+api_key_env = "ANTHROPIC_API_KEY"
+provider_type = "anthropic"
+```
+
 ### Legacy Single Provider
 
 If you don't need multiple providers, use the `[llm]` block (used when `active_provider` is unset):
@@ -111,6 +123,7 @@ gs = "git status -sb"
 | `max_tokens` | integer | `512` | Maximum tokens in LLM response |
 | `verify_ssl` | boolean | `true` | Verify TLS certificates (false for self-signed) |
 | `temperature` | float | `0.1` | LLM temperature (lower = more deterministic) |
+| `provider_type` | string | (unset) | Set to `"anthropic"` to use Anthropic's native API format instead of OpenAI-compatible format |
 
 ## Behavior Config Fields
 

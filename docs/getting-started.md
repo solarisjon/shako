@@ -58,13 +58,14 @@ shako uses `~/.config/shako/` for all configuration:
 
 ```
 ~/.config/shako/
-├── config.toml       # main configuration (LLM providers, behavior, aliases)
-├── config.shako      # startup script (sourced at launch)
-├── starship.toml     # shako-specific Starship prompt config
-├── conf.d/           # config snippets, sourced alphabetically at startup
+├── config.toml          # main configuration (LLM providers, behavior, aliases)
+├── config.shako         # startup script (sourced at launch)
+├── starship.toml        # shako-specific Starship prompt config
+├── learned_prefs.toml   # AI tool preferences learned from your edits (auto-generated)
+├── conf.d/              # config snippets, sourced alphabetically at startup
 │   ├── 00-env.sh
 │   └── 10-aliases.sh
-└── functions/        # autoloaded shell functions (one per file)
+└── functions/           # autoloaded shell functions (one per file)
     ├── deploy.sh
     └── mkcd.sh
 ```
@@ -76,18 +77,29 @@ History is stored at the platform data directory:
 ## Startup Order
 
 1. Load `config.toml` (aliases, provider config)
-2. Apply smart defaults (modern tool aliases — user config wins)
+2. Apply smart defaults (modern tool aliases — user config aliases win)
 3. Source `conf.d/*.sh` alphabetically
-4. Source `config.shako` (main startup script)
+4. Source `config.shako` (main startup script, or `init.sh`/`init.fish` for backwards compat)
 5. Register functions from `functions/` directory
 6. Optionally source fish config (if `[fish] source_config = true`)
+
+## Startup Banner
+
+On launch, shako displays a styled banner showing:
+- Version number
+- AI status: `✓ ready`, `⚠ no api key`, `✗ auth failed`, or `✗ unreachable`
+- Active provider name and model
+- Current safety mode, edit mode, and typo-fix setting
+
+Suppress the banner with `--quiet` or `-q`.
 
 ## Runtime Flags
 
 | Flag | Effect |
 |---|---|
 | `--quiet` / `-q` | Suppress startup banner |
-| `--init` | Re-run the setup wizard (resets config) |
+| `--timings` | Print startup phase timing breakdown (config, AI check, PATH scan, etc.) |
+| `--init` | Re-run the setup wizard (removes existing config files and recreates them) |
 | `-c "cmd"` | Run command non-interactively and exit |
 
 ## Next Steps

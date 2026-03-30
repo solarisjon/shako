@@ -14,7 +14,7 @@ single alphabetic words after `/` are treated as slash commands.
 | `/help` | List all available slash commands |
 | `/validate` | Validate the AI endpoint (connectivity, auth, model) |
 | `/config` | Show the full current configuration |
-| `/model` | Show the active AI model and provider |
+| `/model` | Show the active AI model and provider (read-only; edit config to change) |
 | `/safety [mode]` | Show or change the safety mode for this session |
 | `/provider [name]` | Show or switch the active LLM provider for this session |
 
@@ -42,6 +42,10 @@ Probes the configured LLM endpoint by hitting `GET /v1/models` with a
 - Endpoint URL and model name
 - Whether the API key environment variable is set
 - Connection status: **ready**, **auth failed**, **unreachable**, or **disabled**
+
+### `/model`
+
+Shows the active provider name and model. Runtime model switching is not yet supported — to change models, edit `~/.config/shako/config.toml` and restart.
 
 ### `/safety [mode]`
 

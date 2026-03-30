@@ -4,6 +4,41 @@ All notable changes to shako are documented here.
 
 ---
 
+## [0.2.1] — 2026-03-30
+
+Patch release adding slash commands, startup instrumentation, native Anthropic API support, and a styled startup banner, plus bug fixes and performance improvements.
+
+### Added
+
+- **Slash commands** — `/validate`, `/config`, `/model`, `/safety`, `/provider`, `/help` meta-commands configurable at runtime (#57)
+- **`--timings` flag** — print startup phase breakdown (config, AI check, PATH scan, reedline setup, smart defaults, shell init) (#28)
+- **Native Anthropic API engine** — set `provider_type = "anthropic"` in a provider block to use Anthropic's native API format instead of OpenAI-compatible
+- **Styled startup banner** — box-drawing borders with teal-to-cyan gradient, AI status line, and config summary (#66)
+- **Animated braille spinner** — shown during AI thinking/explaining/streaming to indicate progress (#61)
+- **AI session validation on startup** — banner shows ✓ ready, ⚠ no api key, ✗ auth failed, or ✗ unreachable (#51)
+
+### Fixed
+
+- `??query` (no space after `??`) now correctly routes to history search instead of ForcedAI
+- Spinner stops before the first streaming token arrives, preventing visual overlap (#61)
+- Arithmetic `$((x/0))` and integer overflow now return an error instead of panicking (#71)
+- Byte-safe token slicing using pointer arithmetic — prevents multi-byte character panics (#70)
+- Thread panic now logged rather than silently swallowed; for-loop local scope fixed; false positive in classifier removed (#73)
+- Startup banner right border alignment (#66)
+- Safety hardening and UX consistency improvements (#56)
+
+### Performance
+
+- Replaced O(n) `Vec::remove(0)` and `Vec::contains` calls with O(1) equivalents in hot paths (#72)
+- Reduced unnecessary clones and allocations in command dispatch (#54)
+
+### Other
+
+- Fish shell compliance improvements; multiline loop fix; `fd` flag constraint enforcement (#52)
+- Renamed all `Jbosh*` prefixes to `Shako*` throughout the codebase (#53)
+
+---
+
 ## [0.2.0] — 2026-03-26
 
 Major feature release completing Phases 2–5 of the roadmap. shako now has full control flow, brace expansion, herestrings, 43 builtins, AI-powered history search, proactive suggestions, and 226 tests.

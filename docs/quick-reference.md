@@ -177,8 +177,8 @@ shako -c "git status && git diff"      # run a chain
 | Flag | Effect |
 |---|---|
 | `--quiet` / `-q` | Suppress the startup banner |
-| `--timings` | Print startup phase timing breakdown |
-| `--init` | Re-run the setup wizard |
+| `--timings` | Print startup phase timing breakdown (config, AI check, PATH scan, etc.) |
+| `--init` | Re-run the setup wizard (removes existing config files and recreates them) |
 | `-c "cmd"` | Run command non-interactively and exit |
 
 ---
@@ -348,7 +348,7 @@ edit_mode = "emacs"              # "emacs" | "vi"
 
 ---
 
-## Startup Files
+## Config Files
 
 | File | Purpose |
 |---|---|
@@ -357,6 +357,7 @@ edit_mode = "emacs"              # "emacs" | "vi"
 | `~/.config/shako/conf.d/*.sh` | Config snippets, sourced alphabetically |
 | `~/.config/shako/functions/*.sh` | Autoloaded functions (name must match filename) |
 | `~/.config/shako/starship.toml` | shako-specific Starship prompt config |
+| `~/.config/shako/learned_prefs.toml` | AI tool preferences learned from your edits (auto-generated) |
 
 History: `~/Library/Application Support/shako/history.txt` (macOS) or `~/.local/share/shako/history.txt` (Linux)
 
@@ -371,7 +372,7 @@ Meta-commands for inspecting and configuring shako at runtime:
 | `/help` | List all slash commands |
 | `/validate` | Validate AI endpoint (connectivity, auth, model) |
 | `/config` | Show full current configuration |
-| `/model` | Show active AI model and provider |
+| `/model` | Show active AI model and provider (read-only) |
 | `/safety [mode]` | Show or change safety mode (`warn`/`block`/`off`, session only) |
 | `/provider [name]` | Show or switch LLM provider (session only) |
 

@@ -68,6 +68,7 @@ Every input is classified in order:
 
 | Guide | What's covered |
 |---|---|
+| [New User Guide](docs/new-user-guide.md) | Step-by-step introduction for first-time users |
 | [Quick Reference](docs/quick-reference.md) | Cheat sheet — syntax, modes, aliases, keybindings |
 | [Getting Started](docs/getting-started.md) | Installation, first run, configuration wizard |
 | [AI Features](docs/ai-features.md) | Translation, explain mode, error recovery, project context |

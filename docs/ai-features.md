@@ -81,19 +81,23 @@ The AI searches your shell history for commands matching your description, even 
 
 ## Proactive Suggestions
 
-shako offers context-aware suggestions after certain commands:
+shako offers context-aware suggestions after certain commands succeed:
 
 | Trigger | Suggestion |
 |---|---|
-| `git add` | AI-generated commit message from staged diff |
-| `git clone <url>` | `tip: cd <repo-name>` |
-| `cd` into dir with Makefile | Shows available `make` targets |
+| `git add <files>` | Asks if you want an AI-generated commit message from the staged diff |
+| `git clone <url>` | Prints `tip: cd <repo-name>` |
+| `cd` into a dir with a Makefile | Prints available `make` targets (up to 3) |
 
 Example after `git add .`:
 ```
-💡 commit with: "fix: resolve null pointer in user lookup"
-[Y]es / [n]o / [e]dit:
+shako: 3 files staged — suggest a commit message? [y/N] y
+thinking...
+❯ git commit -m "fix: resolve null pointer in user lookup"
+[Y]es / [n]o / [e]dit / [w]hy:
 ```
+
+Note: The commit suggestion prompt is optional (`[y/N]` defaults to no). The AI generates a message from `git diff --staged` — the diff is capped at 4 KB.
 
 ## Watch-and-Learn
 
