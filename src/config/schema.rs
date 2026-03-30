@@ -51,6 +51,10 @@ pub struct LlmConfig {
     pub verify_ssl: bool,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
+    /// API format: `"anthropic"` for Anthropic's native API, anything else (or unset)
+    /// uses the OpenAI-compatible format.
+    #[serde(default)]
+    pub provider_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -127,6 +131,7 @@ impl Default for LlmConfig {
             max_tokens: default_max_tokens(),
             verify_ssl: true,
             temperature: default_temperature(),
+            provider_type: None,
         }
     }
 }

@@ -24,14 +24,19 @@ pub fn run_wizard(config_path: &Path) -> Result<String> {
     writeln!(out, "   \x1b[1m[2]\x1b[0m Work / custom proxy")?;
     writeln!(
         out,
-        "   \x1b[1m[3]\x1b[0m Skip — write a template I'll edit manually\n"
+        "   \x1b[1m[3]\x1b[0m Anthropic Claude  \x1b[90m(api.anthropic.com, requires ANTHROPIC_API_KEY)\x1b[0m"
+    )?;
+    writeln!(
+        out,
+        "   \x1b[1m[4]\x1b[0m Skip — write a template I'll edit manually\n"
     )?;
 
     let choice = prompt_line(&mut out, " Choice [1]: ", "1")?;
 
     let toml = match choice.trim() {
         "2" => wizard_custom_proxy(&mut out)?,
-        "3" => template_config(),
+        "3" => wizard_anthropic(&mut out)?,
+        "4" => template_config(),
         _ => wizard_lm_studio(&mut out)?,
     };
 
@@ -209,6 +214,63 @@ safety_mode = "warn"  # "warn" | "block" | "off"
     ))
 }
 
+fn wizard_anthropic(out: &mut impl Write) -> Result<String> {
+    writeln!(out)?;
+    writeln!(out, "\x1b[1m Anthropic Claude setup\x1b[0m\n")?;
+    writeln!(
+        out,
+        " \x1b[90mYou'll need an API key from https://console.anthropic.com\x1b[0m\n"
+    )?;
+
+    let model = prompt_line(out, " Model [claude-sonnet-4-6]: ", "claude-sonnet-4-6")?;
+    let model = if model.trim().is_empty() {
+        "claude-sonnet-4-6".to_string()
+    } else {
+        model.trim().to_string()
+    };
+
+    let api_key_env = prompt_line(
+        out,
+        " API key env var [ANTHROPIC_API_KEY]: ",
+        "ANTHROPIC_API_KEY",
+    )?;
+    let api_key_env = if api_key_env.trim().is_empty() {
+        "ANTHROPIC_API_KEY".to_string()
+    } else {
+        api_key_env.trim().to_string()
+    };
+
+    writeln!(
+        out,
+        "\n \x1b[90mMake sure to export {api_key_env}=sk-ant-... in your shell config.\x1b[0m"
+    )?;
+
+    Ok(format!(
+        r#"# shako configuration
+# Docs: https://github.com/solarisjon/shako
+
+active_provider = "anthropic"
+
+[providers.anthropic]
+endpoint = "https://api.anthropic.com"
+model = "{model}"
+api_key_env = "{api_key_env}"
+provider_type = "anthropic"
+
+[behavior]
+confirm_ai_commands = true
+auto_correct_typos = true
+safety_mode = "warn"  # "warn" | "block" | "off"
+
+# [aliases]
+# gs = "git status"
+# ll = "ls -la"
+"#,
+        model = model,
+        api_key_env = api_key_env,
+    ))
+}
+
 fn template_config() -> String {
     r#"# shako configuration
 # Docs: https://github.com/solarisjon/shako
@@ -223,9 +285,15 @@ fn template_config() -> String {
 
 # [providers.work_proxy]
 # endpoint = "https://your-proxy.company.com/v1/chat/completions"
-# model = "claude-sonnet-4.5"
+# model = "claude-sonnet-4-6"
 # api_key_env = "LLMPROXY_KEY"
 # verify_ssl = false
+
+# [providers.anthropic]
+# endpoint = "https://api.anthropic.com"
+# model = "claude-sonnet-4-6"
+# api_key_env = "ANTHROPIC_API_KEY"
+# provider_type = "anthropic"
 
 [behavior]
 confirm_ai_commands = true
