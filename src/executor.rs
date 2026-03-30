@@ -64,7 +64,10 @@ fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
     // Give the terminal to the child so Ctrl-C/Ctrl-Z reach it.
     let _ = nix::unistd::tcsetpgrp(std::io::stdin(), child_pid);
 
-    let status = child.wait().unwrap_or_else(|_| fake_status(1));
+    let status = child.wait().unwrap_or_else(|e| {
+        log::warn!("wait() failed for child process: {e}");
+        fake_status(1)
+    });
 
     // Restore terminal ownership to the shell.
     let _ = nix::unistd::tcsetpgrp(std::io::stdin(), shell_pgid);
@@ -325,7 +328,15 @@ pub fn execute_command_with_stderr(input: &str) -> (Option<ExitStatus>, String) 
             });
 
             let status = foreground_wait(child);
-            let stderr_output = stderr_thread.join().unwrap_or_default();
+            let stderr_output = match stderr_thread.join() {
+                Ok(s) => s,
+                Err(_) => {
+                    log::warn!(
+                        "stderr capture thread panicked; AI error diagnosis may be incomplete"
+                    );
+                    String::new()
+                }
+            };
 
             if !status.success() {
                 if let Some(code) = status.code() {

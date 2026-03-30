@@ -21,8 +21,14 @@ pub fn is_dangerous(command: &str) -> bool {
 /// Check if an AI-generated command should get extra confirmation.
 pub fn needs_extra_confirmation(command: &str) -> bool {
     let lower = command.to_lowercase();
+    // Use word-boundary checks for "rm" to avoid false positives on commands
+    // like `arm` whose lowercase form contains the substring "rm ".
+    let has_rm = lower == "rm"
+        || lower.starts_with("rm ")
+        || lower.contains(" rm ")
+        || lower.contains("\trm ");
     lower.contains("sudo")
-        || lower.contains("rm ")
+        || has_rm
         || lower.contains("mv /")
         || lower.contains("chmod")
         || lower.contains("chown")
