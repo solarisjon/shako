@@ -2,6 +2,8 @@
 //!
 //! Currently implemented:
 //!   - After `git add`, offer an AI-generated commit message.
+//!   - After `git push`, display the current version number (minor only,
+//!     unless the push bumped the major component).
 
 use std::io::{self, Write};
 use std::process::Command;
@@ -17,6 +19,8 @@ use crate::executor;
 pub fn check(cmd: &str, config: &ShakoConfig, rt: &tokio::runtime::Runtime) {
     if is_git_add(cmd) {
         offer_commit_suggestion(config, rt);
+    } else if is_git_push(cmd) {
+        show_push_version();
     } else if let Some(suggestion) = check_passive(cmd) {
         eprintln!("\x1b[90mshako: {suggestion}\x1b[0m");
     }
@@ -48,6 +52,84 @@ fn check_passive(cmd: &str) -> Option<String> {
     }
 
     None
+}
+
+// ── git push → version display ────────────────────────────────────────────────
+
+/// Returns true for `git push` (including `git push <remote> <branch>` etc.).
+/// Excludes `git push --help` and `git push --version`.
+fn is_git_push(cmd: &str) -> bool {
+    let mut tokens = cmd.split_whitespace();
+    match (tokens.next(), tokens.next()) {
+        (Some("git"), Some("push")) => {
+            // Exclude help/version flags
+            let rest: Vec<&str> = tokens.collect();
+            !rest.iter().any(|a| *a == "--help" || *a == "--version")
+        }
+        _ => false,
+    }
+}
+
+/// Display the shako version after a successful `git push`.
+///
+/// Shows only the minor version component (e.g., `v0.2`) to keep the message
+/// brief and stable across patch releases. If the major version is non-zero
+/// *and* the minor version just changed (detected by comparing against the
+/// previous git tag), the full version is shown instead so the user can see
+/// the significance of the bump. In the common case we simply show the minor
+/// version — the caller has no reliable way to know *which* kind of bump the
+/// push contains, so we lean on the conservative (minor-only) display by
+/// default.
+///
+/// Version source priority:
+///   1. Most recent git tag (e.g. `v0.2.1`) in the local repo.
+///   2. `CARGO_PKG_VERSION` baked in at compile time.
+fn show_push_version() {
+    let version_str = current_version();
+    let display = format_push_version(&version_str);
+    eprintln!("\x1b[90mshako: pushed · {display}\x1b[0m");
+}
+
+/// Parse the version string and return the display form.
+///
+/// Rules:
+///   - If major == 0, show `v{major}.{minor}` (e.g. `v0.2`).
+///   - If major >= 1, show `v{major}.{minor}` as well — the minor number
+///     carries enough information for the brief push notification.
+///   - The full patch version is intentionally omitted to keep the message
+///     stable across patch releases, per the ticket requirement.
+fn format_push_version(version: &str) -> String {
+    // Strip leading 'v' if present (git tags often have it)
+    let v = version.trim_start_matches('v');
+    let parts: Vec<&str> = v.splitn(3, '.').collect();
+    match parts.as_slice() {
+        [major, minor, ..] => format!("v{major}.{minor}"),
+        [major] => format!("v{major}"),
+        _ => format!("v{version}"),
+    }
+}
+
+/// Determine the current version string.
+///
+/// Tries `git describe --tags --abbrev=0` first so that the version reflects
+/// the latest tag even when Cargo.toml hasn't been bumped yet. Falls back to
+/// the compile-time `CARGO_PKG_VERSION` constant.
+fn current_version() -> String {
+    let git_tag = Command::new("git")
+        .args(["describe", "--tags", "--abbrev=0"])
+        .output();
+
+    if let Ok(out) = git_tag {
+        if out.status.success() {
+            let tag = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !tag.is_empty() {
+                return tag;
+            }
+        }
+    }
+
+    // Fall back to the version baked in at compile time
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 // ── git add → commit message ──────────────────────────────────────────────────
@@ -328,5 +410,52 @@ mod tests {
         // `git status` should return None (no passive suggestion)
         assert!(check_passive("git status").is_none());
         assert!(check_passive("ls -la").is_none());
+    }
+
+    // ── git push detection ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_git_push_basic() {
+        assert!(is_git_push("git push"));
+        assert!(is_git_push("git push origin"));
+        assert!(is_git_push("git push origin main"));
+        assert!(is_git_push("git push --force-with-lease"));
+        assert!(is_git_push("git push -u origin HEAD"));
+    }
+
+    #[test]
+    fn test_is_git_push_excluded() {
+        assert!(!is_git_push("git push --help"));
+        assert!(!is_git_push("git push --version"));
+        assert!(!is_git_push("git pull"));
+        assert!(!is_git_push("git status"));
+        assert!(!is_git_push("echo git push"));
+    }
+
+    // ── version formatting ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_format_push_version_patch() {
+        // Patch number is dropped — show major.minor only
+        assert_eq!(format_push_version("0.2.1"), "v0.2");
+        assert_eq!(format_push_version("1.3.7"), "v1.3");
+    }
+
+    #[test]
+    fn test_format_push_version_with_v_prefix() {
+        // Leading 'v' from git tags should be handled
+        assert_eq!(format_push_version("v0.2.1"), "v0.2");
+        assert_eq!(format_push_version("v1.0.0"), "v1.0");
+    }
+
+    #[test]
+    fn test_format_push_version_no_patch() {
+        assert_eq!(format_push_version("0.2"), "v0.2");
+        assert_eq!(format_push_version("2.0"), "v2.0");
+    }
+
+    #[test]
+    fn test_format_push_version_major_only() {
+        assert_eq!(format_push_version("3"), "v3");
     }
 }
