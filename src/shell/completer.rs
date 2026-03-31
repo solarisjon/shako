@@ -556,7 +556,43 @@ impl ShakoCompleter {
             (PathBuf::from("."), partial.to_string(), String::new())
         };
 
-        let mut completions = Vec::new();
+        // Helper: build a suggestion from a filename entry.
+        let make_suggestion = |name: &str, is_dir: bool, case_insensitive: bool| -> Suggestion {
+            let mut value = format!("{dir_prefix}{name}");
+            let append_whitespace = if is_dir {
+                value.push('/');
+                false
+            } else {
+                true
+            };
+            // Escape spaces in filenames with backslash
+            if value.contains(' ') {
+                value = value.replace(' ', "\\ ");
+            }
+            let description = if case_insensitive {
+                Some("(case-insensitive match)".to_string())
+            } else {
+                None
+            };
+            Suggestion {
+                value,
+                display_override: None,
+                description,
+                style: None,
+                extra: None,
+                span: Span::new(start, pos),
+                append_whitespace,
+                match_indices: None,
+            }
+        };
+
+        let prefix_lower = prefix.to_lowercase();
+        // true when the user typed at least one uppercase character
+        let has_uppercase = prefix.chars().any(|c| c.is_uppercase());
+
+        let mut exact_completions = Vec::new();
+        let mut ci_completions = Vec::new();
+
         if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 // Resolve whether this entry is a directory (follow symlinks).
@@ -580,31 +616,23 @@ impl ShakoCompleter {
 
                 if let Ok(name) = entry.file_name().into_string() {
                     if name.starts_with(&prefix) {
-                        let mut value = format!("{dir_prefix}{name}");
-                        let append_whitespace = if is_dir {
-                            value.push('/');
-                            false
-                        } else {
-                            true
-                        };
-                        // Escape spaces in filenames with backslash
-                        if value.contains(' ') {
-                            value = value.replace(' ', "\\ ");
-                        }
-                        completions.push(Suggestion {
-                            value,
-                            display_override: None,
-                            description: None,
-                            style: None,
-                            extra: None,
-                            span: Span::new(start, pos),
-                            append_whitespace,
-                            match_indices: None,
-                        });
+                        // Exact (case-sensitive) match
+                        exact_completions.push(make_suggestion(&name, is_dir, false));
+                    } else if has_uppercase && name.to_lowercase().starts_with(&prefix_lower) {
+                        // Case-insensitive fallback — only considered when the user
+                        // typed uppercase letters and there are no exact matches.
+                        ci_completions.push(make_suggestion(&name, is_dir, true));
                     }
                 }
             }
         }
+
+        // Prefer exact matches; fall back to case-insensitive only when there are none.
+        let mut completions = if exact_completions.is_empty() {
+            ci_completions
+        } else {
+            exact_completions
+        };
 
         completions.sort_by(|a, b| a.value.cmp(&b.value));
         completions
@@ -747,13 +775,36 @@ impl Completer for ShakoCompleter {
             all_refs.extend(extra_slice.iter().map(String::as_str));
             all_refs.sort_unstable();
             all_refs.dedup();
-            return all_refs
-                .into_iter()
+
+            // Exact prefix match first; fall back to case-insensitive when the
+            // user typed uppercase letters but no exact matches were found.
+            let partial_lower = partial.to_lowercase();
+            let has_upper = partial.chars().any(|c| c.is_uppercase());
+            let exact: Vec<Suggestion> = all_refs
+                .iter()
                 .filter(|cmd| cmd.starts_with(partial))
                 .map(|cmd| Suggestion {
                     value: cmd.to_string(),
                     display_override: None,
                     description: None,
+                    style: None,
+                    extra: None,
+                    span: Span::new(start, pos),
+                    append_whitespace: true,
+                    match_indices: None,
+                })
+                .collect();
+            if !exact.is_empty() || !has_upper {
+                return exact;
+            }
+            // Case-insensitive fallback
+            return all_refs
+                .into_iter()
+                .filter(|cmd| cmd.to_lowercase().starts_with(&partial_lower))
+                .map(|cmd| Suggestion {
+                    value: cmd.to_string(),
+                    display_override: None,
+                    description: Some("(case-insensitive match)".to_string()),
                     style: None,
                     extra: None,
                     span: Span::new(start, pos),
@@ -767,7 +818,9 @@ impl Completer for ShakoCompleter {
 
         // After `sudo`, complete like a first token
         if first_cmd == "sudo" && parts.len() == 2 && !line_to_cursor.ends_with(' ') {
-            return self
+            let partial_lower = partial.to_lowercase();
+            let has_upper = partial.chars().any(|c| c.is_uppercase());
+            let exact: Vec<Suggestion> = self
                 .path_commands()
                 .iter()
                 .filter(|cmd| cmd.starts_with(partial))
@@ -775,6 +828,25 @@ impl Completer for ShakoCompleter {
                     value: cmd.clone(),
                     display_override: None,
                     description: None,
+                    style: None,
+                    extra: None,
+                    span: Span::new(start, pos),
+                    append_whitespace: true,
+                    match_indices: None,
+                })
+                .collect();
+            if !exact.is_empty() || !has_upper {
+                return exact;
+            }
+            // Case-insensitive fallback
+            return self
+                .path_commands()
+                .iter()
+                .filter(|cmd| cmd.to_lowercase().starts_with(&partial_lower))
+                .map(|cmd| Suggestion {
+                    value: cmd.clone(),
+                    display_override: None,
+                    description: Some("(case-insensitive match)".to_string()),
                     style: None,
                     extra: None,
                     span: Span::new(start, pos),
@@ -1034,5 +1106,46 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_path_case_insensitive_fallback() {
+        // "cat SR<TAB>" — uppercase prefix should fall back to case-insensitive matching.
+        // repo root contains src/ so this should match it.
+        let mut c = test_completer();
+        let suggestions = c.complete("cat SR", 6);
+        let values: Vec<&str> = suggestions.iter().map(|s| s.value.as_str()).collect();
+        assert!(
+            values.iter().any(|v| v.to_lowercase().starts_with("sr")),
+            "expected case-insensitive match for 'SR', got: {:?}",
+            values
+        );
+        // All returned suggestions should be marked as case-insensitive
+        for s in &suggestions {
+            assert_eq!(
+                s.description.as_deref(),
+                Some("(case-insensitive match)"),
+                "case-insensitive suggestion '{}' should have description set",
+                s.value
+            );
+        }
+    }
+
+    #[test]
+    fn test_path_exact_match_preferred_over_ci() {
+        // If there is an exact prefix match, it should be returned (not the CI fallback).
+        let mut c = test_completer();
+        // "cat sr<TAB>" — exact lowercase prefix: should match src/ with no description
+        let suggestions = c.complete("cat sr", 6);
+        let src = suggestions.iter().find(|s| s.value == "src/");
+        assert!(
+            src.is_some(),
+            "expected exact match 'src/' for lowercase prefix 'sr'"
+        );
+        assert_eq!(
+            src.unwrap().description,
+            None,
+            "exact match should not have a case-insensitive description"
+        );
     }
 }
