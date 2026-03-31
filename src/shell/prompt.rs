@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
@@ -13,6 +13,15 @@ static LAST_STATUS: AtomicI32 = AtomicI32::new(0);
 static LAST_DURATION_MS: AtomicU64 = AtomicU64::new(0);
 /// Global background job count, updated after each reap.
 static LAST_JOB_COUNT: AtomicUsize = AtomicUsize::new(0);
+/// Whether AI session context is currently active (affects fallback prompt color).
+static AI_CONTEXT_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Signal that the AI session context is active or inactive.
+/// Used by the fallback prompt to switch to a yellow indicator.
+#[allow(dead_code)]
+pub fn set_ai_context_active(active: bool) {
+    AI_CONTEXT_ACTIVE.store(active, Ordering::Relaxed);
+}
 
 pub fn set_last_status(code: i32) {
     LAST_STATUS.store(code, Ordering::Relaxed);
@@ -115,17 +124,36 @@ impl StarshipPrompt {
                 if right {
                     String::new()
                 } else {
-                    "\x1b[32m❯\x1b[0m ".to_string()
+                    fallback_prompt_left(status)
                 }
             }
         }
     }
 }
 
+/// Mode-aware fallback left prompt used when Starship is unavailable.
+///
+/// - Last exit non-zero → red ❯
+/// - AI context active  → yellow ❯ (signals the shell has session memory)
+/// - Normal             → teal ❯ (matches brand gradient)
+fn fallback_prompt_left(last_status: i32) -> String {
+    if last_status != 0 {
+        // Red — command failed
+        "\x1b[31m❯\x1b[0m ".to_string()
+    } else if AI_CONTEXT_ACTIVE.load(Ordering::Relaxed) {
+        // Yellow — AI session memory is active
+        "\x1b[33m❯\x1b[0m ".to_string()
+    } else {
+        // Teal — normal, matches brand
+        "\x1b[38;5;38m❯\x1b[0m ".to_string()
+    }
+}
+
 impl Prompt for StarshipPrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
         if !self.starship_available {
-            return Cow::Borrowed("\x1b[32m❯\x1b[0m ");
+            let status = LAST_STATUS.load(Ordering::Relaxed);
+            return Cow::Owned(fallback_prompt_left(status));
         }
 
         let (status, duration, width, jobs) = Self::prompt_args();
@@ -168,7 +196,8 @@ impl Prompt for StarshipPrompt {
     }
 
     fn render_prompt_multiline_indicator(&self) -> Cow<'_, str> {
-        Cow::Borrowed("... ")
+        // Teal continuation glyph — visually distinct from the main ❯ prompt
+        Cow::Borrowed("\x1b[38;5;30m·\x1b[0m ")
     }
 
     fn render_prompt_history_search_indicator(

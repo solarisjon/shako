@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use std::time::Instant;
 
 use anyhow::Result;
+use nu_ansi_term::{Color as NuColor, Style as NuStyle};
 use reedline::{
     ColumnarMenu, EditMode, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
     ReedlineEvent, ReedlineMenu, Signal, Vi, default_emacs_keybindings,
@@ -168,11 +169,22 @@ fn main() -> Result<()> {
         }),
     );
 
+    // Themed completion menu — teal/cyan selection matching the brand gradient.
     let completion_menu = Box::new(
         ColumnarMenu::default()
             .with_name("completion_menu")
             .with_columns(4)
-            .with_column_padding(2),
+            .with_column_padding(2)
+            // Normal suggestions: mid-gray, unobtrusive
+            .with_text_style(NuColor::Fixed(242).normal())
+            // Selected suggestion: bold teal — stands out without being harsh
+            .with_selected_text_style(NuStyle::new().bold().fg(NuColor::Fixed(38)))
+            // Description text: subtle dark-teal
+            .with_description_text_style(NuColor::Fixed(30).normal())
+            // Match highlight in unselected items: underlined teal
+            .with_match_text_style(NuStyle::new().underline().fg(NuColor::Fixed(38)))
+            // Match highlight in selected item: underlined bright cyan
+            .with_selected_match_text_style(NuStyle::new().bold().underline().fg(NuColor::Fixed(45))),
     );
 
     let tab_completion_binding = ReedlineEvent::UntilFound(vec![
@@ -587,7 +599,7 @@ fn main() -> Result<()> {
                                 && (which::which(words[0]).is_ok()
                                     || builtins::is_builtin(words[0]));
 
-                            if is_bare_command {
+                             if is_bare_command {
                                 let sp = spinner::Spinner::start("explaining...");
                                 let result = rt.block_on(ai::explain_command(
                                     &text,
@@ -597,8 +609,7 @@ fn main() -> Result<()> {
                                 drop(sp);
                                 match result {
                                     Ok(explanation) => {
-                                        eprintln!("\x1b[36m{text}\x1b[0m");
-                                        eprintln!("{explanation}");
+                                        print_styled_explain(&text, &explanation);
                                     }
                                     Err(e) => {
                                         eprintln!("shako: ai error: {e}");
@@ -700,8 +711,7 @@ fn main() -> Result<()> {
                             drop(sp);
                             match result {
                                 Ok(explanation) => {
-                                    eprintln!("\x1b[36m{cmd}\x1b[0m");
-                                    eprintln!("{explanation}");
+                                    print_styled_explain(&cmd, &explanation);
                                 }
                                 Err(e) => {
                                     eprintln!("shako: ai error: {e}");
@@ -749,7 +759,10 @@ fn offer_ai_recovery(
         return;
     }
 
-    print!("\x1b[33mshako: command failed (exit {exit_code}). ask AI for help? [y/N]\x1b[0m ");
+    // Styled error header panel
+    let err_line = format!("\x1b[1;31m✗\x1b[0m exit {exit_code}  \x1b[90m{command}\x1b[0m");
+    eprintln!(" \x1b[31m╷\x1b[0m {err_line}");
+    print!(" \x1b[31m╰\x1b[0m \x1b[90mask AI for help? [y/N]\x1b[0m ");
     io::stdout().flush().ok();
 
     let mut answer = String::new();
@@ -760,7 +773,7 @@ fn offer_ai_recovery(
         return;
     }
 
-    let sp = spinner::Spinner::start("thinking...");
+    let sp = spinner::Spinner::start("diagnosing...");
 
     let result = rt.block_on(async {
         let history = read_recent_history(history_path, config.behavior.history_context_lines);
@@ -791,7 +804,7 @@ fn offer_ai_recovery(
             }
 
             if !cause.is_empty() {
-                eprintln!("\x1b[36m  cause:\x1b[0m {cause}");
+                eprintln!(" \x1b[36m╷\x1b[0m \x1b[90mcause:\x1b[0m {cause}");
             }
 
             if fix.is_empty() || fix == "SHAKO_NO_FIX" {
@@ -799,8 +812,10 @@ fn offer_ai_recovery(
             }
 
             // Show suggested fix and offer to run it
-            println!("\x1b[36m  fix:\x1b[0m \x1b[1m{fix}\x1b[0m");
-            print!("\x1b[90m  [Y]es / [n]o / [e]dit:\x1b[0m ");
+            eprintln!(
+                " \x1b[36m╷\x1b[0m \x1b[90mfix:\x1b[0m    \x1b[1;36m{fix}\x1b[0m"
+            );
+            print!(" \x1b[36m╰\x1b[0m \x1b[90m[Y]es  [n]o  [e]dit:\x1b[0m ");
             io::stdout().flush().ok();
 
             let mut answer = String::new();
@@ -818,7 +833,7 @@ fn offer_ai_recovery(
                     }
                 }
                 "e" | "edit" => {
-                    print!("\x1b[36m  ❯\x1b[0m ");
+                    print!(" \x1b[36m❯\x1b[0m ");
                     io::stdout().flush().ok();
                     let mut edited = String::new();
                     io::stdin().read_line(&mut edited).ok();
@@ -910,6 +925,79 @@ fn control_depth(input: &str) -> i32 {
     let tail = &input[seg_start..];
     check_seg(tail);
     depth
+}
+
+/// Print a styled panel for explain-mode output.
+///
+/// Renders the command in a teal header box, then the explanation text indented below.
+fn print_styled_explain(cmd: &str, explanation: &str) {
+    // Gradient palette matching the startup banner
+    const GRAD: &[u8] = &[30, 31, 32, 37, 38, 44, 45];
+    let mid_color = GRAD[GRAD.len() / 2];
+
+    let term_width = crossterm::terminal::size()
+        .map(|(w, _)| w as usize)
+        .unwrap_or(80);
+
+    // Measure cmd visible length (no ANSI in raw cmd)
+    let cmd_vis = cmd.len();
+    let label = "explain";
+    let label_vis = label.len() + 2; // " explain "
+    let content_width = cmd_vis.max(32);
+    let inner_width = (content_width + 4).min(term_width.saturating_sub(2));
+
+    // Gradient horizontal line
+    let grad_line = |width: usize| -> String {
+        (0..width)
+            .map(|i| {
+                let idx = if width <= 1 {
+                    0
+                } else {
+                    i * (GRAD.len() - 1) / (width - 1)
+                };
+                format!("\x1b[38;5;{}m─\x1b[0m", GRAD[idx])
+            })
+            .collect()
+    };
+
+    let border = |c: char| format!("\x1b[38;5;{mid_color}m{c}\x1b[0m");
+
+    // Header bar: ╭─ explain ──────╮
+    let header_label = format!("\x1b[38;5;{mid_color}m {label} \x1b[0m");
+    let rest_width = inner_width.saturating_sub(label_vis + 2);
+    eprintln!(
+        " {tl}{sep}{label}{rest}{tr}",
+        tl = border('╭'),
+        sep = grad_line(2),
+        label = header_label,
+        rest = grad_line(rest_width),
+        tr = border('╮'),
+    );
+
+    // Command line inside box
+    let cmd_styled = format!("\x1b[1;36m{cmd}\x1b[0m");
+    let content_inner = inner_width.saturating_sub(4);
+    let pad = content_inner.saturating_sub(cmd_vis);
+    eprintln!(
+        " {b}  {cmd}{}  {b}",
+        " ".repeat(pad),
+        b = border('│'),
+        cmd = cmd_styled,
+    );
+
+    // Bottom border
+    eprintln!(
+        " {bl}{bot}{br}",
+        bl = border('╰'),
+        bot = grad_line(inner_width),
+        br = border('╯'),
+    );
+
+    // Explanation text — indented, dim prefix bar
+    for line in explanation.trim().lines() {
+        eprintln!("  \x1b[38;5;{mid_color}m│\x1b[0m {line}");
+    }
+    eprintln!();
 }
 
 fn print_styled_banner(config: &ShakoConfig, ai_status: &ai::client::AiCheckResult) {
