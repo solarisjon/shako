@@ -86,19 +86,19 @@ fn is_git_push(cmd: &str) -> bool {
 ///   2. `CARGO_PKG_VERSION` baked in at compile time.
 fn show_push_version() {
     let version_str = current_version();
-    let display = format_push_version(&version_str);
+    let display = format_minor_version(&version_str);
     eprintln!("\x1b[90mshako: pushed · {display}\x1b[0m");
 }
 
-/// Parse the version string and return the display form.
+/// Format a semver string to show only `v{major}.{minor}`.
 ///
 /// Rules:
-///   - If major == 0, show `v{major}.{minor}` (e.g. `v0.2`).
-///   - If major >= 1, show `v{major}.{minor}` as well — the minor number
-///     carries enough information for the brief push notification.
-///   - The full patch version is intentionally omitted to keep the message
-///     stable across patch releases, per the ticket requirement.
-fn format_push_version(version: &str) -> String {
+///   - Show `v{major}.{minor}` only — the patch component is dropped so the
+///     displayed version stays stable across patch releases.
+///   - Leading `v` from git tags is handled transparently.
+///   - Used by both the `git push` proactive hint and the startup banner so
+///     the version string is consistent throughout the UI.
+pub fn format_minor_version(version: &str) -> String {
     // Strip leading 'v' if present (git tags often have it)
     let v = version.trim_start_matches('v');
     let parts: Vec<&str> = v.splitn(3, '.').collect();
@@ -435,27 +435,27 @@ mod tests {
     // ── version formatting ─────────────────────────────────────────────────
 
     #[test]
-    fn test_format_push_version_patch() {
+    fn test_format_minor_version_patch() {
         // Patch number is dropped — show major.minor only
-        assert_eq!(format_push_version("0.2.1"), "v0.2");
-        assert_eq!(format_push_version("1.3.7"), "v1.3");
+        assert_eq!(format_minor_version("0.2.1"), "v0.2");
+        assert_eq!(format_minor_version("1.3.7"), "v1.3");
     }
 
     #[test]
-    fn test_format_push_version_with_v_prefix() {
+    fn test_format_minor_version_with_v_prefix() {
         // Leading 'v' from git tags should be handled
-        assert_eq!(format_push_version("v0.2.1"), "v0.2");
-        assert_eq!(format_push_version("v1.0.0"), "v1.0");
+        assert_eq!(format_minor_version("v0.2.1"), "v0.2");
+        assert_eq!(format_minor_version("v1.0.0"), "v1.0");
     }
 
     #[test]
-    fn test_format_push_version_no_patch() {
-        assert_eq!(format_push_version("0.2"), "v0.2");
-        assert_eq!(format_push_version("2.0"), "v2.0");
+    fn test_format_minor_version_no_patch() {
+        assert_eq!(format_minor_version("0.2"), "v0.2");
+        assert_eq!(format_minor_version("2.0"), "v2.0");
     }
 
     #[test]
-    fn test_format_push_version_major_only() {
-        assert_eq!(format_push_version("3"), "v3");
+    fn test_format_minor_version_major_only() {
+        assert_eq!(format_minor_version("3"), "v3");
     }
 }

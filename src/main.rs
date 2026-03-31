@@ -1001,7 +1001,7 @@ fn print_styled_explain(cmd: &str, explanation: &str) {
 }
 
 fn print_styled_banner(config: &ShakoConfig, ai_status: &ai::client::AiCheckResult) {
-    let version = env!("CARGO_PKG_VERSION");
+    let version = proactive::format_minor_version(env!("CARGO_PKG_VERSION"));
     let llm = config.active_llm();
 
     let provider_name: String = if let Some(name) = &config.active_provider {
@@ -1047,7 +1047,7 @@ fn print_styled_banner(config: &ShakoConfig, ai_status: &ai::client::AiCheckResu
         },
     );
 
-    let line1 = format!("\x1b[1;36mshako\x1b[0m \x1b[90mv{version}\x1b[0m");
+    let line1 = format!("\x1b[1;36mshako\x1b[0m \x1b[90m{version}\x1b[0m");
     let line2 = ai_line;
     let line3 = config_line;
 
