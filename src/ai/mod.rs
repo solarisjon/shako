@@ -200,7 +200,7 @@ pub async fn explain_command(
     let raw = if let Some(flag) = spinner_flag {
         client::query_llm_with_spinner(&system_prompt, command, config.active_llm(), flag).await?
     } else {
-        client::query_llm_collect(&system_prompt, command, config.active_llm()).await?
+        client::query_llm(&system_prompt, command, config.active_llm()).await?
     };
 
     Ok(render::render_markdown_explanation(&raw))
