@@ -140,6 +140,16 @@ pub async fn query_llm(
     query_llm_inner(system_prompt, user_input, config, None).await
 }
 
+/// Query the LLM and collect the full response silently (no stdout streaming).
+/// Suitable for callers that will post-process or render the result themselves.
+pub async fn query_llm_collect(
+    system_prompt: &str,
+    user_input: &str,
+    config: &LlmConfig,
+) -> Result<String> {
+    query_llm_inner(system_prompt, user_input, config, None).await
+}
+
 /// Like `query_llm` but clears a spinner when the first token arrives.
 /// The caller is responsible for rendering the response (e.g. in a styled panel).
 pub async fn query_llm_with_spinner(
