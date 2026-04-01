@@ -1,4 +1,67 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::env;
+
+/// Snapshot of shell session context used to enrich command substitution.
+///
+/// Populated by the main loop before each command dispatch via
+/// [`set_subst_context`] so that `$( )` expansions respect the current
+/// session's aliases and function definitions.
+#[derive(Clone, Default)]
+pub struct SubstContext {
+    /// Alias name → expanded value (e.g. `"ll" → "ls -la"`).
+    pub aliases: HashMap<String, String>,
+    /// Function name → body text (verbatim source passed to `function … end`).
+    pub functions: HashMap<String, String>,
+}
+
+thread_local! {
+    /// Thread-local substitution context set by the interactive loop.
+    static SUBST_CTX: RefCell<Option<SubstContext>> = const { RefCell::new(None) };
+}
+
+/// Install a substitution context for the current thread.
+///
+/// Call this once per command dispatch (before `parse_args` / `execute_command`)
+/// so that `$(…)` expansions run under shako with the current session's aliases
+/// and function definitions rather than under plain `/bin/sh`.
+pub fn set_subst_context(ctx: SubstContext) {
+    SUBST_CTX.with(|c| *c.borrow_mut() = Some(ctx));
+}
+
+/// Clear the substitution context (e.g. at the end of a dispatch cycle).
+#[allow(dead_code)]
+pub fn clear_subst_context() {
+    SUBST_CTX.with(|c| *c.borrow_mut() = None);
+}
+
+/// Build the preamble script (alias + function definitions) from the current
+/// substitution context.  Returns an empty string when no context is set.
+fn subst_preamble() -> String {
+    SUBST_CTX.with(|c| {
+        let borrow = c.borrow();
+        let ctx = match borrow.as_ref() {
+            Some(ctx) => ctx,
+            None => return String::new(),
+        };
+
+        let mut out = String::new();
+
+        // Re-define aliases so the substituted command sees them.
+        for (name, value) in &ctx.aliases {
+            // Escape single quotes inside the alias value.
+            let escaped = value.replace('\'', "'\\''");
+            out.push_str(&format!("alias {name}='{escaped}'\n"));
+        }
+
+        // Re-define functions so the substituted command sees them.
+        for (name, body) in &ctx.functions {
+            out.push_str(&format!("function {name}\n{body}\nend\n"));
+        }
+
+        out
+    })
+}
 
 /// A parsed token from shell input, after quote handling.
 #[derive(Debug, Clone, PartialEq)]
@@ -661,7 +724,7 @@ fn extract_arithmetic_expr(chars: &[char], i: &mut usize) -> String {
     while *i + 1 < chars.len() {
         if chars[*i] == ')' && chars[*i + 1] == ')' {
             let content: String = chars[start..*i].iter().collect();
-            *i += 2; // consume '))'  
+            *i += 2; // consume '))'
             return content;
         }
         *i += 1;
@@ -945,24 +1008,71 @@ fn extract_balanced(chars: &[char], i: &mut usize, open: char, close: char) -> S
     content
 }
 
-/// Run a command and capture its stdout, trimming the trailing newline.
+/// Run a command and capture its stdout, trimming the trailing newlines.
+///
+/// Uses the current shako binary (via `std::env::current_exe`) when possible
+/// so that session aliases and functions (injected via [`set_subst_context`])
+/// are visible inside `$(…)`.  Falls back to `sh -c` only when the shako
+/// binary cannot be located.
 fn run_command_substitution(cmd: &str) -> String {
     let cmd = cmd.trim();
     if cmd.is_empty() {
         return String::new();
     }
 
-    match std::process::Command::new("sh").args(["-c", cmd]).output() {
-        Ok(output) => {
+    let preamble = subst_preamble();
+    let full_cmd = if preamble.is_empty() {
+        cmd.to_string()
+    } else {
+        format!("{preamble}{cmd}")
+    };
+
+    // Prefer re-entering shako so session aliases / functions are visible.
+    // We look for the shako binary on PATH first; if not found we fall back to
+    // `current_exe()` (which works in installed/release builds but not in test
+    // harnesses where the binary is the test runner, not a real shako shell).
+    let shako_exe: Option<std::path::PathBuf> = which::which("shako").ok().or_else(|| {
+        std::env::current_exe().ok().and_then(|p| {
+            // Only use current_exe when the binary looks like a shako binary.
+            // Test runner binaries live under target/…/deps/ and have names like
+            // `shako-<hash>` — avoid re-entering those.
+            let name = p.file_name()?.to_string_lossy().to_string();
+            if name == "shako" {
+                Some(p)
+            } else {
+                None
+            }
+        })
+    });
+
+    let output = if let Some(ref exe) = shako_exe {
+        std::process::Command::new(exe)
+            .args(["-c", &full_cmd])
+            .output()
+            .ok()
+    } else {
+        None
+    };
+
+    // Fall back to /bin/sh when shako is not on PATH (tests, etc.).
+    let output = output.or_else(|| {
+        std::process::Command::new("sh")
+            .args(["-c", cmd])
+            .output()
+            .ok()
+    });
+
+    match output {
+        Some(output) => {
             let mut result = String::from_utf8_lossy(&output.stdout).to_string();
-            // Shells strip trailing newlines from command substitution
+            // Shells strip trailing newlines from command substitution.
             while result.ends_with('\n') || result.ends_with('\r') {
                 result.pop();
             }
             result
         }
-        Err(e) => {
-            eprintln!("shako: command substitution: {e}");
+        None => {
+            eprintln!("shako: command substitution: failed to run command");
             String::new()
         }
     }

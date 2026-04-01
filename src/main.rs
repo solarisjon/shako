@@ -465,6 +465,17 @@ fn main() -> Result<()> {
                 // Expand aliases before classification
                 let input = state.expand_alias(&input).unwrap_or(input);
 
+                // Publish current session context so that command substitutions
+                // inside $(...) run under shako with the same aliases/functions.
+                parser::set_subst_context(parser::SubstContext {
+                    aliases: state.aliases.clone(),
+                    functions: state
+                        .functions
+                        .iter()
+                        .map(|(name, f)| (name.clone(), f.body.clone()))
+                        .collect(),
+                });
+
                 // Handle AI session memory reset
                 if input == "ai reset" || input == "ai forget" {
                     state.ai_session_memory.clear();
