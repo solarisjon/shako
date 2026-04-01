@@ -4,13 +4,20 @@ shako's AI integration is designed to augment your shell workflow — never to g
 
 ## Natural Language Translation
 
-Type what you want in plain English. shako translates it to a shell command, shows you what it will run, and asks for confirmation:
+Type what you want in plain English. shako translates it to a shell command, shows it inside a branded confirmation panel, and asks for your decision:
 
 ```
 $ show me the 10 largest files in this directory
-❯ fd --type f -x stat -f '%z %N' {} | sort -rn | head -10
-[Y]es / [n]o / [e]dit / [w]hy:
+
+ ╭ shako ─────────────────────────────────────────────────────╮
+ │  fd --type f -x stat -f '%z %N' {} | sort -rn | head -10  │
+ ├────────────────────────────────────────────────────────────┤
+ │  [Y]es  [n]o  [e]dit  [w]hy  [r]efine                     │
+ ╰────────────────────────────────────────────────────────────╯
+ ❯
 ```
+
+The border is a teal-to-cyan gradient matching shako's startup banner, giving AI-generated commands a consistent visual identity distinct from direct shell output.
 
 The AI is **tool-aware** — it knows which modern tools you have installed and prefers them:
 - Has `fd` → uses `fd` instead of `find`
@@ -40,6 +47,12 @@ After the AI generates a command:
 - **`r`** — refine: add a clarification and let the AI re-translate without starting over
 
 Edits made via `e` are tracked by the [watch-and-learn](#watch-and-learn) system.
+
+**To validate this in your shell:**
+```
+$ list all python files modified today
+```
+You should see the teal-gradient `╭ shako ─╮` panel around the translated command. Type `w` to get an explanation, then `Y` to run.
 
 ### Safety Layer
 
@@ -93,8 +106,11 @@ Example after `git add .`:
 ```
 shako: 3 files staged — suggest a commit message? [y/N] y
 thinking...
-❯ git commit -m "fix: resolve null pointer in user lookup"
-[Y]es / [n]o / [e]dit / [w]hy:
+ ╭ shako ──────────────────────────────────────────────╮
+ │  git commit -m "fix: resolve null pointer in lookup" │
+ ├──────────────────────────────────────────────────────┤
+ │  [Y]es  [n]o  [e]dit  [w]hy  [r]efine               │
+ ╰──────────────────────────────────────────────────────╯
 ```
 
 Note: The commit suggestion prompt is optional (`[y/N]` defaults to no). The AI generates a message from `git diff --staged` — the diff is capped at 4 KB.
@@ -127,50 +143,67 @@ With AI disabled, natural language input prints `shako: AI is disabled` instead 
 
 ## Explain Mode
 
-Append `?` to any command to get a plain-English explanation without executing it:
+Append `?` to any command to get a plain-English explanation without executing it. The explanation appears inside a branded `╭─ explain ──╮` header panel:
 
 ```
 $ git rebase -i?
-git rebase -i
-Starts an interactive rebase. Opens your editor with a list of commits,
-letting you reorder, squash, edit, or drop them. The -i flag means
-"interactive" — without it, rebase runs automatically.
+
+ ╭─ explain ──────────────────╮
+ │  git rebase -i             │
+ ╰────────────────────────────╯
+  │ Starts an interactive rebase. Opens your editor with a list of commits,
+  │ letting you reorder, squash, edit, or drop them. The -i flag means
+  │ "interactive" — without it, rebase runs automatically.
 
 $ chmod 755?
-chmod 755
-Sets file permissions: owner can read/write/execute (7), group and
-others can read/execute (5). Common for scripts and executables.
 
-$ tar xzf?
-tar xzf
-Extracts (x) a gzip-compressed (z) tar archive (f = read from file).
-Equivalent to: gunzip the file, then untar it.
+ ╭─ explain ──────────────────╮
+ │  chmod 755                 │
+ ╰────────────────────────────╯
+  │ Sets file permissions: owner can read/write/execute (7), group and
+  │ others can read/execute (5). Common for scripts and executables.
 ```
 
 You can also use the `?` prefix with a bare command name:
 
 ```
 $ ? grep
-grep
-Searches for text patterns in files. Reads from stdin or files given
-as arguments. Use -r for recursive, -n for line numbers, -i for
-case-insensitive. Modern alternative: ripgrep (rg).
+
+ ╭─ explain ──────────────────╮
+ │  grep                      │
+ ╰────────────────────────────╯
+  │ Searches for text patterns in files. Reads from stdin or files given
+  │ as arguments. Use -r for recursive, -n for line numbers, -i for
+  │ case-insensitive. Modern alternative: ripgrep (rg).
 ```
 
 The rule: if `?` prefix + single known command → explain. If `?` prefix + multiple words → translate.
 
+**To validate this in your shell:**
+```
+$ tar xzf?
+$ ? curl
+$ grep -rn?
+```
+Each should render a `╭─ explain ─╮` panel with the command name in the header and explanation text indented with a `│` guide bar.
+
 ## Error Recovery
 
-When a command fails with exit code ≥ 2, shako offers AI-powered diagnosis:
+When a command fails with exit code ≥ 2, shako offers AI-powered diagnosis using a structured vertical-rail layout:
 
 ```
 $ cargo build --featurse serde
 error: unexpected argument '--featurse'
-shako: command failed (exit 2). ask AI for help? [y/N] y
-  cause: Typo in flag name — '--featurse' should be '--features'
-  fix: cargo build --features serde
-  [Y]es / [n]o / [e]dit / [w]hy:
+
+ ╷ ✗ exit 2  cargo build --featurse serde
+ ╰ ask AI for help? [y/N] y
+
+ ╷ cause:  Typo in flag name — '--featurse' should be '--features'
+ ╷ fix:    cargo build --features serde
+ ╰ [Y]es  [n]o  [e]dit:
 ```
+
+The `╷`/`╰` vertical rail keeps the diagnostic output visually separate from shell noise. The exit code and failed command appear in the header line; cause and fix are presented in a calm, aligned column.
 
 The AI receives:
 - The exact command that failed
@@ -180,6 +213,17 @@ The AI receives:
 - Current directory and git state
 
 Exit code 1 is skipped (too common — grep no-match, test failures). Signals (≥ 128) are also skipped.
+
+**To validate this in your shell:**
+```
+$ cargo build --featurse serde
+```
+When prompted `ask AI for help? [y/N]`, type `y`. You should see the `╷ cause:` / `╷ fix:` / `╰` layout.
+
+Alternatively, trigger with any command that exits non-zero with code ≥ 2:
+```
+$ git commit --badoption
+```
 
 ## Context Awareness
 

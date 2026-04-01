@@ -18,7 +18,17 @@ A concise cheat sheet for daily use. Print it, pin it, paste it somewhere handy.
 | `?? rsync command last week` | AI-powered semantic history search |
 | `ai reset` | Clear AI session memory |
 
-**Confirmation prompt:** `[Y]es / [n]o / [e]dit / [w]hy / [r]efine`  
+**Confirmation panel:** AI commands appear inside a teal-gradient `╭ shako ─╮` box:
+
+```
+ ╭ shako ────────────────────────────────╮
+ │  du -sh */ | sort -rh | head -10      │
+ ├───────────────────────────────────────┤
+ │  [Y]es  [n]o  [e]dit  [w]hy  [r]efine │
+ ╰───────────────────────────────────────╯
+ ❯
+```
+
 Press `Y` or Enter to run, `n` to cancel, `e` to edit, `w` for explanation, `r` to refine your request.
 
 ---
@@ -242,19 +252,32 @@ tar xzf?              # explain tar xzf
 ? kubectl             # explain what kubectl is
 ```
 
+Output appears inside a `╭─ explain ─╮` header panel:
+
+```
+ ╭─ explain ──────────────────╮
+ │  tar xzf                   │
+ ╰────────────────────────────╯
+  │ Extracts (x) a gzip-compressed (z) tar archive (f = read from file).
+  │ Equivalent to: gunzip the file, then untar it.
+```
+
 ---
 
 ## Error Recovery
 
-When a command fails (exit code ≥ 2), shako offers AI help:
+When a command fails (exit code ≥ 2), shako offers AI help using a structured `╷`/`╰` layout:
 
 ```
 $ cargo build --featurse serde
 error: unexpected argument '--featurse'
-shako: command failed (exit 2). ask AI for help? [y/N] y
-  cause: Typo — '--featurse' should be '--features'
-  fix:   cargo build --features serde
-  [Y]es / [n]o / [e]dit / [w]hy:
+
+ ╷ ✗ exit 2  cargo build --featurse serde
+ ╰ ask AI for help? [y/N] y
+
+ ╷ cause:  Typo — '--featurse' should be '--features'
+ ╷ fix:    cargo build --features serde
+ ╰ [Y]es  [n]o  [e]dit:
 ```
 
 Note: exit code 1 is skipped (too common — grep no-match, test failure). Press **Enter at the `[y/N]`** to skip (default is no).
@@ -285,6 +308,10 @@ Subcommand completions for: `git` (branches+flags), `cargo` (flags), `docker`, `
 
 All `$PATH` executables, builtins, aliases, functions, and file paths complete too. Filenames with spaces are auto-escaped.
 
+The completion popup uses a teal/cyan brand palette: normal suggestions in mid-gray, selected item in bold teal, matching characters underlined in bright cyan.
+
+**To validate:** Type `git ` then press `Tab` — the completion menu should appear with teal highlighting on the selected item.
+
 ---
 
 ## Syntax Highlighting
@@ -312,6 +339,33 @@ Gray inline suggestions from history appear as you type.
 
 - **Right arrow** — accept full suggestion
 - **Ctrl+Right** — accept one word
+
+---
+
+## Visual Identity
+
+shako uses a consistent teal-to-cyan brand palette (color codes `38;5;30` → `38;5;45`) across all UI surfaces:
+
+| Surface | Appearance |
+|---|---|
+| **Startup banner** | `╭─` gradient box with `shako v0.x.x` |
+| **AI confirmation panel** | `╭ shako ──╮` gradient box around translated command |
+| **Explain output** | `╭─ explain ──╮` header panel, body indented with `│` |
+| **Error recovery** | `╷`/`╰` vertical rail — red for failure header, cyan for diagnosis |
+| **Spinner** | Smooth dot frames cycling through teal gradient |
+| **Prompt (fallback)** | Teal `❯` — red when last command failed, yellow with AI context |
+| **Completion menu** | Teal selected item, bright-cyan match highlight |
+| **Multiline indicator** | Teal `·` continuation glyph |
+
+**To validate the prompt colors:**
+
+```
+$ false           # exit code 1 → prompt turns red ❯
+$ true            # success → prompt returns to teal ❯
+$ show me files   # AI session active → prompt turns yellow ❯
+```
+
+(Prompt color requires Starship to be absent or disabled — when Starship is active it renders its own prompt.)
 
 ---
 
