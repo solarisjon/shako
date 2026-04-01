@@ -512,4 +512,166 @@ mod tests {
             result
         );
     }
+
+    // ── ExplainCommand edge cases ──────────────────────────────────────────────
+
+    #[test]
+    fn test_explain_command_trailing_question() {
+        let c = test_classifier();
+        let result = c.classify("grep?");
+        assert!(
+            matches!(result, Classification::ExplainCommand(ref s) if s == "grep"),
+            "expected ExplainCommand('grep'), got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_explain_flags_trailing_question() {
+        let c = test_classifier();
+        let result = c.classify("grep -rn?");
+        assert!(
+            matches!(result, Classification::ExplainCommand(ref s) if s == "grep -rn"),
+            "expected ExplainCommand('grep -rn'), got {:?}",
+            result
+        );
+    }
+
+    // ── AI vs shell boundary ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_command_with_flag_stays_command() {
+        let c = test_classifier();
+        // A known command followed only by flags must stay Command, not NaturalLanguage.
+        assert!(matches!(
+            c.classify("echo -n hello"),
+            Classification::Command(_) | Classification::Builtin(_)
+        ));
+    }
+
+    #[test]
+    fn test_ai_prefix_variants() {
+        let c = test_classifier();
+        // Both "?" and "ai:" prefixes must force AI.
+        assert!(matches!(
+            c.classify("ai: list running processes"),
+            Classification::ForcedAI(_)
+        ));
+        assert!(matches!(
+            c.classify("? show git log"),
+            Classification::ForcedAI(_)
+        ));
+    }
+
+    #[test]
+    fn test_builtin_cd_always_builtin() {
+        let c = test_classifier();
+        // cd must never fall through to Command even if a 'cd' binary were on PATH.
+        assert!(matches!(c.classify("cd ~"), Classification::Builtin(_)));
+    }
+
+    #[test]
+    fn test_history_search_strips_prefix() {
+        let c = test_classifier();
+        // `?? docker commands` → query should be "docker commands" not "?? docker commands".
+        let Classification::HistorySearch(query) = c.classify("?? docker commands") else {
+            panic!("expected HistorySearch");
+        };
+        assert_eq!(query, "docker commands");
+    }
+
+    #[test]
+    fn test_empty_whitespace_only_is_empty() {
+        let c = test_classifier();
+        assert!(matches!(c.classify("\t  \n"), Classification::Empty));
+    }
+
+    // ── AI vs shell boundary: additional edge cases ───────────────────────────
+
+    #[test]
+    fn test_explain_bare_command_name() {
+        // `? grep` with a bare known command name should force AI (explain mode).
+        let c = test_classifier();
+        assert!(matches!(c.classify("? grep"), Classification::ForcedAI(_)));
+    }
+
+    #[test]
+    fn test_command_with_only_path_arg_stays_command() {
+        // Known command + a path argument (no prose) → Command.
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("cat /etc/hosts"),
+            Classification::Command(_)
+        ));
+    }
+
+    #[test]
+    fn test_mixed_flags_and_prose_routes_to_ai() {
+        // A command with a mix of flags and prose words should go to AI.
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("find all python files modified today"),
+            Classification::NaturalLanguage(_)
+        ));
+    }
+
+    #[test]
+    fn test_numeric_args_do_not_trigger_nl() {
+        // Numeric args are never prose — command should stay Command.
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("sleep 5"),
+            Classification::Command(_) | Classification::Builtin(_)
+        ));
+    }
+
+    #[test]
+    fn test_trailing_question_on_flags_is_explain() {
+        // A flag string followed by `?` should produce ExplainCommand.
+        let c = test_classifier();
+        let result = c.classify("ls -la?");
+        assert!(
+            matches!(result, Classification::ExplainCommand(ref s) if s == "ls -la"),
+            "expected ExplainCommand('ls -la'), got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_history_search_with_empty_query() {
+        // `??` with nothing after it — either Empty or HistorySearch with empty query.
+        let c = test_classifier();
+        let result = c.classify("??");
+        // Should not crash and must not misclassify as a normal command.
+        assert!(!matches!(result, Classification::Command(_)));
+    }
+
+    #[test]
+    fn test_double_question_prefix_with_whitespace_only() {
+        // `??   ` (only spaces after ??) should not produce a non-empty query.
+        let c = test_classifier();
+        let result = c.classify("??   ");
+        match result {
+            Classification::HistorySearch(q) => {
+                assert!(q.trim().is_empty(), "expected empty query, got {q:?}")
+            }
+            Classification::Empty => {}
+            other => panic!("unexpected classification: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_ai_prefix_colon_with_prose() {
+        let c = test_classifier();
+        // `ai:` prefix must force AI regardless of how command-like the rest looks.
+        assert!(matches!(c.classify("ai: ls"), Classification::ForcedAI(_)));
+    }
+
+    #[test]
+    fn test_nl_detection_single_prose_word_unknown_command() {
+        // A single unknown word that is not close to any known command → NL.
+        let c = test_classifier();
+        let result = c.classify("xyzzy");
+        // Should be NaturalLanguage (unknown) or Typo — never Command.
+        assert!(!matches!(result, Classification::Command(_)));
+    }
 }

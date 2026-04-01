@@ -667,5 +667,186 @@ fn is_fish_internal_function(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    // Tests for fish_import are tracked in CPE-66.
+    use super::*;
+
+    // ── convert_alias_line ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_alias_with_equals_passes_through() {
+        // `alias foo=bar` is already POSIX-compatible — keep it unchanged.
+        assert_eq!(convert_alias_line("alias foo=bar"), "alias foo=bar");
+    }
+
+    #[test]
+    fn test_alias_space_form_becomes_equals_form() {
+        // Fish allows `alias foo 'bar --baz'` — convert to `alias foo='bar --baz'`.
+        let result = convert_alias_line("alias ll 'ls -la'");
+        assert_eq!(result, "alias ll='ls -la'");
+    }
+
+    #[test]
+    fn test_alias_space_form_double_quotes() {
+        let result = convert_alias_line("alias gst \"git status\"");
+        assert_eq!(result, "alias gst='git status'");
+    }
+
+    #[test]
+    fn test_alias_single_token_unchanged() {
+        // No value token — can't convert, return as-is.
+        let result = convert_alias_line("alias foo");
+        assert_eq!(result, "alias foo");
+    }
+
+    // ── convert_line ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_convert_line_command_prefix_stripped() {
+        assert_eq!(convert_line("command git status"), "git status");
+    }
+
+    #[test]
+    fn test_convert_line_builtin_prefix_stripped() {
+        assert_eq!(convert_line("builtin cd /tmp"), "cd /tmp");
+    }
+
+    #[test]
+    fn test_convert_line_empty_returns_empty() {
+        assert_eq!(convert_line(""), "");
+    }
+
+    #[test]
+    fn test_convert_line_comment_preserved() {
+        assert_eq!(convert_line("# this is a comment"), "# this is a comment");
+    }
+
+    #[test]
+    fn test_convert_line_plain_command_unchanged() {
+        assert_eq!(convert_line("echo hello world"), "echo hello world");
+    }
+
+    #[test]
+    fn test_convert_line_trims_leading_whitespace() {
+        assert_eq!(convert_line("  echo hi"), "echo hi");
+    }
+
+    // ── convert_set_line ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_set_export_flag() {
+        let mut seen = HashMap::new();
+        let result = convert_set_line("set -gx MY_VAR hello", &mut seen);
+        assert_eq!(result, Some("set -gx MY_VAR hello".to_string()));
+    }
+
+    #[test]
+    fn test_set_no_export() {
+        let mut seen = HashMap::new();
+        let result = convert_set_line("set MY_VAR hello", &mut seen);
+        assert_eq!(result, Some("set MY_VAR hello".to_string()));
+    }
+
+    #[test]
+    fn test_set_erase() {
+        let mut seen = HashMap::new();
+        let result = convert_set_line("set -e MY_VAR", &mut seen);
+        assert_eq!(result, Some("set -e MY_VAR".to_string()));
+    }
+
+    #[test]
+    fn test_set_query_ignored() {
+        // `set -q` is a test construct — skip it entirely.
+        let mut seen = HashMap::new();
+        let result = convert_set_line("set -q MY_VAR", &mut seen);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_set_path_deduplicated() {
+        let mut seen = HashMap::new();
+        // First occurrence should produce a fish_add_path line.
+        let first = convert_set_line("set PATH /usr/local/bin $PATH", &mut seen);
+        assert!(first.is_some());
+        // Second occurrence of PATH should be skipped to avoid duplication.
+        let second = convert_set_line("set PATH /usr/local/bin $PATH", &mut seen);
+        assert_eq!(second, None);
+    }
+
+    #[test]
+    fn test_set_fish_internal_var_skipped() {
+        let mut seen = HashMap::new();
+        // fish_greeting is a fish-internal variable and should not be emitted.
+        let result = convert_set_line("set fish_greeting ''", &mut seen);
+        assert_eq!(result, None);
+    }
+
+    // ── is_fish_internal_function ────────────────────────────────────────────
+
+    #[test]
+    fn test_fish_greeting_is_internal() {
+        assert!(is_fish_internal_function("fish_greeting"));
+    }
+
+    #[test]
+    fn test_fish_prompt_is_internal() {
+        assert!(is_fish_internal_function("fish_prompt"));
+    }
+
+    #[test]
+    fn test_user_function_not_internal() {
+        assert!(!is_fish_internal_function("my_custom_function"));
+    }
+
+    // ── should_skip_line ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_skip_status_line() {
+        assert!(should_skip_line("status is-interactive"));
+    }
+
+    #[test]
+    fn test_skip_set_color_line() {
+        assert!(should_skip_line("set fish_color_command blue"));
+    }
+
+    #[test]
+    fn test_skip_starship_init() {
+        assert!(should_skip_line("starship init fish | source"));
+    }
+
+    #[test]
+    fn test_do_not_skip_alias() {
+        assert!(!should_skip_line("alias ll='ls -la'"));
+    }
+
+    #[test]
+    fn test_do_not_skip_set_var() {
+        assert!(!should_skip_line("set -gx EDITOR vim"));
+    }
+
+    // ── convert_fish_config round-trip ───────────────────────────────────────
+
+    #[test]
+    fn test_convert_config_alias_round_trip() {
+        let mut stats = ImportStats::default();
+        let input = "alias ll 'ls -la'\n";
+        let output = convert_fish_config(input, &mut stats);
+        assert!(output.contains("alias ll='ls -la'"), "got: {output}");
+    }
+
+    #[test]
+    fn test_convert_config_strips_status_lines() {
+        let mut stats = ImportStats::default();
+        let input = "status is-interactive; or exit\nalias gs='git status'\n";
+        let output = convert_fish_config(input, &mut stats);
+        assert!(!output.contains("status is-interactive"), "got: {output}");
+        assert!(output.contains("alias gs='git status'"), "got: {output}");
+    }
+
+    #[test]
+    fn test_convert_config_set_export() {
+        let mut stats = ImportStats::default();
+        let input = "set -gx EDITOR nvim\n";
+        let output = convert_fish_config(input, &mut stats);
+        assert!(output.contains("EDITOR"), "got: {output}");
+    }
 }

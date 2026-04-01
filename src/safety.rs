@@ -79,10 +79,12 @@ fn is_dangerous_rm(args: &[String], raw_command: &str) -> bool {
         return true;
     }
 
-    // Also check the raw (pre-parse) string for `~` and `*` because the
-    // parser expands those before we see the tokens.
+    // Also check the raw (pre-parse) string for `~`, `*`, and `/*` because the
+    // parser expands globs before we see the tokens.
     let raw_tokens: Vec<&str> = raw_command.split_ascii_whitespace().collect();
-    raw_tokens.iter().any(|t| *t == "~" || *t == "*")
+    raw_tokens
+        .iter()
+        .any(|t| *t == "~" || *t == "*" || *t == "/*")
 }
 
 // ─── Fork-bomb analysis ─────────────────────────────────────────────────────
@@ -113,7 +115,8 @@ fn is_dangerous_dd(args: &[String]) -> bool {
             && (a.contains("/dev/sd")
                 || a.contains("/dev/hd")
                 || a.contains("/dev/nvme")
-                || a.contains("/dev/disk"))
+                || a.contains("/dev/disk")
+                || a.contains("/dev/mapper/"))
     })
 }
 
@@ -164,6 +167,17 @@ pub fn is_dangerous(command: &str) -> bool {
     }
 
     let cmd = args[0].to_ascii_lowercase();
+
+    // If the command is prefixed with `sudo`, strip it and re-evaluate the
+    // remainder so that `sudo rm -rf /` is caught the same as `rm -rf /`.
+    if cmd == "sudo" {
+        if args.len() < 2 {
+            return false;
+        }
+        // Re-evaluate from the first non-sudo token.
+        let rest_command = command.trim_start().trim_start_matches("sudo").trim_start();
+        return is_dangerous(rest_command);
+    }
 
     match cmd.as_str() {
         "rm" => is_dangerous_rm(&args, command),
@@ -320,5 +334,76 @@ mod tests {
     #[test]
     fn test_rm_needs_extra_confirmation() {
         assert!(needs_extra_confirmation("rm -f myfile.txt"));
+    }
+
+    // ── additional rm edge cases ─────────────────────────────────────────────
+
+    #[test]
+    fn test_rm_rf_slash_star_caught() {
+        // rm -rf /* is just as dangerous as rm -rf /
+        assert!(is_dangerous("rm -rf /*"));
+    }
+
+    #[test]
+    fn test_rm_rf_home_root_not_dangerous() {
+        // rm -rf ~/project is legitimate; home subdirs are not root targets.
+        assert!(!is_dangerous("rm -rf ~/project"));
+    }
+
+    #[test]
+    fn test_rm_rf_with_leading_sudo() {
+        // sudo rm -rf / must still be caught even though the first token is sudo.
+        assert!(is_dangerous("sudo rm -rf /"));
+    }
+
+    #[test]
+    fn test_rm_rf_tmp_subdir_safe() {
+        // A specific directory under /tmp is never a dangerous root target.
+        assert!(!is_dangerous("rm -rf /tmp/my-test-build-dir"));
+    }
+
+    // ── dd edge cases ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dd_to_nvme_caught() {
+        assert!(is_dangerous("dd if=/dev/urandom of=/dev/nvme0n1"));
+    }
+
+    #[test]
+    fn test_dd_to_mapper_caught() {
+        assert!(is_dangerous("dd if=/dev/zero of=/dev/mapper/root"));
+    }
+
+    // ── fork bomb edge cases ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_fork_bomb_no_semicolon_caught() {
+        // Without the trailing semicolon it's still recognisable.
+        assert!(is_dangerous(":(){:|:&}"));
+    }
+
+    // ── chmod edge cases ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_chmod_777_empty_path_not_dangerous() {
+        // chmod 777 with no path arguments is not dangerous (it will error).
+        assert!(!is_dangerous("chmod 777"));
+    }
+
+    // ── needs_extra_confirmation edge cases ───────────────────────────────────
+
+    #[test]
+    fn test_chmod_recursive_needs_extra() {
+        assert!(needs_extra_confirmation("chmod -R 755 /srv/www"));
+    }
+
+    #[test]
+    fn test_chown_recursive_needs_extra() {
+        assert!(needs_extra_confirmation("chown -R root /etc"));
+    }
+
+    #[test]
+    fn test_plain_ls_no_extra() {
+        assert!(!needs_extra_confirmation("ls -la /tmp"));
     }
 }
