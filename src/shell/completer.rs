@@ -971,6 +971,63 @@ impl Completer for ShakoCompleter {
             }
         }
 
+        // Environment variable completion: triggered when partial starts with '$'.
+        // Completes against all env vars known to the process (std::env::vars()).
+        if partial.starts_with('$') {
+            let var_prefix = &partial[1..]; // strip leading '$'
+            let var_prefix_lower = var_prefix.to_ascii_lowercase();
+            let has_upper = var_prefix.chars().any(|c| c.is_uppercase());
+
+            let mut completions: Vec<Suggestion> = std::env::vars()
+                .filter(|(k, _)| k.starts_with(var_prefix))
+                .map(|(k, v)| {
+                    let short_val = if v.len() > 40 {
+                        format!("{}…", &v[..37])
+                    } else {
+                        v
+                    };
+                    Suggestion {
+                        value: format!("${k}"),
+                        display_override: None,
+                        description: Some(short_val),
+                        style: None,
+                        extra: None,
+                        span: Span::new(start, pos),
+                        append_whitespace: false,
+                        match_indices: None,
+                    }
+                })
+                .collect();
+
+            completions.sort_by(|a, b| a.value.cmp(&b.value));
+
+            if !completions.is_empty() || has_upper {
+                return completions;
+            }
+
+            // Case-insensitive fallback
+            return std::env::vars()
+                .filter(|(k, _)| k.to_ascii_lowercase().starts_with(&var_prefix_lower))
+                .map(|(k, v)| {
+                    let short_val = if v.len() > 40 {
+                        format!("{}…", &v[..37])
+                    } else {
+                        v
+                    };
+                    Suggestion {
+                        value: format!("${k}"),
+                        display_override: None,
+                        description: Some(short_val),
+                        style: None,
+                        extra: None,
+                        span: Span::new(start, pos),
+                        append_whitespace: false,
+                        match_indices: None,
+                    }
+                })
+                .collect();
+        }
+
         // `cd` and `z` — directories only
         let dirs_only = matches!(first_cmd, "cd" | "z" | "pushd" | "mkdir" | "rmdir");
 
@@ -1147,5 +1204,48 @@ mod tests {
             None,
             "exact match should not have a case-insensitive description"
         );
+    }
+
+    #[test]
+    fn test_env_var_completion_dollar_path() {
+        // "echo $PATH" should complete with env vars starting with "PATH"
+        // We set a known env var for a stable test.
+        unsafe { std::env::set_var("SHAKO_TEST_COMPLETE_VAR", "test_value") };
+
+        let mut c = test_completer();
+        let suggestions = c.complete("echo $SHAKO_TEST_COMPLETE_VAR", 29);
+        let values: Vec<&str> = suggestions.iter().map(|s| s.value.as_str()).collect();
+        assert!(
+            values.contains(&"$SHAKO_TEST_COMPLETE_VAR"),
+            "expected $SHAKO_TEST_COMPLETE_VAR in completions, got: {:?}",
+            values
+        );
+
+        unsafe { std::env::remove_var("SHAKO_TEST_COMPLETE_VAR") };
+    }
+
+    #[test]
+    fn test_env_var_completion_dollar_prefix() {
+        // Partial $SH prefix should complete to env vars starting with SH
+        unsafe { std::env::set_var("SHAKO_COMP_TEST", "value") };
+
+        let mut c = test_completer();
+        let suggestions = c.complete("echo $SHAKO_COMP", 16);
+        let values: Vec<&str> = suggestions.iter().map(|s| s.value.as_str()).collect();
+        assert!(
+            values.iter().any(|v| v.starts_with("$SHAKO_COMP")),
+            "expected completions starting with $SHAKO_COMP, got: {:?}",
+            values
+        );
+        // All suggestions should start with '$'
+        for s in &suggestions {
+            assert!(
+                s.value.starts_with('$'),
+                "env var completions should start with $, got: {}",
+                s.value
+            );
+        }
+
+        unsafe { std::env::remove_var("SHAKO_COMP_TEST") };
     }
 }
