@@ -817,7 +817,7 @@ mod tests {
             ..
         } = &stmts[0]
         else {
-            panic!()
+            panic!("expected Statement::If in test_parse_body_if_else")
         };
         assert_eq!(then_body.len(), 1);
         assert_eq!(else_body.len(), 1);
@@ -832,7 +832,7 @@ mod tests {
             ..
         } = &stmts[0]
         else {
-            panic!()
+            panic!("expected Statement::If in test_parse_body_if_elif_else")
         };
         assert_eq!(elif_branches.len(), 1);
         assert_eq!(else_body.len(), 1);
@@ -848,7 +848,7 @@ mod tests {
             body,
         } = &stmts[0]
         else {
-            panic!()
+            panic!("expected Statement::For in test_parse_body_for")
         };
         assert_eq!(var, "i");
         assert_eq!(items_expr, "1 2 3");
@@ -860,7 +860,7 @@ mod tests {
         let stmts = parse_body("while false; do echo hi; done");
         assert_eq!(stmts.len(), 1);
         let Statement::While { condition, .. } = &stmts[0] else {
-            panic!()
+            panic!("expected Statement::While in test_parse_body_while")
         };
         assert_eq!(condition, "false");
     }
@@ -869,7 +869,7 @@ mod tests {
     fn test_parse_body_break_in_for() {
         let stmts = parse_body("for i in 1; do break; done");
         let Statement::For { body, .. } = &stmts[0] else {
-            panic!()
+            panic!("expected Statement::For in test_parse_body_break_in_for")
         };
         assert!(matches!(body[0], Statement::Break));
     }
@@ -878,7 +878,7 @@ mod tests {
     fn test_parse_body_continue_in_for() {
         let stmts = parse_body("for i in 1 2; do continue; echo skip; done");
         let Statement::For { body, .. } = &stmts[0] else {
-            panic!()
+            panic!("expected Statement::For in test_parse_body_continue_in_for")
         };
         assert!(matches!(body[0], Statement::Continue));
     }
@@ -887,7 +887,7 @@ mod tests {
     fn test_parse_body_nested_if() {
         let stmts = parse_body("if true; then if true; then echo deep; fi; fi");
         let Statement::If { then_body, .. } = &stmts[0] else {
-            panic!()
+            panic!("expected Statement::If in test_parse_body_nested_if")
         };
         assert!(matches!(then_body[0], Statement::If { .. }));
     }

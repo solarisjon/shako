@@ -664,3 +664,8 @@ fn is_fish_internal_function(name: &str) -> bool {
                 | "wait"
         )
 }
+
+#[cfg(test)]
+mod tests {
+    // Tests for fish_import are tracked in CPE-66.
+}

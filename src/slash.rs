@@ -214,6 +214,11 @@ fn cmd_provider(args: &str, config: &mut ShakoConfig) -> i32 {
 mod tests {
     use super::*;
 
+    fn make_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Runtime::new()
+            .expect("failed to create tokio runtime for slash command test")
+    }
+
     #[test]
     fn test_slash_commands_list_not_empty() {
         assert!(!SLASH_COMMANDS.is_empty());
@@ -222,42 +227,42 @@ mod tests {
     #[test]
     fn test_unknown_command_returns_1() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("nonexistent", "", &mut config, &rt), 1);
     }
 
     #[test]
     fn test_help_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("help", "", &mut config, &rt), 0);
     }
 
     #[test]
     fn test_config_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("config", "", &mut config, &rt), 0);
     }
 
     #[test]
     fn test_model_no_args_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("model", "", &mut config, &rt), 0);
     }
 
     #[test]
     fn test_safety_no_args_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("safety", "", &mut config, &rt), 0);
     }
 
     #[test]
     fn test_safety_set_valid_mode() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("safety", "off", &mut config, &rt), 0);
         assert_eq!(config.behavior.safety_mode, "off");
     }
@@ -265,21 +270,21 @@ mod tests {
     #[test]
     fn test_safety_set_invalid_mode() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("safety", "invalid", &mut config, &rt), 1);
     }
 
     #[test]
     fn test_provider_no_args_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("provider", "", &mut config, &rt), 0);
     }
 
     #[test]
     fn test_provider_switch_unknown() {
         let mut config = ShakoConfig::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = make_runtime();
         assert_eq!(run("provider", "nonexistent", &mut config, &rt), 1);
     }
 }
