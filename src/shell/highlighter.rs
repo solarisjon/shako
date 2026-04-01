@@ -191,7 +191,11 @@ fn tokenize_for_highlighting(line: &str) -> Vec<HlToken> {
         }
 
         // Variable: $VAR, ${VAR}, $?
-        if c == '$' && i + 1 < len {
+        // Note: always handle `$` even when it is the last character in the
+        // input — if we skip it the outer loop cannot advance `i` past it
+        // (the "regular word" branch stops at `$` without consuming it),
+        // which causes an infinite loop that freezes keyboard input.
+        if c == '$' {
             let start = i;
             i += 1;
             if i < len && chars[i] == '{' {
@@ -322,4 +326,59 @@ fn tokenize_for_highlighting(line: &str) -> Vec<HlToken> {
     }
 
     tokens
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// tokenize_for_highlighting must terminate for every valid input string,
+    /// including corner cases that previously caused an infinite loop.
+    fn terminates(line: &str) -> Vec<HlToken> {
+        tokenize_for_highlighting(line)
+    }
+
+    #[test]
+    fn test_trailing_dollar_does_not_hang() {
+        // A lone `$` at the end of input used to loop forever because the
+        // outer `while i < len` could not advance `i` past it.
+        let tokens = terminates("set -x $");
+        // Should produce at least the "set" word token — exact count varies.
+        assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn test_dollar_var_name() {
+        let tokens = terminates("echo $HOME");
+        let has_var = tokens
+            .iter()
+            .any(|t| matches!(t, HlToken::Variable(s) if s == "$HOME"));
+        assert!(has_var, "expected $HOME as Variable token, got: {tokens:?}");
+    }
+
+    #[test]
+    fn test_set_x_var_name() {
+        // The reported hang scenario: highlighting `set -x ANTHROPIC_API_KEY`
+        // must complete in finite time with no hang.
+        let tokens = terminates("set -x ANTHROPIC_API_KEY");
+        assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn test_set_x_dollar_var() {
+        // Setting a variable by reading another: `set -x FOO $BAR`
+        // Ensure tokenization completes and $BAR is a Variable token.
+        let tokens = terminates("set -x FOO $BAR");
+        let has_var = tokens
+            .iter()
+            .any(|t| matches!(t, HlToken::Variable(s) if s == "$BAR"));
+        assert!(has_var, "expected $BAR as Variable token");
+    }
+
+    #[test]
+    fn test_lone_dollar_only() {
+        // Edge case: the entire input is just `$`.
+        let tokens = terminates("$");
+        assert!(!tokens.is_empty());
+    }
 }
