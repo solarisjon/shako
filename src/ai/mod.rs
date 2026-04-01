@@ -2,6 +2,7 @@ pub mod client;
 pub mod confirm;
 pub mod context;
 pub mod prompt;
+pub mod render;
 
 use crate::config::ShakoConfig;
 use anyhow::Result;
@@ -185,6 +186,9 @@ fn collapse_multiline(raw: &str) -> String {
 }
 
 /// Explain what a command does without executing it.
+///
+/// Collects the full LLM response silently, then renders it as styled markdown.
+/// If a spinner_flag is provided, the spinner is cleared when the first token arrives.
 pub async fn explain_command(
     command: &str,
     config: &ShakoConfig,
@@ -193,11 +197,13 @@ pub async fn explain_command(
     let ctx = context::build_context(vec![], vec![])?;
     let system_prompt = prompt::explain_prompt(&ctx);
 
-    if let Some(flag) = spinner_flag {
-        client::query_llm_with_spinner(&system_prompt, command, config.active_llm(), flag).await
+    let raw = if let Some(flag) = spinner_flag {
+        client::query_llm_with_spinner(&system_prompt, command, config.active_llm(), flag).await?
     } else {
-        client::query_llm(&system_prompt, command, config.active_llm()).await
-    }
+        client::query_llm(&system_prompt, command, config.active_llm()).await?
+    };
+
+    Ok(render::render_markdown_explanation(&raw))
 }
 
 /// Search shell history using AI semantic matching.
