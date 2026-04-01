@@ -3,7 +3,8 @@
 use super::state::ShellState;
 
 /// `history` — display recent history entries.
-///   history [N]   show last N entries (default 25)
+///
+/// Usage: `history [N]` — show last `N` entries (default 25).
 pub fn builtin_history(args: &[&str], state: &ShellState) {
     let limit: usize = args.first().and_then(|s| s.parse().ok()).unwrap_or(25);
 

@@ -3,6 +3,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Top-level shako configuration, loaded from `~/.config/shako/config.toml`.
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct ShakoConfig {
     /// Legacy single-provider config. Used when no `active_provider` is set.
@@ -13,10 +14,13 @@ pub struct ShakoConfig {
     pub providers: HashMap<String, LlmConfig>,
     /// Which named provider to use. If unset, falls back to `[llm]`.
     pub active_provider: Option<String>,
+    /// Shell behavior settings (confirmation, safety mode, history, etc.).
     #[serde(default)]
     pub behavior: BehaviorConfig,
+    /// Fish shell import settings.
     #[serde(default)]
     pub fish: FishConfig,
+    /// User-defined aliases (e.g. `ll = "ls -la"`).
     #[serde(default)]
     pub aliases: HashMap<String, String>,
     /// Abbreviations: short strings expanded to longer commands on space.
@@ -44,20 +48,31 @@ impl ShakoConfig {
     }
 }
 
+/// Configuration for a single LLM provider endpoint.
+///
+/// Used both as the legacy `[llm]` block and as named entries under
+/// `[providers.<name>]`.
 #[derive(Debug, Deserialize, Clone)]
 pub struct LlmConfig {
+    /// HTTP endpoint URL for the chat-completions API.
     #[serde(default = "default_endpoint")]
     pub endpoint: String,
+    /// Model identifier sent in the API request body.
     #[serde(default = "default_model")]
     pub model: String,
+    /// Name of the environment variable that holds the API key.
     #[serde(default = "default_api_key_env")]
     pub api_key_env: String,
+    /// Request timeout in seconds.
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
+    /// Maximum tokens the model may generate per response.
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
+    /// Whether to verify TLS certificates. Set to `false` for local proxies.
     #[serde(default = "default_true")]
     pub verify_ssl: bool,
+    /// Sampling temperature (0.0–1.0). Lower values → more deterministic output.
     #[serde(default = "default_temperature")]
     pub temperature: f32,
     /// API format: `"anthropic"` for Anthropic's native API, anything else (or unset)
@@ -66,18 +81,25 @@ pub struct LlmConfig {
     pub provider_type: Option<String>,
 }
 
+/// Behavior configuration for the shako REPL.
 #[derive(Debug, Deserialize, Clone)]
 pub struct BehaviorConfig {
+    /// If `true`, show a `[Y/n/e]` confirmation prompt before running AI-generated commands.
     #[serde(default = "default_true")]
     pub confirm_ai_commands: bool,
+    /// If `true`, automatically suggest corrections for likely typos.
     #[serde(default = "default_true")]
     pub auto_correct_typos: bool,
+    /// If `false`, AI translation is disabled — unknown input is treated as a command error.
     #[serde(default = "default_true")]
     pub ai_enabled: bool,
+    /// Number of recent history lines to include as context for AI requests.
     #[serde(default = "default_history_lines")]
     pub history_context_lines: usize,
+    /// Safety mode: `"on"` (default), `"warn"`, or `"off"`.
     #[serde(default = "default_safety_mode")]
     pub safety_mode: String,
+    /// Line-editing mode: `"emacs"` (default) or `"vi"`.
     #[serde(default = "default_edit_mode")]
     pub edit_mode: String,
     /// Maximum number of history entries to keep.  Defaults to 10,000.
@@ -97,8 +119,10 @@ pub struct BehaviorConfig {
     pub ai_system_prompt_extra: Option<String>,
 }
 
+/// Configuration for fish shell interoperability.
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct FishConfig {
+    /// If `true`, source `~/.config/fish/config.fish` on startup after import.
     #[serde(default)]
     pub source_config: bool,
 }

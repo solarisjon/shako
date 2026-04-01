@@ -653,15 +653,107 @@ fn offer_ai_recovery(
         return;
     }
 
-    // Styled error header panel
-    let err_line = format!("\x1b[1;31m✗\x1b[0m exit {exit_code}  \x1b[90m{command}\x1b[0m");
-    eprintln!(" \x1b[31m╷\x1b[0m {err_line}");
-    print!(" \x1b[31m╰\x1b[0m \x1b[90mask AI for help? [y/N]\x1b[0m ");
+    // ── styled error header panel ────────────────────────────────────────────
+    const GRAD: &[u8] = &[30, 31, 32, 37, 38, 44, 45];
+    let mid_color = GRAD[GRAD.len() / 2];
+
+    let term_width = crossterm::terminal::size()
+        .map(|(w, _)| w as usize)
+        .unwrap_or(80);
+
+    let grad_line = |width: usize| -> String {
+        (0..width)
+            .map(|i| {
+                let idx = if width <= 1 {
+                    0
+                } else {
+                    i * (GRAD.len() - 1) / (width - 1)
+                };
+                format!("\x1b[38;5;{}m─\x1b[0m", GRAD[idx])
+            })
+            .collect()
+    };
+
+    let border = |c: char| format!("\x1b[38;5;{mid_color}m{c}\x1b[0m");
+
+    let visible_len = |s: &str| -> usize {
+        let mut len = 0;
+        let mut in_esc = false;
+        for c in s.chars() {
+            if c == '\x1b' {
+                in_esc = true;
+            } else if in_esc {
+                if c.is_ascii_alphabetic() {
+                    in_esc = false;
+                }
+            } else {
+                len += 1;
+            }
+        }
+        len
+    };
+
+    let err_styled = format!(
+        "\x1b[1;31m✗\x1b[0m \x1b[90mexit {exit_code}\x1b[0m  \x1b[1m{command}\x1b[0m"
+    );
+    let hint_styled = "\x1b[90mask AI for help? [y/N]\x1b[0m";
+
+    let err_vis = visible_len(&err_styled);
+    let hint_vis = visible_len(hint_styled);
+    let content_width = err_vis.max(hint_vis).max(36);
+    let inner_width = (content_width + 4).min(term_width.saturating_sub(2));
+    let content_inner = inner_width.saturating_sub(4);
+
+    let box_line = |content: &str| -> String {
+        let vl = visible_len(content);
+        let pad = content_inner.saturating_sub(vl);
+        format!(
+            " {b}  {content}{}  {b}",
+            " ".repeat(pad),
+            b = border('│')
+        )
+    };
+
+    let label = format!("\x1b[38;5;{mid_color}m error \x1b[0m");
+    let label_vis = 8usize;
+    let rest_width = inner_width.saturating_sub(label_vis + 2);
+
+    eprintln!(
+        " {tl}{sep}{label}{rest}{tr}",
+        tl = border('╭'),
+        sep = grad_line(2),
+        label = label,
+        rest = grad_line(rest_width),
+        tr = border('╮'),
+    );
+    eprintln!("{}", box_line(&err_styled));
+    eprintln!(
+        " {bl}{sep}{br}",
+        bl = border('├'),
+        sep = grad_line(inner_width),
+        br = border('┤'),
+    );
+
+    // Print the ask-AI prompt inside the panel
+    let ask_pad = content_inner.saturating_sub(hint_vis);
+    eprint!(
+        " {b}  {hint}{}  {b} ",
+        " ".repeat(ask_pad),
+        b = border('│'),
+        hint = hint_styled,
+    );
     io::stdout().flush().ok();
 
     let mut answer = String::new();
     io::stdin().read_line(&mut answer).ok();
     let answer = answer.trim().to_lowercase();
+
+    eprintln!(
+        " {bl}{bot}{br}",
+        bl = border('╰'),
+        bot = grad_line(inner_width),
+        br = border('╯'),
+    );
 
     if answer != "y" && answer != "yes" {
         return;
@@ -699,23 +791,88 @@ fn offer_ai_recovery(
                 }
             }
 
-            if !cause.is_empty() {
-                eprintln!(" \x1b[36m╷\x1b[0m \x1b[90mcause:\x1b[0m {cause}");
-            }
-
             if fix.is_empty() || fix == "SHAKO_NO_FIX" {
                 return;
             }
 
+            // ── styled diagnosis result panel ────────────────────────────────
+            let cause_row = if cause.is_empty() {
+                String::new()
+            } else {
+                format!("\x1b[90mcause:\x1b[0m  {cause}")
+            };
+            let fix_row = format!("\x1b[90mfix:\x1b[0m    \x1b[1;36m{fix}\x1b[0m");
+            let opts_row = "\x1b[90m[Y]es  [n]o  [e]dit\x1b[0m";
+
+            let mut rows: Vec<&str> = Vec::new();
+            if !cause_row.is_empty() {
+                rows.push(&cause_row);
+            }
+            rows.push(&fix_row);
+
+            let max_vis = rows
+                .iter()
+                .chain(std::iter::once(&opts_row))
+                .map(|s| visible_len(s))
+                .max()
+                .unwrap_or(32);
+            let content_width2 = max_vis.max(36);
+            let inner_width2 = (content_width2 + 4).min(term_width.saturating_sub(2));
+            let content_inner2 = inner_width2.saturating_sub(4);
+
+            let box_line2 = |content: &str| -> String {
+                let vl = visible_len(content);
+                let pad = content_inner2.saturating_sub(vl);
+                format!(
+                    " {b}  {content}{}  {b}",
+                    " ".repeat(pad),
+                    b = border('│')
+                )
+            };
+
+            let diag_label = format!("\x1b[38;5;{mid_color}m diagnosis \x1b[0m");
+            let diag_label_vis = 12usize;
+            let diag_rest = inner_width2.saturating_sub(diag_label_vis + 2);
+
             eprintln!(
-                " \x1b[36m╷\x1b[0m \x1b[90mfix:\x1b[0m    \x1b[1;36m{fix}\x1b[0m"
+                " {tl}{sep}{label}{rest}{tr}",
+                tl = border('╭'),
+                sep = grad_line(2),
+                label = diag_label,
+                rest = grad_line(diag_rest),
+                tr = border('╮'),
             );
-            print!(" \x1b[36m╰\x1b[0m \x1b[90m[Y]es  [n]o  [e]dit:\x1b[0m ");
+            for row in &rows {
+                eprintln!("{}", box_line2(row));
+            }
+            eprintln!(
+                " {bl}{sep}{br}",
+                bl = border('├'),
+                sep = grad_line(inner_width2),
+                br = border('┤'),
+            );
+
+            // Options prompt inside the panel
+            let opts_vis = visible_len(opts_row);
+            let opts_pad = content_inner2.saturating_sub(opts_vis);
+            eprint!(
+                " {b}  {opts}{}  {b} ",
+                " ".repeat(opts_pad),
+                b = border('│'),
+                opts = opts_row,
+            );
             io::stdout().flush().ok();
 
             let mut answer = String::new();
             io::stdin().read_line(&mut answer).ok();
             let answer = answer.trim().to_lowercase();
+
+            eprintln!(
+                " {bl}{bot}{br}",
+                bl = border('╰'),
+                bot = grad_line(inner_width2),
+                br = border('╯'),
+            );
 
             match answer.as_str() {
                 "" | "y" | "yes" => {
@@ -728,7 +885,7 @@ fn offer_ai_recovery(
                     }
                 }
                 "e" | "edit" => {
-                    print!(" \x1b[36m❯\x1b[0m ");
+                    eprint!(" {} ", border('❯'));
                     io::stdout().flush().ok();
                     let mut edited = String::new();
                     io::stdin().read_line(&mut edited).ok();
