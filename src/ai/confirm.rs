@@ -153,8 +153,9 @@ pub fn print_multi_command_preview(command: &str) -> bool {
     eprintln!("\x1b[90m shako translated your request to:\x1b[0m");
     for (i, step) in steps.iter().enumerate() {
         eprintln!(
-            "   {} \x1b[1m{step}\x1b[0m",
-            format!("\x1b[38;5;{}m{}.\x1b[0m", GRAD[GRAD.len() / 2], i + 1)
+            "   \x1b[38;5;{}m{}.\x1b[0m \x1b[1m{step}\x1b[0m",
+            GRAD[GRAD.len() / 2],
+            i + 1
         );
     }
     eprintln!("\x1b[90m Run all {} steps?\x1b[0m", steps.len());
