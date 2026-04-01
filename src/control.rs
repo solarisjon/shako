@@ -41,6 +41,12 @@ pub enum Statement {
         condition: String,
         body: Vec<Statement>,
     },
+    /// `case WORD in PATTERN) BODY ;; ... esac`
+    Case {
+        word: String,
+        /// Each arm is (patterns, body) where patterns are `|`-separated alternatives.
+        arms: Vec<(Vec<String>, Vec<Statement>)>,
+    },
     Break,
     Continue,
     /// `local VAR` or `local VAR=value`
@@ -64,6 +70,9 @@ enum Kw {
     Break,
     Continue,
     Local,
+    Case,
+    In,
+    Esac,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +87,7 @@ enum BodyToken {
 pub fn is_control_flow(input: &str) -> bool {
     matches!(
         input.split_whitespace().next().unwrap_or(""),
-        "if" | "for" | "while"
+        "if" | "for" | "while" | "case"
     )
 }
 
@@ -153,6 +162,9 @@ fn leading_keyword(seg: &str) -> Option<(Kw, &str)> {
         ("local", Kw::Local),
         ("continue", Kw::Continue),
         ("break", Kw::Break),
+        ("esac", Kw::Esac), // case/esac closer
+        ("case", Kw::Case),
+        ("in", Kw::In),
         ("fi", Kw::Fi), // bash compat alias for end
         ("for", Kw::For),
         ("do", Kw::Do), // bash compat, optional in fish
@@ -278,6 +290,89 @@ impl Parser {
         stmts
     }
 
+    /// Parse `case` arms until `esac` (or end of input).
+    ///
+    /// The tokenizer produces arm content like `"foo) echo bar"` as a single
+    /// Cmd token (because `split_semicolons` splits on `;` but not `)`).
+    /// We split each Cmd on the first unquoted `)` to separate the pattern
+    /// list from the body, and collect until we see `esac` / `end`.
+    fn parse_case_arms(&mut self) -> Vec<(Vec<String>, Vec<Statement>)> {
+        let mut arms = Vec::new();
+        loop {
+            // Check for esac / end.
+            match self.tokens.get(self.pos) {
+                None => break,
+                Some(BodyToken::Kw(Kw::Esac)) | Some(BodyToken::Kw(Kw::End)) => {
+                    self.pos += 1;
+                    break;
+                }
+                _ => {}
+            }
+
+            // Take the next Cmd token. It has the form `PATTERN) BODY` or just
+            // `PATTERN)` (body may appear in subsequent tokens before `;;` / `esac`).
+            let token = match self.tokens.get(self.pos) {
+                Some(BodyToken::Cmd(s)) => {
+                    let s = s.clone();
+                    self.pos += 1;
+                    s
+                }
+                Some(BodyToken::Kw(_)) => break,
+                None => break,
+            };
+
+            // Split on the first unquoted ')' to get (pattern_part, body_start).
+            let Some(paren_idx) = token.find(')') else {
+                continue;
+            };
+            let raw_pattern = token[..paren_idx].trim();
+            let body_start = token[paren_idx + 1..].trim().to_string();
+
+            let patterns: Vec<String> = raw_pattern
+                .split('|')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+            if patterns.is_empty() {
+                continue;
+            }
+
+            // Accumulate body: the part after `)` in this token, plus any
+            // subsequent Cmd tokens until esac/end (the `;;` terminators were
+            // stripped as empty segments by split_semicolons).
+            let mut body_parts: Vec<String> = Vec::new();
+            if !body_start.is_empty() {
+                body_parts.push(body_start);
+            }
+            loop {
+                match self.tokens.get(self.pos) {
+                    None | Some(BodyToken::Kw(Kw::Esac)) | Some(BodyToken::Kw(Kw::End)) => break,
+                    Some(BodyToken::Cmd(s)) => {
+                        // Check if this Cmd looks like a new pattern (contains ')')
+                        // and we already have pattern+body — that signals a new arm.
+                        let s = s.clone();
+                        if s.contains(')') {
+                            break; // next arm starts here
+                        }
+                        body_parts.push(s);
+                        self.pos += 1;
+                    }
+                    Some(BodyToken::Kw(_)) => break,
+                }
+            }
+
+            let body_input = body_parts.join("; ");
+            let body = if body_input.trim().is_empty() {
+                Vec::new()
+            } else {
+                parse_body(&body_input)
+            };
+
+            arms.push((patterns, body));
+        }
+        arms
+    }
+
     /// Parse a single statement and return it, or `None` to skip.
     fn parse_one(&mut self) -> Option<Statement> {
         match self.tokens.get(self.pos)?.clone() {
@@ -342,6 +437,26 @@ impl Parser {
                 let body = self.parse_until(&[Kw::End, Kw::Done]);
                 self.skip_end_kw(); // accept end / done
                 Some(Statement::While { condition, body })
+            }
+
+            BodyToken::Kw(Kw::Case) => {
+                self.pos += 1;
+                // The tokenizer emits `case WORD in` as `Kw(Case)` + `Cmd("WORD in")`,
+                // since `emit_segment` doesn't split intra-segment tokens.
+                // Extract just the word: strip the trailing " in" from the Cmd.
+                let raw = self.take_cmd();
+                let word = raw
+                    .strip_suffix(" in")
+                    .or_else(|| raw.strip_suffix("\tin"))
+                    .unwrap_or(&raw)
+                    .trim()
+                    .to_string();
+                // Also skip a standalone `in` keyword if present (shouldn't be,
+                // but defensive).
+                self.skip_kw(&Kw::In);
+                // Now collect arms until `esac` or `end`.
+                let arms = self.parse_case_arms();
+                Some(Statement::Case { word, arms })
             }
 
             BodyToken::Kw(Kw::Break) => {
@@ -491,6 +606,26 @@ fn exec_one(stmt: &Statement, locals: &mut Vec<(String, Option<String>)>) -> Exe
             ExecSignal::Normal(last)
         }
 
+        Statement::Case { word, arms } => {
+            // Expand the word expression.
+            let value = crate::parser::parse_args(word).join(" ");
+
+            let mut last_code = 0i32;
+            'case_loop: for (patterns, body) in arms {
+                for pat in patterns {
+                    if case_pattern_matches(&value, pat) {
+                        last_code = match exec_statements(body, locals) {
+                            ExecSignal::Normal(c) | ExecSignal::Return(c) => c,
+                            ExecSignal::Break => break 'case_loop,
+                            ExecSignal::Continue => continue 'case_loop,
+                        };
+                        break 'case_loop;
+                    }
+                }
+            }
+            ExecSignal::Normal(last_code)
+        }
+
         Statement::Break => ExecSignal::Break,
         Statement::Continue => ExecSignal::Continue,
 
@@ -512,6 +647,29 @@ fn exec_one(stmt: &Statement, locals: &mut Vec<(String, Option<String>)>) -> Exe
             ExecSignal::Normal(0)
         }
     }
+}
+
+/// Match a `case` pattern (POSIX glob) against a value string.
+///
+/// Supports:
+/// - `*`   — matches any string (including empty)
+/// - `?`   — matches any single character
+/// - `[…]` — character class
+/// - Exact string match (no special chars)
+fn case_pattern_matches(value: &str, pattern: &str) -> bool {
+    // Fast path: literal equality or "*"
+    if pattern == "*" {
+        return true;
+    }
+    if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') {
+        return value == pattern;
+    }
+    // Use the `glob` crate's pattern matching via glob::Pattern.
+    if let Ok(p) = glob::Pattern::new(pattern) {
+        return p.matches(value);
+    }
+    // Fallback: exact match
+    value == pattern
 }
 
 /// Save the current env value of `var` into `locals` (once per var).

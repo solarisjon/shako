@@ -1015,6 +1015,48 @@ fn test_ansi_c_quoting_literal_string() {
     assert_eq!(stdout(&out).trim(), "hello\tworld");
 }
 
+// ── case/esac ────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_case_literal_match() {
+    let out = shako("case hello in; hello) echo matched ;; *) echo nomatch ;; esac");
+    assert_eq!(stdout(&out).trim(), "matched");
+}
+
+#[test]
+fn test_case_wildcard_fallthrough() {
+    let out = shako("case xyz in; hello) echo hello ;; xyz) echo xyz ;; *) echo other ;; esac");
+    assert_eq!(stdout(&out).trim(), "xyz");
+}
+
+#[test]
+fn test_case_star_default() {
+    let out = shako("case baz in; hello) echo hello ;; *) echo other ;; esac");
+    assert_eq!(stdout(&out).trim(), "other");
+}
+
+#[test]
+fn test_case_pipe_alternatives() {
+    let out = shako("case foo in; foo|bar) echo foobar ;; *) echo other ;; esac");
+    assert_eq!(stdout(&out).trim(), "foobar");
+    let out2 = shako("case bar in; foo|bar) echo foobar ;; *) echo other ;; esac");
+    assert_eq!(stdout(&out2).trim(), "foobar");
+}
+
+#[test]
+fn test_case_glob_pattern() {
+    let out = shako("case start_foo in; start_*) echo glob ;; *) echo no ;; esac");
+    assert_eq!(stdout(&out).trim(), "glob");
+}
+
+#[test]
+fn test_case_no_match_no_output() {
+    // When no arm matches and there is no default, exit code should be 0.
+    let out = shako("case xyz in; hello) echo hello ;; esac");
+    assert_eq!(stdout(&out).trim(), "");
+    assert!(out.status.success());
+}
+
 // ── Heredoc (<<EOF) ──────────────────────────────────────────────────────────
 
 #[test]
