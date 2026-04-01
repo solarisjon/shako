@@ -129,8 +129,8 @@ pub fn normalize_endpoint(endpoint: &str) -> String {
 }
 
 /// Query the configured LLM endpoint with OpenAI-compatible API.
-/// Streams tokens to stdout as they arrive. Falls back to non-streaming
-/// parse if the server ignores `stream: true` and returns plain JSON.
+/// Accumulates the full response without streaming to stdout.
+/// Falls back to non-streaming parse if the server ignores `stream: true`.
 /// Retries once on transient network errors with a short delay.
 pub async fn query_llm(
     system_prompt: &str,
@@ -140,6 +140,8 @@ pub async fn query_llm(
     query_llm_inner(system_prompt, user_input, config, None).await
 }
 
+/// Like `query_llm` but clears a spinner when the first token arrives.
+/// The caller is responsible for rendering the response (e.g. in a styled panel).
 pub async fn query_llm_with_spinner(
     system_prompt: &str,
     user_input: &str,
@@ -249,7 +251,8 @@ async fn query_anthropic(
                                 if event.event_type == "content_block_delta" {
                                     if let Some(delta) = event.delta {
                                         if delta.delta_type == "text_delta" {
-                                            if let Some(text) = delta.text {
+                                                if let Some(text) = delta.text {
+                                                // Clear the spinner on the first token
                                                 if let Some(ref flag) = spinner_flag {
                                                     if flag.load(Ordering::Relaxed) {
                                                         flag.store(false, Ordering::Relaxed);
@@ -260,8 +263,7 @@ async fn query_anthropic(
                                                         let _ = std::io::stderr().flush();
                                                     }
                                                 }
-                                                print!("{text}");
-                                                let _ = std::io::stdout().flush();
+                                                // Accumulate only — caller decides how to render
                                                 full_text.push_str(&text);
                                             }
                                         }
@@ -277,7 +279,6 @@ async fn query_anthropic(
                 }
 
                 if !full_text.is_empty() {
-                    println!();
                     return Ok(full_text.trim().to_string());
                 }
 
@@ -394,7 +395,8 @@ async fn query_openai_compat(
                             }
                             if let Ok(chunk_resp) = serde_json::from_str::<StreamResponse>(data) {
                                 if let Some(choice) = chunk_resp.choices.first() {
-                                    if let Some(content) = &choice.delta.content {
+                                        if let Some(content) = &choice.delta.content {
+                                        // Clear the spinner on the first token
                                         if let Some(ref flag) = spinner_flag {
                                             if flag.load(Ordering::Relaxed) {
                                                 flag.store(false, Ordering::Relaxed);
@@ -405,8 +407,7 @@ async fn query_openai_compat(
                                                 let _ = std::io::stderr().flush();
                                             }
                                         }
-                                        print!("{content}");
-                                        let _ = std::io::stdout().flush();
+                                        // Accumulate only — caller decides how to render
                                         full_text.push_str(content);
                                     }
                                 }
@@ -420,8 +421,6 @@ async fn query_openai_compat(
                 }
 
                 if !full_text.is_empty() {
-                    // Streaming worked — emit trailing newline for the confirm prompt
-                    println!();
                     return Ok(full_text.trim().to_string());
                 }
 
