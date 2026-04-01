@@ -82,7 +82,10 @@ pub fn run_wizard(config_path: &Path) -> Result<String> {
             if matches!(answer.trim().to_lowercase().as_str(), "" | "y" | "yes") {
                 writeln!(out)?;
                 drop(out);
+                #[cfg(feature = "fish-import")]
                 crate::fish_import::run_import();
+                #[cfg(not(feature = "fish-import"))]
+                eprintln!("shako: fish-import: not compiled in");
             } else {
                 writeln!(
                     out,
@@ -362,7 +365,11 @@ fn find_user_starship_config() -> Option<PathBuf> {
     }
     // XDG default
     let p = dirs::home_dir()?.join(".config").join("starship.toml");
-    if p.exists() { Some(p) } else { None }
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 /// Merge shako shell indicator settings into an existing Starship TOML config string.

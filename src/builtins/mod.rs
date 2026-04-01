@@ -152,7 +152,10 @@ pub fn run_builtin(input: &str, state: &mut ShellState) -> i32 {
             0
         }
         "fish-import" => {
+            #[cfg(feature = "fish-import")]
             crate::fish_import::run_import();
+            #[cfg(not(feature = "fish-import"))]
+            eprintln!("shako: fish-import: not compiled in (rebuild with --features fish-import)");
             0
         }
         "source" => {

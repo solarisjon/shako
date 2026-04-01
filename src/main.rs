@@ -14,6 +14,7 @@ mod classifier;
 mod config;
 mod control;
 mod executor;
+#[cfg(feature = "fish-import")]
 mod fish_import;
 mod learned_prefs;
 mod parser;

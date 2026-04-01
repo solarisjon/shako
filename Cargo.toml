@@ -11,6 +11,12 @@ rust-version = "1.85.0"
 name = "shako"
 path = "src/main.rs"
 
+[features]
+default = ["fish-import"]
+# Fish shell configuration importer (src/fish_import.rs).
+# Disable with --no-default-features if you don't use fish and want a smaller binary.
+fish-import = []
+
 [dependencies]
 # Line editing (nushell's editor)
 reedline = "0.46"
