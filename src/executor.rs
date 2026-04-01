@@ -1,3 +1,13 @@
+//! Command execution engine for shako.
+//!
+//! This module handles the full lifecycle of running shell commands:
+//! process spawning, pipe plumbing, I/O redirection (heredoc, herestring,
+//! `>`, `>>`, `<`, `2>`, `2>&1`), chain operators (`&&`, `||`, `;`), and
+//! job-control primitives (foreground wait, background spawn, stopped-job
+//! notifications).
+//!
+//! The main entry points are [`execute_command`] and [`execute_command_with_stderr`].
+
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
@@ -10,7 +20,9 @@ use crate::parser;
 /// rather than exited.  Posted to the thread-local [`STOPPED_JOB`] so that
 /// the REPL loop in `main.rs` can add it to `ShellState.jobs`.
 pub struct StoppedJob {
+    /// Process ID of the stopped child.
     pub pid: u32,
+    /// Process group ID — used to send signals to the entire job pipeline.
     pub pgid: i32,
 }
 

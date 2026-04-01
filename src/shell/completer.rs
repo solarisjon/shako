@@ -1,3 +1,15 @@
+//! Tab-completion engine for the shako interactive shell.
+//!
+//! [`ShakoCompleter`] implements the `reedline::Completer` trait and provides
+//! context-aware completions for:
+//! - Commands and executables from `$PATH` (via [`PathCache`])
+//! - Shell builtins, aliases, and function names
+//! - File and directory paths
+//! - Git subcommands, flags, and branch/ref names
+//! - SSH hostnames from `~/.ssh/config`
+//! - Docker, cargo, make-target, and kubectl subcommands
+//! - Flag/option completions for common commands (git, cargo, docker, etc.)
+
 use reedline::{Completer, Span, Suggestion};
 use std::fs;
 use std::path::PathBuf;
@@ -425,6 +437,10 @@ const GIT_BRANCH_CMDS: &[&str] = &[
     "branch",
 ];
 
+/// Tab-completion engine for the shako interactive shell.
+///
+/// Provides context-aware completions for commands, flags, paths, git branches,
+/// SSH hosts, and more. Implements the `reedline::Completer` trait.
 pub struct ShakoCompleter {
     cache: Arc<PathCache>,
     /// Alias and function names shared from the REPL loop for first-token completion.
@@ -432,6 +448,8 @@ pub struct ShakoCompleter {
 }
 
 impl ShakoCompleter {
+    /// Create a new `ShakoCompleter` with a shared [`PathCache`] and an
+    /// externally-maintained list of extra completions (aliases, function names).
     pub fn new(cache: Arc<PathCache>, extra_completions: Arc<RwLock<Vec<String>>>) -> Self {
         Self {
             cache,

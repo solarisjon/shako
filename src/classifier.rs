@@ -1,3 +1,11 @@
+//! Input classification — the first stage of shako's dispatch pipeline.
+//!
+//! Every line of user input passes through [`Classifier::classify`], which
+//! decides whether to execute it as a shell command, route it to the AI
+//! engine, handle it as a builtin, suggest a typo correction, or present an
+//! explain-mode response.  Nothing else in shako calls the executor or AI
+//! layer directly without first going through this module.
+
 use std::sync::Arc;
 
 use strsim::damerau_levenshtein;
@@ -29,11 +37,18 @@ pub enum Classification {
     Empty,
 }
 
+/// Classifies raw user input into the appropriate dispatch category.
+///
+/// The classifier is the first stage of the shako dispatch pipeline. It
+/// examines each line of user input and decides whether to run it as a shell
+/// command, route it to the AI engine, trigger a builtin, or suggest a typo
+/// correction.
 pub struct Classifier {
     cache: Arc<PathCache>,
 }
 
 impl Classifier {
+    /// Create a new `Classifier` backed by the given [`PathCache`].
     pub fn new(cache: Arc<PathCache>) -> Self {
         Self { cache }
     }

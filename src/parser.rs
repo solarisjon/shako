@@ -75,6 +75,7 @@ fn subst_preamble() -> String {
 /// A parsed token from shell input, after quote handling.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
+    /// The raw token text after quote removal and escape processing.
     pub value: String,
     /// Whether this token was quoted (suppresses glob expansion).
     pub quoted: bool,
@@ -1237,6 +1238,10 @@ pub fn split_chains(input: &str) -> Vec<(String, ChainOp)> {
     chains
 }
 
+/// The operator that follows a command in a chain expression.
+///
+/// Returned alongside each command segment by [`split_chains`] to indicate
+/// what condition (if any) should gate execution of the subsequent command.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ChainOp {
     /// `&&` — run next only if this succeeds
