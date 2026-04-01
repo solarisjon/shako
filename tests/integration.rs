@@ -20,6 +20,15 @@ fn shako(cmd: &str) -> std::process::Output {
         .expect("failed to run shako")
 }
 
+/// Run shako -c with a multi-line heredoc script (lines joined by \n).
+fn shako_ml(cmd: &str) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_shako"))
+        .args(["-c", cmd])
+        .env("XDG_CONFIG_HOME", test_config_home())
+        .output()
+        .expect("failed to run shako")
+}
+
 fn stdout(output: &std::process::Output) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
@@ -1004,4 +1013,55 @@ fn test_ansi_c_quoting_escape() {
 fn test_ansi_c_quoting_literal_string() {
     let out = shako(r#"echo $'hello\tworld'"#);
     assert_eq!(stdout(&out).trim(), "hello\tworld");
+}
+
+// ── Heredoc (<<EOF) ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_heredoc_basic() {
+    // Basic heredoc: cat <<EOF\nline1\nline2\nEOF
+    let script = "cat <<EOF\nhello\nworld\nEOF";
+    let out = shako_ml(script);
+    assert!(out.status.success(), "heredoc failed: {:?}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "hello\nworld");
+}
+
+#[test]
+fn test_heredoc_with_env_expansion() {
+    // Variable expansion inside heredoc body — use an env var that's already set.
+    // We use HOME which is always available.
+    let script = "cat <<EOF\nHOME is $HOME\nEOF";
+    let out = shako_ml(script);
+    assert!(out.status.success());
+    let out_text = stdout(&out).trim().to_string();
+    // The body should contain the actual value of $HOME (not the literal "$HOME")
+    let home = std::env::var("HOME").unwrap_or_default();
+    assert!(
+        out_text.contains(&home) || out_text.contains("HOME"),
+        "expected HOME expansion in heredoc output, got: {out_text}"
+    );
+}
+
+#[test]
+fn test_heredoc_quoted_marker_no_expansion() {
+    // Quoted marker ('EOF') suppresses variable expansion
+    let script = "cat <<'EOF'\n$HOME is not expanded\nEOF";
+    let out = shako_ml(script);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "$HOME is not expanded");
+}
+
+#[test]
+fn test_heredoc_strip_tabs() {
+    // <<-EOF strips leading tabs from body lines
+    let script = "cat <<-EOF\n\thello\n\tworld\nEOF";
+    let out = shako_ml(script);
+    assert!(out.status.success());
+    let body = stdout(&out).trim().to_string();
+    // Leading tabs should be stripped
+    assert!(
+        !body.starts_with('\t'),
+        "tabs should be stripped, got: {body:?}"
+    );
+    assert!(body.contains("hello") && body.contains("world"));
 }

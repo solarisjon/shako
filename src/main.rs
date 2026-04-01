@@ -438,24 +438,33 @@ fn main() -> Result<()> {
                     continue;
                 }
 
-                // Multiline continuation: trailing \ or unclosed quotes
+                // Multiline continuation: trailing \ or unclosed quotes or open heredoc
                 while needs_continuation(&input) {
+                    let in_heredoc = heredoc_needs_continuation(&input);
                     let cont_prompt = reedline::DefaultPrompt::new(
-                        reedline::DefaultPromptSegment::Basic("... ".to_string()),
+                        reedline::DefaultPromptSegment::Basic(
+                            if in_heredoc { "heredoc> ".to_string() } else { "... ".to_string() },
+                        ),
                         reedline::DefaultPromptSegment::Empty,
                     );
                     match line_editor.read_line(&cont_prompt) {
                         Ok(Signal::Success(next)) => {
-                            if input.ends_with('\\') {
+                            if in_heredoc {
+                                // Heredoc lines must be joined with real newlines so that
+                                // executor::parse_redirects can find the terminator line.
+                                input.push('\n');
+                                input.push_str(&next);
+                            } else if input.ends_with('\\') {
                                 input.pop(); // remove trailing backslash — join as one token
                                 input.push(' ');
+                                input.push_str(next.trim());
                             } else {
                                 // Treat each continuation line as a new statement so
                                 // that keywords like `done`/`fi` form their own segment
                                 // and are recognised by control_depth / split_semicolons.
                                 input.push_str("; ");
+                                input.push_str(next.trim());
                             }
-                            input.push_str(next.trim());
                         }
                         _ => break,
                     }
@@ -906,8 +915,77 @@ fn needs_continuation(input: &str) -> bool {
         return true;
     }
 
+    // Detect open heredoc (<<MARKER without a matching MARKER terminator line).
+    if heredoc_needs_continuation(input) {
+        return true;
+    }
+
     // Count unclosed control-flow blocks
     control_depth(input) > 0
+}
+
+/// Returns true when `input` contains a `<<MARKER` heredoc that has not yet
+/// seen its terminator line.
+fn heredoc_needs_continuation(input: &str) -> bool {
+    // Quick exit: no heredoc operator
+    if !input.contains("<<") {
+        return false;
+    }
+
+    // For each line, look for <<MARKER.  If we find one, check if the
+    // accumulated lines so far contain the terminator.
+    for (line_idx, line) in input.split('\n').enumerate() {
+        // Scan this line for << (not <<<).
+        let chars: Vec<char> = line.chars().collect();
+        let mut i = 0;
+        while i + 1 < chars.len() {
+            if chars[i] == '<'
+                && chars[i + 1] == '<'
+                && !(i + 2 < chars.len() && chars[i + 2] == '<')
+            {
+                i += 2;
+                if i < chars.len() && chars[i] == '-' {
+                    i += 1;
+                }
+                while i < chars.len() && chars[i] == ' ' {
+                    i += 1;
+                }
+                // Extract marker
+                let mut marker = String::new();
+                let quote_ch = if i < chars.len() && (chars[i] == '\'' || chars[i] == '"') {
+                    let q = chars[i];
+                    i += 1;
+                    Some(q)
+                } else {
+                    None
+                };
+                while i < chars.len() {
+                    let c = chars[i];
+                    if let Some(qc) = quote_ch {
+                        if c == qc {
+                            break;
+                        }
+                    } else if c == ' ' || c == '\t' || c == ';' || c == '|' || c == '&' {
+                        break;
+                    }
+                    marker.push(c);
+                    i += 1;
+                }
+                if marker.is_empty() {
+                    break;
+                }
+                // Check if the terminator appears in subsequent lines
+                let subsequent_lines: Vec<&str> = input.split('\n').skip(line_idx + 1).collect();
+                let found = subsequent_lines.iter().any(|l| l.trim_start_matches('\t') == marker);
+                if !found {
+                    return true; // heredoc is still open
+                }
+                break;
+            }
+            i += 1;
+        }
+    }
+    false
 }
 
 /// Count nesting depth of control-flow keywords in a (possibly partial) input.

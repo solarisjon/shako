@@ -664,7 +664,7 @@ struct Redirects {
 }
 
 /// Parse redirects from a command string, preserving quotes.
-/// Supports: >, >>, <, <<<, 2>, 2>>, 2>&1
+/// Supports: >, >>, <, <<<, <<MARKER (heredoc), 2>, 2>>, 2>&1
 fn parse_redirects(input: &str) -> Redirects {
     let mut cmd_parts = Vec::new();
     let mut stdout_path = None;
@@ -673,17 +673,23 @@ fn parse_redirects(input: &str) -> Redirects {
     let mut stdout_append = false;
     let mut stderr_append = false;
     let mut stderr_to_stdout = false;
-    // Use quote-aware tokenizer to extract herestring content correctly.
-    let herestring: Option<String> = extract_herestring(input);
 
-    // Strip <<< and its argument from input so split_whitespace doesn't
-    // accidentally include herestring content in cmd_parts.
-    let cleaned = if herestring.is_some() {
-        strip_herestring_from_input(input)
+    // Heredoc (`<<MARKER`) takes priority over herestring (`<<<`).
+    // The heredoc body must be embedded in the input string following a newline.
+    let (herestring, input) = if let Some((body, stripped)) = extract_heredoc(input) {
+        (Some(body), std::borrow::Cow::Owned(stripped))
     } else {
-        input.to_string()
+        // Use quote-aware tokenizer to extract herestring content correctly.
+        let hs = extract_herestring(input);
+        let cleaned = if hs.is_some() {
+            std::borrow::Cow::Owned(strip_herestring_from_input(input))
+        } else {
+            std::borrow::Cow::Borrowed(input)
+        };
+        (hs, cleaned)
     };
-    let tokens: Vec<&str> = cleaned.split_whitespace().collect();
+    let input: &str = &input;
+    let tokens: Vec<&str> = input.split_whitespace().collect();
     let mut i = 0;
 
     while i < tokens.len() {
@@ -872,6 +878,133 @@ fn strip_herestring_from_input(input: &str) -> String {
         }
     }
     input.to_string()
+}
+
+/// Extract a heredoc (`<<MARKER`) from a potentially multi-line input string.
+///
+/// Returns `Some((body, stripped_cmd))` when a heredoc is found, where:
+/// - `body` is the collected heredoc content (without the terminator line)
+/// - `stripped_cmd` is the command with the `<<MARKER` operator removed
+///
+/// The function handles:
+/// - Standard heredoc: `<<EOF`
+/// - Indented heredoc: `<<-EOF` (strips leading tabs from each body line)
+/// - Quoted terminators: `<<"EOF"` or `<<'EOF'` (suppress variable expansion; we
+///   use the raw terminator for matching but return the body as-is)
+///
+/// Variable expansion in the body is performed unless the marker is quoted.
+/// In the embedded single-string case (e.g. `shako -c "cmd <<EOF\nbody\nEOF"`),
+/// the newlines are already embedded in the input string.
+fn extract_heredoc(input: &str) -> Option<(String, String)> {
+    // Fast path: no heredoc operator present.
+    if !input.contains("<<") {
+        return None;
+    }
+    // Reject herestring (<<<) before further processing.
+    // We need to find `<<` that is NOT followed by another `<`.
+    let lines: Vec<&str> = input.splitn(2, '\n').collect();
+    let first_line = lines.first().copied().unwrap_or("");
+
+    // Scan the first line for `<<[-]marker` (not `<<<`).
+    let chars: Vec<char> = first_line.chars().collect();
+    let mut i = 0;
+    let mut heredoc_start = None;
+    let mut strip_tabs = false;
+
+    while i < chars.len() {
+        if chars[i] == '<'
+            && i + 1 < chars.len()
+            && chars[i + 1] == '<'
+            && !(i + 2 < chars.len() && chars[i + 2] == '<')
+        {
+            i += 2; // skip <<
+            if i < chars.len() && chars[i] == '-' {
+                strip_tabs = true;
+                i += 1;
+            }
+            // Skip optional whitespace before marker.
+            while i < chars.len() && chars[i] == ' ' {
+                i += 1;
+            }
+            heredoc_start = Some(i);
+            break;
+        }
+        i += 1;
+    }
+
+    let marker_start = heredoc_start?;
+
+    // Extract the marker (possibly quoted).
+    let mut marker_raw = String::new();
+    let mut j = marker_start;
+    let mut quoted = false;
+    let quote_char = if j < chars.len() && (chars[j] == '\'' || chars[j] == '"') {
+        let q = chars[j];
+        j += 1;
+        quoted = true;
+        Some(q)
+    } else {
+        None
+    };
+    while j < chars.len() {
+        let c = chars[j];
+        if let Some(qc) = quote_char {
+            if c == qc {
+                break; // skip closing quote; j will advance in outer loop
+            }
+        } else if c == ' ' || c == '\t' || c == ';' || c == '|' || c == '&' {
+            break;
+        }
+        marker_raw.push(c);
+        j += 1;
+    }
+
+    if marker_raw.is_empty() {
+        return None;
+    }
+
+    // The body lives after the first newline.
+    let rest = if lines.len() > 1 { lines[1] } else { "" };
+
+    // Collect lines until the terminator.
+    let mut body_lines: Vec<&str> = Vec::new();
+    let mut found_terminator = false;
+
+    for line in rest.split('\n') {
+        let trimmed = if strip_tabs {
+            line.trim_start_matches('\t')
+        } else {
+            line
+        };
+        if trimmed == marker_raw {
+            found_terminator = true;
+            break;
+        }
+        body_lines.push(if strip_tabs { trimmed } else { line });
+    }
+
+    if !found_terminator {
+        return None;
+    }
+
+    // Expand variables in the body unless the marker was quoted.
+    let body = if quoted {
+        body_lines.join("\n")
+    } else {
+        body_lines
+            .iter()
+            .map(|line| parser::parse_args(line).join(" "))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    // Build the stripped command (first line with <<MARKER removed).
+    let cmd_part: String = chars[..marker_start.saturating_sub(if strip_tabs { 3 } else { 2 })]
+        .iter()
+        .collect();
+    let cmd_stripped = cmd_part.trim_end().to_string();
+
+    Some((body, cmd_stripped))
 }
 
 /// Create a fake ExitStatus with the given code.

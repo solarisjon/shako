@@ -973,8 +973,7 @@ impl Completer for ShakoCompleter {
 
         // Environment variable completion: triggered when partial starts with '$'.
         // Completes against all env vars known to the process (std::env::vars()).
-        if partial.starts_with('$') {
-            let var_prefix = &partial[1..]; // strip leading '$'
+        if let Some(var_prefix) = partial.strip_prefix('$') {
             let var_prefix_lower = var_prefix.to_ascii_lowercase();
             let has_upper = var_prefix.chars().any(|c| c.is_uppercase());
 
