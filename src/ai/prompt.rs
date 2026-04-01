@@ -77,6 +77,12 @@ Rules:
         prompt.push_str(&format!("\n\n{}", ctx.user_preferences));
     }
 
+    if let Some(ref extra) = ctx.system_prompt_extra {
+        if !extra.is_empty() {
+            prompt.push_str(&format!("\n\n{extra}"));
+        }
+    }
+
     prompt
 }
 

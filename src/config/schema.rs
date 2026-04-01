@@ -19,6 +19,14 @@ pub struct ShakoConfig {
     pub fish: FishConfig,
     #[serde(default)]
     pub aliases: HashMap<String, String>,
+    /// Abbreviations: short strings expanded to longer commands on space.
+    /// Example: `gc = "git commit"` so typing `gc ` expands to `git commit `.
+    #[serde(default)]
+    pub abbreviations: HashMap<String, String>,
+    /// Startup environment variables set before any commands run.
+    /// Example: `EDITOR = "vim"`.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
 }
 
 impl ShakoConfig {
@@ -71,6 +79,21 @@ pub struct BehaviorConfig {
     pub safety_mode: String,
     #[serde(default = "default_edit_mode")]
     pub edit_mode: String,
+    /// Maximum number of history entries to keep.  Defaults to 10,000.
+    #[serde(default = "default_history_size")]
+    pub history_size: usize,
+    /// Deduplicate consecutive identical commands in history.  Defaults to true.
+    ///
+    /// When enabled, the `read_recent_history` function filters out consecutive
+    /// duplicate entries before presenting them to the AI context.
+    /// (Reedline's raw history file may still contain duplicates; dedup is
+    /// applied on read, not on write.)
+    #[serde(default = "default_true")]
+    pub history_dedup: bool,
+    /// Extra text appended to the AI system prompt.
+    /// Useful for project-specific instructions not covered by .shako.toml.
+    #[serde(default)]
+    pub ai_system_prompt_extra: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -113,6 +136,10 @@ fn default_history_lines() -> usize {
     20
 }
 
+fn default_history_size() -> usize {
+    10_000
+}
+
 fn default_safety_mode() -> String {
     "warn".to_string()
 }
@@ -145,6 +172,9 @@ impl Default for BehaviorConfig {
             history_context_lines: 20,
             safety_mode: "warn".to_string(),
             edit_mode: "emacs".to_string(),
+            history_size: 10_000,
+            history_dedup: true,
+            ai_system_prompt_extra: None,
         }
     }
 }

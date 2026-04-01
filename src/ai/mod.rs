@@ -21,7 +21,8 @@ pub async fn translate_and_execute(
         eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
         return Ok(());
     }
-    let ctx = context::build_context(recent_history, session_memory.clone())?;
+    let mut ctx = context::build_context(recent_history, session_memory.clone())?;
+    ctx.system_prompt_extra = config.behavior.ai_system_prompt_extra.clone();
     let system_prompt = prompt::system_prompt(&ctx);
 
     let mut current_input = input.to_string();

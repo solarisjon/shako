@@ -20,6 +20,9 @@ pub struct ShellContext {
     pub user_preferences: String,
     /// Rolling session memory: (user NL input, AI command)
     pub session_memory: Vec<(String, String)>,
+    /// Optional extra text appended to the system prompt
+    /// (from `[behavior] ai_system_prompt_extra` in config.toml).
+    pub system_prompt_extra: Option<String>,
 }
 
 /// Modern tools the AI should prefer when available, with concrete syntax guidance.
@@ -114,6 +117,7 @@ pub fn build_context(
         project_context,
         user_preferences,
         session_memory,
+        system_prompt_extra: None, // set by caller from config if needed
     })
 }
 

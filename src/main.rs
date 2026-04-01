@@ -163,10 +163,11 @@ fn main() -> Result<()> {
         .join("history.txt");
 
     let history = Box::new(
-        FileBackedHistory::with_file(10_000, history_path.clone()).unwrap_or_else(|e| {
-            eprintln!("shako: history: {e}, using in-memory only");
-            FileBackedHistory::new(1000).expect("failed to create history")
-        }),
+        FileBackedHistory::with_file(config.behavior.history_size, history_path.clone())
+            .unwrap_or_else(|e| {
+                eprintln!("shako: history: {e}, using in-memory only");
+                FileBackedHistory::new(1000).expect("failed to create history")
+            }),
     );
 
     // Themed completion menu — teal/cyan selection matching the brand gradient.
@@ -265,6 +266,17 @@ fn main() -> Result<()> {
     // Load aliases from config.toml
     for (name, value) in &config.aliases {
         state.aliases.insert(name.clone(), value.clone());
+    }
+
+    // Load abbreviations from config.toml [abbreviations] section.
+    for (name, value) in &config.abbreviations {
+        state.abbreviations.insert(name.clone(), value.clone());
+    }
+
+    // Apply [env] section — set startup environment variables.
+    // Safety: called before any threads exist; no concurrent env readers.
+    for (key, value) in &config.env {
+        unsafe { std::env::set_var(key, value) };
     }
 
     // Apply smart defaults (modern tools), user config takes priority
@@ -807,7 +819,11 @@ fn offer_ai_recovery(
     let sp = spinner::Spinner::start("diagnosing...");
 
     let result = rt.block_on(async {
-        let history = read_recent_history(history_path, config.behavior.history_context_lines);
+        let history = read_recent_history_with_dedup(
+            history_path,
+            config.behavior.history_context_lines,
+            config.behavior.history_dedup,
+        );
         ai::diagnose_error(command, exit_code, stderr_output, config, history).await
     });
 
@@ -1299,15 +1315,38 @@ fn expand_history_bangs(input: &str, last_command: &str) -> String {
 }
 
 /// Read the last N lines from the history file for AI context.
+///
+/// When `dedup` is true, consecutive duplicate entries are removed.
 fn read_recent_history(history_path: &std::path::Path, n: usize) -> Vec<String> {
+    read_recent_history_with_dedup(history_path, n, true)
+}
+
+fn read_recent_history_with_dedup(
+    history_path: &std::path::Path,
+    n: usize,
+    dedup: bool,
+) -> Vec<String> {
     if n == 0 {
         return Vec::new();
     }
     match std::fs::read_to_string(history_path) {
         Ok(contents) => {
-            let lines: Vec<&str> = contents.lines().collect();
-            let start = lines.len().saturating_sub(n);
-            lines[start..].iter().map(|l| l.to_string()).collect()
+            let raw: Vec<&str> = contents.lines().collect();
+            let lines: Vec<String> = if dedup {
+                // Remove consecutive duplicate entries.
+                let mut deduped: Vec<&str> = Vec::with_capacity(raw.len());
+                for line in &raw {
+                    if deduped.last() != Some(line) {
+                        deduped.push(line);
+                    }
+                }
+                let start = deduped.len().saturating_sub(n);
+                deduped[start..].iter().map(|l| l.to_string()).collect()
+            } else {
+                let start = raw.len().saturating_sub(n);
+                raw[start..].iter().map(|l| l.to_string()).collect()
+            };
+            lines
         }
         Err(_) => Vec::new(),
     }
