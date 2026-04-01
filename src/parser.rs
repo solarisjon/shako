@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::env;
 
@@ -18,6 +18,15 @@ pub struct SubstContext {
 thread_local! {
     /// Thread-local substitution context set by the interactive loop.
     static SUBST_CTX: RefCell<Option<SubstContext>> = const { RefCell::new(None) };
+
+    /// PID of the last background job started by the shell (`$!`).
+    /// Updated by the REPL loop (main.rs) whenever a background job is spawned.
+    static LAST_BG_PID: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Update `$!` (last background PID) after spawning a background job.
+pub fn set_last_bg_pid(pid: u32) {
+    LAST_BG_PID.with(|cell| cell.set(pid));
 }
 
 /// Install a substitution context for the current thread.
@@ -134,6 +143,39 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                     i += 2; // skip '$('
                     let cmd = extract_balanced(&chars, &mut i, '(', ')');
                     current.push_str(&run_command_substitution(&cmd));
+                }
+                // $'...' — ANSI-C quoting: interpret escape sequences inside single quotes.
+                '$' if i + 1 < chars.len() && chars[i + 1] == '\'' => {
+                    i += 2; // skip $'
+                    while i < chars.len() && chars[i] != '\'' {
+                        if chars[i] == '\\' && i + 1 < chars.len() {
+                            i += 1;
+                            let escaped = match chars[i] {
+                                'n' => '\n',
+                                't' => '\t',
+                                'r' => '\r',
+                                'a' => '\x07',
+                                'b' => '\x08',
+                                'e' | 'E' => '\x1b',
+                                'f' => '\x0c',
+                                'v' => '\x0b',
+                                '\\' => '\\',
+                                '\'' => '\'',
+                                '"' => '"',
+                                '?' => '?',
+                                '0' => '\0',
+                                other => other,
+                            };
+                            current.push(escaped);
+                        } else {
+                            current.push(chars[i]);
+                        }
+                        i += 1;
+                    }
+                    if i < chars.len() {
+                        i += 1; // skip closing '
+                    }
+                    quoted = true;
                 }
                 '\\' if i + 1 < chars.len() => {
                     current.push(chars[i + 1]);
@@ -488,6 +530,39 @@ fn expand_env_at(chars: &[char], i: &mut usize) -> String {
     if chars[*i] == '?' {
         *i += 1;
         return crate::shell::prompt::last_status().to_string();
+    }
+
+    // $$ — shell PID
+    if chars[*i] == '$' {
+        *i += 1;
+        return std::process::id().to_string();
+    }
+
+    // $! — PID of last background job
+    if chars[*i] == '!' {
+        *i += 1;
+        return LAST_BG_PID.with(|cell| cell.get()).to_string();
+    }
+
+    // $0 — script / shell name
+    if chars[*i] == '0' {
+        *i += 1;
+        // In interactive mode, return the shell name; in -c mode, the command itself.
+        return std::env::args()
+            .next()
+            .unwrap_or_else(|| "shako".to_string());
+    }
+
+    // $# — number of positional parameters (args to the current shell/function)
+    if chars[*i] == '#' {
+        *i += 1;
+        // $# in a shell context is the number of arguments past $0.
+        // At the top level this is 0 (interactive) or len(args)-1 (-c mode).
+        let count = std::env::var("SHAKO_ARG_COUNT")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
+        return count.to_string();
     }
 
     // $VAR form

@@ -496,7 +496,10 @@ fn main() -> Result<()> {
                     let bg_cmd = input.trim_end_matches('&').trim();
                     if !bg_cmd.is_empty() {
                         if let Some(child) = executor::spawn_background(bg_cmd) {
+                            let pid = child.id();
                             state.add_job(child, bg_cmd.to_string());
+                            // Update $! (last background PID).
+                            parser::set_last_bg_pid(pid);
                         }
                     }
                     continue;

@@ -951,3 +951,57 @@ fn test_herestring_quoted_content() {
     assert!(out.status.success());
     assert_eq!(stdout(&out).trim(), "hello world");
 }
+
+// ── Special variables ────────────────────────────────────────────────────────
+
+#[test]
+fn test_dollar_dollar_is_numeric() {
+    // $$ should expand to a numeric PID (non-empty, all digits).
+    let out = shako("echo $$");
+    let s = stdout(&out).trim().to_string();
+    assert!(!s.is_empty());
+    assert!(
+        s.parse::<u32>().is_ok(),
+        "$$ produced non-numeric output: {s}"
+    );
+}
+
+#[test]
+fn test_dollar_zero_is_nonempty() {
+    // $0 should expand to something (the binary path or "shako").
+    let out = shako("echo $0");
+    let s = stdout(&out).trim().to_string();
+    assert!(!s.is_empty());
+}
+
+#[test]
+fn test_dollar_hash_interactive_is_zero() {
+    // $# at the top level of a -c invocation with no positional args → 0.
+    let out = shako("echo $#");
+    assert_eq!(stdout(&out).trim(), "0");
+}
+
+#[test]
+fn test_ansi_c_quoting_newline() {
+    let out = shako(r#"printf '%s' $'\n'"#);
+    // $'\n' should produce a literal newline character.
+    assert_eq!(stdout(&out), "\n");
+}
+
+#[test]
+fn test_ansi_c_quoting_tab() {
+    let out = shako(r#"printf '%s' $'\t'"#);
+    assert_eq!(stdout(&out), "\t");
+}
+
+#[test]
+fn test_ansi_c_quoting_escape() {
+    let out = shako(r#"printf '%s' $'\e'"#);
+    assert_eq!(stdout(&out), "\x1b");
+}
+
+#[test]
+fn test_ansi_c_quoting_literal_string() {
+    let out = shako(r#"echo $'hello\tworld'"#);
+    assert_eq!(stdout(&out).trim(), "hello\tworld");
+}
