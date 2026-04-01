@@ -155,6 +155,10 @@ pub fn source_fish_string(contents: &str, state: &mut ShellState) {
                 let expanded =
                     crate::parser::parse_args(value.trim_matches('\'').trim_matches('"'));
                 let value = expanded.join(" ");
+                // Safety: source files are processed on the REPL main thread during
+                // startup or when a `source` builtin executes. The tokio runtime is idle
+                // (blocked in `block_on` or not yet started) at those points; no
+                // concurrent env readers exist.
                 unsafe { std::env::set_var(key.trim(), &value) };
             }
             continue;

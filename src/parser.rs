@@ -671,6 +671,9 @@ fn expand_brace_param(chars: &[char], i: &mut usize) -> String {
     }
     if let Some(word) = rest.strip_prefix(":=") {
         if value.is_empty() {
+            // Safety: `parse_args` / `expand_var` is called exclusively from the REPL
+            // main thread (or from single-threaded -c mode) while the tokio runtime is
+            // idle (blocked on `block_on`). No concurrent env readers exist at this point.
             unsafe { env::set_var(varname, word) };
             return word.to_string();
         }
@@ -1298,6 +1301,14 @@ pub fn split_pipes(input: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serializes tests that mutate the process environment.
+    ///
+    /// `cargo test` runs tests on a thread pool. `env::set_var` / `remove_var` are
+    /// `unsafe` when called concurrently. Tests that need to set env vars must hold
+    /// this lock for the duration of the set→read→remove cycle.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_simple_tokenize() {
@@ -1333,18 +1344,22 @@ mod tests {
 
     #[test]
     fn test_env_var_expansion() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Safety: guarded by ENV_MUTEX; no concurrent env mutations in this process.
         unsafe { env::set_var("SHAKO_TEST_VAR", "expanded") };
         let result = expand_env_vars("$SHAKO_TEST_VAR");
-        assert_eq!(result, "expanded");
         unsafe { env::remove_var("SHAKO_TEST_VAR") };
+        assert_eq!(result, "expanded");
     }
 
     #[test]
     fn test_env_var_braces() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Safety: guarded by ENV_MUTEX; no concurrent env mutations in this process.
         unsafe { env::set_var("SHAKO_TEST_VAR2", "braced") };
         let result = expand_env_vars("${SHAKO_TEST_VAR2}");
-        assert_eq!(result, "braced");
         unsafe { env::remove_var("SHAKO_TEST_VAR2") };
+        assert_eq!(result, "braced");
     }
 
     #[test]
@@ -1397,10 +1412,12 @@ mod tests {
 
     #[test]
     fn test_parse_args_full() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Safety: guarded by ENV_MUTEX; no concurrent env mutations in this process.
         unsafe { env::set_var("SHAKO_PARSE_TEST", "works") };
         let args = parse_args("echo $SHAKO_PARSE_TEST");
-        assert_eq!(args, vec!["echo", "works"]);
         unsafe { env::remove_var("SHAKO_PARSE_TEST") };
+        assert_eq!(args, vec!["echo", "works"]);
     }
 
     #[test]
@@ -1477,10 +1494,12 @@ mod tests {
 
     #[test]
     fn test_arithmetic_var_expansion() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Safety: guarded by ENV_MUTEX; no concurrent env mutations in this process.
         unsafe { env::set_var("SHAKO_ARITH_X", "7") };
         let args = parse_args("echo $(($SHAKO_ARITH_X * 6))");
-        assert_eq!(args, vec!["echo", "42"]);
         unsafe { env::remove_var("SHAKO_ARITH_X") };
+        assert_eq!(args, vec!["echo", "42"]);
     }
 
     #[test]

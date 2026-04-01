@@ -1038,6 +1038,14 @@ impl Completer for ShakoCompleter {
 mod tests {
     use super::*;
     use reedline::Completer;
+    use std::sync::Mutex;
+
+    /// Serializes tests that mutate the process environment.
+    ///
+    /// `cargo test` runs tests on a thread pool. `env::set_var` / `remove_var` are
+    /// `unsafe` when called concurrently. Tests that need to set env vars must hold
+    /// this lock for the duration of the set→read→remove cycle.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     fn test_completer() -> ShakoCompleter {
         ShakoCompleter::new(
@@ -1209,28 +1217,36 @@ mod tests {
     fn test_env_var_completion_dollar_path() {
         // "echo $PATH" should complete with env vars starting with "PATH"
         // We set a known env var for a stable test.
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Safety: guarded by ENV_MUTEX; no concurrent env mutations in this process.
         unsafe { std::env::set_var("SHAKO_TEST_COMPLETE_VAR", "test_value") };
 
         let mut c = test_completer();
         let suggestions = c.complete("echo $SHAKO_TEST_COMPLETE_VAR", 29);
         let values: Vec<&str> = suggestions.iter().map(|s| s.value.as_str()).collect();
+
+        unsafe { std::env::remove_var("SHAKO_TEST_COMPLETE_VAR") };
+
         assert!(
             values.contains(&"$SHAKO_TEST_COMPLETE_VAR"),
             "expected $SHAKO_TEST_COMPLETE_VAR in completions, got: {:?}",
             values
         );
-
-        unsafe { std::env::remove_var("SHAKO_TEST_COMPLETE_VAR") };
     }
 
     #[test]
     fn test_env_var_completion_dollar_prefix() {
         // Partial $SH prefix should complete to env vars starting with SH
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Safety: guarded by ENV_MUTEX; no concurrent env mutations in this process.
         unsafe { std::env::set_var("SHAKO_COMP_TEST", "value") };
 
         let mut c = test_completer();
         let suggestions = c.complete("echo $SHAKO_COMP", 16);
         let values: Vec<&str> = suggestions.iter().map(|s| s.value.as_str()).collect();
+
+        unsafe { std::env::remove_var("SHAKO_COMP_TEST") };
+
         assert!(
             values.iter().any(|v| v.starts_with("$SHAKO_COMP")),
             "expected completions starting with $SHAKO_COMP, got: {:?}",
@@ -1244,7 +1260,5 @@ mod tests {
                 s.value
             );
         }
-
-        unsafe { std::env::remove_var("SHAKO_COMP_TEST") };
     }
 }
