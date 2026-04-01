@@ -179,13 +179,28 @@ $ ? grep
 
 The rule: if `?` prefix + single known command → explain. If `?` prefix + multiple words → translate.
 
+### Markdown Rendering
+
+Explanations are rendered as styled terminal markdown via `termimad`:
+
+- **Headers** appear in bold cyan
+- **Inline code** and **code blocks** appear in yellow
+- **Bold** text is bright white; **italic** text is dimmed
+- **Lists** and other markdown structures are formatted appropriately
+
+To disable styling (e.g. for scripts or pipes), set `NO_COLOR=1` or use `TERM=dumb`:
+
+```
+$ NO_COLOR=1 shako -c "? curl"   # plain text output
+```
+
 **To validate this in your shell:**
 ```
 $ tar xzf?
 $ ? curl
 $ grep -rn?
 ```
-Each should render a `╭─ explain ─╮` panel with the command name in the header and explanation text indented with a `│` guide bar.
+Each should render a `╭─ explain ─╮` panel with the command name in the header and styled markdown explanation text.
 
 ## Error Recovery
 
