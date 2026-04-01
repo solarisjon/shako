@@ -1,9 +1,30 @@
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, ExitStatus, Stdio};
 
 use crate::parser;
+
+/// Information about a foreground job that was stopped (Ctrl-Z / SIGTSTP)
+/// rather than exited.  Posted to the thread-local [`STOPPED_JOB`] so that
+/// the REPL loop in `main.rs` can add it to `ShellState.jobs`.
+pub struct StoppedJob {
+    pub pid: u32,
+    pub pgid: i32,
+}
+
+thread_local! {
+    /// Set by [`foreground_wait`] when the child is stopped instead of exited.
+    /// Cleared by the REPL loop after each command dispatch.
+    pub static STOPPED_JOB: RefCell<Option<StoppedJob>> = const { RefCell::new(None) };
+}
+
+/// Take any stopped-job notification posted by the last foreground command.
+/// Returns `None` if the foreground process exited normally.
+pub fn take_stopped_job() -> Option<StoppedJob> {
+    STOPPED_JOB.with(|cell| cell.borrow_mut().take())
+}
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -27,7 +48,7 @@ fn setup_child_signals(cmd: &mut Command, pgid: i32, dup_stderr_to_stdout: bool)
                 nix::unistd::Pid::from_raw(pgid),
             )
             .ok();
-            use nix::sys::signal::{SigHandler, Signal, signal};
+            use nix::sys::signal::{signal, SigHandler, Signal};
             for sig in [
                 Signal::SIGINT,
                 Signal::SIGQUIT,
@@ -53,8 +74,11 @@ fn setup_child_signals(_cmd: &mut Command, _pgid: i32, _dup_stderr_to_stdout: bo
 ///
 /// On non-Unix the function just waits normally.
 #[cfg(unix)]
-fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
+fn foreground_wait(child: std::process::Child) -> std::process::ExitStatus {
+    use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+
     let child_pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let child_pgid = child_pid; // each foreground child is its own process-group leader
     let shell_pgid = nix::unistd::getpgrp();
 
     // Close the TOCTOU race: set the child's pgid in the parent too.
@@ -64,10 +88,19 @@ fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
     // Give the terminal to the child so Ctrl-C/Ctrl-Z reach it.
     let _ = nix::unistd::tcsetpgrp(std::io::stdin(), child_pid);
 
-    let status = child.wait().unwrap_or_else(|e| {
-        log::warn!("wait() failed for child process: {e}");
-        fake_status(1)
-    });
+    // Wait for the child to exit *or* be stopped (WUNTRACED).
+    // Using nix::waitpid so we can distinguish exit from stop.
+    let wait_flags = WaitPidFlag::WUNTRACED;
+    let wait_result = loop {
+        match waitpid(child_pid, Some(wait_flags)) {
+            Ok(status) => break status,
+            Err(nix::errno::Errno::EINTR) => continue, // retry on signal interrupt
+            Err(e) => {
+                log::warn!("waitpid() failed: {e}");
+                break WaitStatus::Exited(child_pid, 1);
+            }
+        }
+    };
 
     // Restore terminal ownership to the shell.
     let _ = nix::unistd::tcsetpgrp(std::io::stdin(), shell_pgid);
@@ -78,7 +111,27 @@ fn foreground_wait(mut child: std::process::Child) -> std::process::ExitStatus {
 
     drain_pending_input();
 
-    status
+    match wait_result {
+        WaitStatus::Stopped(pid, _signal) => {
+            // The child was suspended (Ctrl-Z / SIGTSTP).
+            // Notify the REPL loop so it can add this to the jobs list.
+            // We intentionally leak `child` here — the process is still alive
+            // and will be resumed via SIGCONT; the jobs list owns it from now on.
+            STOPPED_JOB.with(|cell| {
+                *cell.borrow_mut() = Some(StoppedJob {
+                    pid: pid.as_raw() as u32,
+                    pgid: child_pgid.as_raw(),
+                });
+            });
+            // Forget the Child so Rust does not wait/kill it on drop.
+            std::mem::forget(child);
+            // Return exit code 148 (128 + SIGTSTP) to signal "stopped".
+            fake_status(148)
+        }
+        WaitStatus::Exited(_, code) => fake_status(code),
+        WaitStatus::Signaled(_, signal, _) => fake_status(128 + signal as i32),
+        _ => fake_status(0),
+    }
 }
 
 /// Temporarily disable terminal echo so late-arriving escape sequences
@@ -793,7 +846,7 @@ fn strip_herestring_from_input(input: &str) -> String {
             {
                 let start = i;
                 i += 3; // skip <<<
-                // Skip whitespace between <<< and the word
+                        // Skip whitespace between <<< and the word
                 while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') {
                     i += 1;
                 }

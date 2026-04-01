@@ -536,7 +536,13 @@ fn main() -> Result<()> {
                         ran_foreground = true;
                         let (status, stderr_output) = executor::execute_command_with_stderr(&cmd);
                         set_exit_code(status);
-                        if let Some(s) = status {
+
+                        // If the foreground process was stopped by Ctrl-Z,
+                        // add it to the jobs list.
+                        if let Some(stopped) = executor::take_stopped_job() {
+                            // Use the actual command name instead of the generic "(pid N)".
+                            state.add_stopped_job(stopped.pid, stopped.pgid, cmd.clone());
+                        } else if let Some(s) = status {
                             if !s.success() {
                                 if config.behavior.ai_enabled {
                                     offer_ai_recovery(
