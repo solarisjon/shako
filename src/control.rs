@@ -462,6 +462,8 @@ fn exec_one(stmt: &Statement, locals: &mut Vec<(String, Option<String>)>) -> Exe
             // redundant save entries on every iteration.
             declare_local(var, locals);
             'for_loop: for item in &items {
+                // Safety: exec_statements is only called from the REPL main thread,
+                // never from within a tokio task. No concurrent env readers.
                 unsafe { std::env::set_var(var, item) };
                 match exec_statements(body, locals) {
                     ExecSignal::Normal(c) => last = c,
@@ -497,11 +499,13 @@ fn exec_one(stmt: &Statement, locals: &mut Vec<(String, Option<String>)>) -> Exe
                 let var = var.trim();
                 declare_local(var, locals);
                 let expanded = crate::parser::parse_args(val).join(" ");
+                // Safety: REPL main thread only; no concurrent env readers.
                 unsafe { std::env::set_var(var, &expanded) };
             } else {
                 let var = spec.trim();
                 if !var.is_empty() {
                     declare_local(var, locals);
+                    // Safety: REPL main thread only; no concurrent env readers.
                     unsafe { std::env::remove_var(var) };
                 }
             }

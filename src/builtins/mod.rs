@@ -1,3 +1,19 @@
+//! Shell builtins — `cd`, `export`, `alias`, `fg`, `bg`, `jobs`, etc.
+//!
+//! # Thread-safety of `env::set_var` / `env::remove_var`
+//!
+//! All builtins are called exclusively from the interactive REPL main thread,
+//! never from within a `tokio::Runtime::block_on()` call or from any spawned
+//! thread.  The tokio runtime used for AI features is idle (not executing tasks)
+//! while the REPL loop is dispatching commands.  Therefore:
+//!
+//! - No concurrent readers of the process environment exist when these builtins run.
+//! - All `unsafe { env::set_var(...) }` / `unsafe { env::remove_var(...) }` calls
+//!   in this module are safe under those invariants.
+//!
+//! If the architecture ever changes to run builtins from async tasks, each call site
+//! must be revisited.
+
 mod jobs;
 mod set;
 pub mod source;
@@ -627,7 +643,11 @@ fn builtin_type(args: &[&str], state: &ShellState) -> i32 {
             found = false;
         }
     }
-    if found { 0 } else { 1 }
+    if found {
+        0
+    } else {
+        1
+    }
 }
 
 fn builtin_functions(state: &ShellState) {
@@ -762,7 +782,11 @@ fn builtin_read(args: &[&str]) -> i32 {
 
 /// `test`/`[` — evaluate a conditional expression. Returns 0 (true) or 1 (false).
 fn builtin_test(args: &[&str]) -> i32 {
-    if test_eval(args) { 0 } else { 1 }
+    if test_eval(args) {
+        0
+    } else {
+        1
+    }
 }
 
 fn test_eval(args: &[&str]) -> bool {

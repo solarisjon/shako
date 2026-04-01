@@ -280,6 +280,8 @@ fn main() -> Result<()> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    // Safety: called before the tokio runtime is started and before any threads
+    // exist; no concurrent readers of the process environment.
     unsafe { std::env::set_var("SHLVL", (shlvl + 1).to_string()) };
 
     // ── Fish-like startup order ──────────────────────────────────────
