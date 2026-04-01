@@ -37,7 +37,8 @@ impl ShakoConfig {
             if let Some(provider) = self.providers.get(name) {
                 return provider;
             }
-            log::warn!("active_provider '{name}' not found in [providers], falling back to [llm]");
+            // User-visible warning is already shown by the startup banner in main.rs;
+            // silently fall through here to avoid duplicate noise on every active_llm() call.
         }
         &self.llm
     }
