@@ -362,8 +362,26 @@ pub fn run_repl(
                     }
                     Classification::Empty => {}
                     Classification::SlashCommand { name, args } => {
-                        let code = slash::run(&name, &args, &mut config, &rt);
-                        prompt::set_last_status(code);
+                        match slash::run(&name, &args, &mut config, &rt, &history_path) {
+                            slash::SlashOutcome::Code(code) => {
+                                prompt::set_last_status(code);
+                            }
+                            slash::SlashOutcome::Prefill(selected) => {
+                                // The user picked a history entry.  Show it in
+                                // a styled panel with [Y/n/e] so they can run,
+                                // cancel, or edit it before execution.
+                                let ran = offer_history_selection(
+                                    &selected,
+                                    &mut state,
+                                    &history_path,
+                                    &config,
+                                    &rt,
+                                );
+                                if !ran {
+                                    prompt::set_last_status(0);
+                                }
+                            }
+                        }
                     }
                     Classification::HistorySearch(query) => {
                         if config.behavior.ai_enabled {
@@ -638,6 +656,146 @@ pub fn is_pure_builtin_call(segment: &str) -> bool {
     }
     let first = segment.split_whitespace().next().unwrap_or("");
     builtins::is_builtin(first)
+}
+
+/// Show a styled confirm panel for a history-picked command.
+///
+/// Prints the selected command in a box and prompts `[Y/n/e]`:
+/// - `Y` / Enter — run it immediately
+/// - `n` — cancel
+/// - `e` — edit: re-prompt the user with the command pre-printed so they can
+///          retype/modify it (limited to one-shot since we cannot seed reedline)
+///
+/// Returns `true` if the command was executed.
+fn offer_history_selection(
+    cmd: &str,
+    state: &mut crate::builtins::ShellState,
+    _history_path: &Path,
+    _config: &ShakoConfig,
+    _rt: &Runtime,
+) -> bool {
+    use std::io::Write;
+
+    const GRAD: &[u8] = &[30, 31, 32, 37, 38, 44, 45];
+    let mid_color = GRAD[GRAD.len() / 2];
+    let term_width = crossterm::terminal::size()
+        .map(|(w, _)| w as usize)
+        .unwrap_or(80);
+
+    let grad_line = |width: usize| -> String {
+        (0..width)
+            .map(|i| {
+                let idx = if width <= 1 { 0 } else { i * (GRAD.len() - 1) / (width - 1) };
+                format!("\x1b[38;5;{}m─\x1b[0m", GRAD[idx])
+            })
+            .collect()
+    };
+    let border = |c: char| format!("\x1b[38;5;{mid_color}m{c}\x1b[0m");
+
+    let visible_len = |s: &str| -> usize {
+        let mut len = 0;
+        let mut in_esc = false;
+        for c in s.chars() {
+            if c == '\x1b' { in_esc = true; }
+            else if in_esc { if c.is_ascii_alphabetic() { in_esc = false; } }
+            else { len += 1; }
+        }
+        len
+    };
+
+    let cmd_styled = format!("\x1b[1;36m{cmd}\x1b[0m");
+    let opts_styled = "\x1b[90m[Y]es  [n]o  [e]dit\x1b[0m";
+    let cmd_vis = cmd.len();
+    let opts_vis = visible_len(opts_styled);
+    let content_width = cmd_vis.max(opts_vis).max(36);
+    let inner_width = (content_width + 4).min(term_width.saturating_sub(2));
+    let content_inner = inner_width.saturating_sub(4);
+
+    let box_line = |content: &str| -> String {
+        let vl = visible_len(content);
+        let pad = content_inner.saturating_sub(vl);
+        format!(" {}  {}{}  {}", border('│'), content, " ".repeat(pad), border('│'))
+    };
+
+    let label = format!("\x1b[38;5;{mid_color}m history \x1b[0m");
+    let label_vis = 10usize;
+    let rest_width = inner_width.saturating_sub(label_vis + 2);
+
+    eprintln!(
+        " {tl}{sep}{label}{rest}{tr}",
+        tl = border('╭'),
+        sep = grad_line(2),
+        rest = grad_line(rest_width),
+        tr = border('╮'),
+    );
+    eprintln!("{}", box_line(&cmd_styled));
+    eprintln!(
+        " {bl}{sep}{br}",
+        bl = border('├'),
+        sep = grad_line(inner_width),
+        br = border('┤'),
+    );
+
+    let opts_pad = content_inner.saturating_sub(opts_vis);
+    eprint!(
+        " {}  {}{}  {} ",
+        border('│'),
+        opts_styled,
+        " ".repeat(opts_pad),
+        border('│'),
+    );
+    io::stdout().flush().ok();
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer).ok();
+    let answer = answer.trim().to_lowercase();
+
+    eprintln!(
+        " {bl}{bot}{br}",
+        bl = border('╰'),
+        bot = grad_line(inner_width),
+        br = border('╯'),
+    );
+
+    match answer.as_str() {
+        "" | "y" | "yes" => {
+            // Run through the normal executor / builtin dispatch.
+            let first = cmd.split_whitespace().next().unwrap_or("");
+            if crate::builtins::is_builtin(first) {
+                let code = crate::builtins::run_builtin(cmd, state);
+                prompt::set_last_status(code);
+            } else {
+                let status = executor::execute_command(cmd);
+                set_exit_code(status);
+            }
+            true
+        }
+        "e" | "edit" => {
+            // Print the command so the user can see it, then open a plain
+            // prompt pre-annotated with the command text for manual editing.
+            eprintln!("\x1b[90m  (edit then press Enter)\x1b[0m");
+            eprint!("  \x1b[38;5;{mid_color}m❯\x1b[0m {cmd}");
+            io::stdout().flush().ok();
+            // We can't seed reedline here, so we read a raw line from stdin.
+            let mut edited = String::new();
+            io::stdin().read_line(&mut edited).ok();
+            let edited = edited.trim();
+            if !edited.is_empty() {
+                let first = edited.split_whitespace().next().unwrap_or("");
+                if crate::builtins::is_builtin(first) {
+                    let code = crate::builtins::run_builtin(edited, state);
+                    prompt::set_last_status(code);
+                } else {
+                    let status = executor::execute_command(edited);
+                    set_exit_code(status);
+                }
+                true
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
 }
 
 fn offer_ai_recovery(

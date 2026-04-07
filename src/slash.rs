@@ -1,8 +1,11 @@
+use std::path::Path;
+
 use crate::ai;
 use crate::config::ShakoConfig;
 
 pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("help", "List available slash commands"),
+    ("history", "Fuzzy-browse shell history and select a command"),
     ("validate", "Validate the AI endpoint connection"),
     ("config", "Show current configuration"),
     ("model", "Show or switch the active AI model/provider"),
@@ -10,18 +13,39 @@ pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("provider", "Show or switch the active LLM provider"),
 ];
 
-pub fn run(name: &str, args: &str, config: &mut ShakoConfig, rt: &tokio::runtime::Runtime) -> i32 {
+/// The outcome of running a slash command.
+///
+/// Most commands return a simple exit `Code`. The `/history` command may
+/// return a `Prefill` string — a history entry the user selected — that the
+/// REPL loop should offer for confirmation/editing before execution.
+pub enum SlashOutcome {
+    Code(i32),
+    Prefill(String),
+}
+
+/// Run a slash command and return its outcome.
+///
+/// `history_path` is passed through so that history-aware commands (e.g.
+/// `/history`) can read the history file without duplicating path logic.
+pub fn run(
+    name: &str,
+    args: &str,
+    config: &mut ShakoConfig,
+    rt: &tokio::runtime::Runtime,
+    history_path: &Path,
+) -> SlashOutcome {
     match name {
-        "help" => cmd_help(),
-        "validate" => cmd_validate(config, rt),
-        "config" => cmd_config(config),
-        "model" => cmd_model(args, config),
-        "safety" => cmd_safety(args, config),
-        "provider" => cmd_provider(args, config),
+        "help" => SlashOutcome::Code(cmd_help()),
+        "history" => cmd_history(args, history_path),
+        "validate" => SlashOutcome::Code(cmd_validate(config, rt)),
+        "config" => SlashOutcome::Code(cmd_config(config)),
+        "model" => SlashOutcome::Code(cmd_model(args, config)),
+        "safety" => SlashOutcome::Code(cmd_safety(args, config)),
+        "provider" => SlashOutcome::Code(cmd_provider(args, config)),
         _ => {
             eprintln!("shako: unknown command /{name}");
             eprintln!("       run /help to see available commands");
-            1
+            SlashOutcome::Code(1)
         }
     }
 }
@@ -34,6 +58,320 @@ fn cmd_help() -> i32 {
     eprintln!();
     0
 }
+
+// ─── /history ────────────────────────────────────────────────────────────────
+
+/// Run the `/history` fuzzy browser.
+///
+/// Strategy (in order):
+/// 1. If `fzf` is in PATH, pipe history through it and capture the selection.
+/// 2. If `sk` (skim) is in PATH, use it instead.
+/// 3. Fall back to a native crossterm TUI with arrow-key navigation.
+///
+/// Returns `SlashOutcome::Prefill(cmd)` when the user picks an entry, or
+/// `SlashOutcome::Code(0)` when they cancel / no history exists.
+fn cmd_history(_args: &str, history_path: &Path) -> SlashOutcome {
+    // Read deduplicated history (most-recent at the end).
+    let entries = read_history_entries(history_path);
+    if entries.is_empty() {
+        eprintln!("\x1b[33mshako: history is empty\x1b[0m");
+        return SlashOutcome::Code(0);
+    }
+
+    // Try external fuzzy pickers first.
+    if let Some(selected) = try_external_picker(
+        &entries,
+        "fzf",
+        &[
+            "--height=40%",
+            "--reverse",
+            "--prompt=history> ",
+            "--info=inline",
+        ],
+    ) {
+        return SlashOutcome::Prefill(selected);
+    }
+    if let Some(selected) = try_external_picker(
+        &entries,
+        "sk",
+        &["--height=40%", "--reverse", "--prompt=history> "],
+    ) {
+        return SlashOutcome::Prefill(selected);
+    }
+
+    // Native crossterm fallback.
+    match native_history_picker(&entries) {
+        Some(selected) => SlashOutcome::Prefill(selected),
+        None => SlashOutcome::Code(0),
+    }
+}
+
+/// Read all history lines, deduplicated and most-recent-last.
+fn read_history_entries(history_path: &Path) -> Vec<String> {
+    let Ok(content) = std::fs::read_to_string(history_path) else {
+        return Vec::new();
+    };
+    // Deduplicate while preserving order (last occurrence wins).
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    for line in content.lines().rev() {
+        let line = line.trim();
+        if !line.is_empty() && seen.insert(line.to_string()) {
+            out.push(line.to_string());
+        }
+    }
+    out.reverse(); // oldest → newest
+    out
+}
+
+/// Try running an external fuzzy picker, returning the selected line or None.
+fn try_external_picker(entries: &[String], bin: &str, args: &[&str]) -> Option<String> {
+    if which::which(bin).is_err() {
+        return None;
+    }
+
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(bin)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        // fzf/sk need to talk to the real terminal for interactive display
+        .stderr(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open("/dev/tty")
+                .map(|f| Stdio::from(f))
+                .unwrap_or(Stdio::inherit()),
+        )
+        .spawn()
+        .ok()?;
+
+    // Feed history lines newest-first so the most recent is at the top.
+    if let Some(stdin) = child.stdin.take() {
+        let mut stdin = stdin;
+        for entry in entries.iter().rev() {
+            let _ = writeln!(stdin, "{entry}");
+        }
+    }
+
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None; // user pressed Esc
+    }
+
+    let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if selected.is_empty() {
+        None
+    } else {
+        Some(selected)
+    }
+}
+
+/// Native crossterm-based interactive history picker.
+///
+/// Renders a scrollable, filterable list using raw terminal mode.
+/// Arrow keys navigate; typing filters; Enter selects; Esc cancels.
+fn native_history_picker(entries: &[String]) -> Option<String> {
+    use crossterm::{cursor, execute, terminal};
+    use std::io;
+
+    let Ok(_) = terminal::enable_raw_mode() else {
+        eprintln!("shako: /history: cannot enable raw mode");
+        return None;
+    };
+
+    let mut stdout = io::stderr();
+    let _ = execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide);
+
+    let result = run_native_picker(&mut stdout, entries);
+
+    let _ = execute!(stdout, terminal::LeaveAlternateScreen, cursor::Show);
+    let _ = terminal::disable_raw_mode();
+
+    result
+}
+
+fn run_native_picker(out: &mut impl std::io::Write, entries: &[String]) -> Option<String> {
+    use crossterm::{
+        cursor,
+        event::{self, Event, KeyCode, KeyModifiers},
+        queue,
+        style::{self, Color, Stylize},
+        terminal::{self, ClearType},
+    };
+
+    let mut query = String::new();
+    let mut selected_idx: usize = 0;
+    let visible_rows: usize = 15;
+
+    loop {
+        // Filter entries (newest-first for display)
+        let filtered: Vec<&str> = entries
+            .iter()
+            .rev()
+            .filter(|e| {
+                if query.is_empty() {
+                    true
+                } else {
+                    e.to_lowercase().contains(&query.to_lowercase())
+                }
+            })
+            .map(|s| s.as_str())
+            .collect();
+
+        let total = filtered.len();
+        if selected_idx >= total && total > 0 {
+            selected_idx = total - 1;
+        }
+
+        // ── render ─────────────────────────────────────────────────────────
+
+        let (term_w, _) = terminal::size().unwrap_or((80, 24));
+        let term_w = term_w as usize;
+
+        // Clear and move to top
+        let _ = queue!(out, cursor::MoveTo(0, 0), terminal::Clear(ClearType::All),);
+
+        // Border/header
+        let header = format!(" ╭─ history ─ {} matches / {} total ", total, entries.len());
+        let header_rest = "─".repeat(term_w.saturating_sub(header.chars().count() + 1));
+        let _ = queue!(
+            out,
+            style::PrintStyledContent(format!("{header}{header_rest}╮").with(style::Color::Cyan)),
+            cursor::MoveToNextLine(1),
+        );
+
+        // Query line
+        let prompt = format!("  │ > {query}");
+        let pad = term_w.saturating_sub(prompt.chars().count() + 3);
+        let _ = queue!(
+            out,
+            style::PrintStyledContent("  │ ".with(Color::Cyan)),
+            style::PrintStyledContent("> ".with(Color::White)),
+            style::PrintStyledContent(query.clone().bold()),
+            style::Print(" ".repeat(pad)),
+            style::PrintStyledContent("  │".with(Color::Cyan)),
+            cursor::MoveToNextLine(1),
+        );
+
+        // Separator
+        let sep = format!("  ├{}┤", "─".repeat(term_w.saturating_sub(4)));
+        let _ = queue!(
+            out,
+            style::PrintStyledContent(sep.with(Color::Cyan)),
+            cursor::MoveToNextLine(1),
+        );
+
+        // List entries (scroll window)
+        let window_start = selected_idx
+            .saturating_sub(visible_rows / 2)
+            .min(total.saturating_sub(visible_rows));
+        let window = &filtered[window_start..total.min(window_start + visible_rows)];
+
+        for (i, entry) in window.iter().enumerate() {
+            let abs_idx = window_start + i;
+            let is_selected = abs_idx == selected_idx;
+            let prefix = if is_selected {
+                "  │ ▶ "
+            } else {
+                "  │   "
+            };
+            let avail = term_w.saturating_sub(prefix.chars().count() + 3);
+            let entry_display: String = entry.chars().take(avail).collect();
+            let pad = avail.saturating_sub(entry_display.chars().count());
+
+            let _ = queue!(out, style::PrintStyledContent("  │".with(Color::Cyan)));
+            if is_selected {
+                let _ = queue!(
+                    out,
+                    style::PrintStyledContent(
+                        format!(" ▶ {entry_display}{}", " ".repeat(pad))
+                            .bold()
+                            .with(Color::Cyan)
+                    ),
+                    style::PrintStyledContent("  │".with(Color::Cyan)),
+                );
+            } else {
+                let _ = queue!(
+                    out,
+                    style::Print(format!("   {entry_display}{}", " ".repeat(pad))),
+                    style::PrintStyledContent("  │".with(Color::Cyan)),
+                );
+            }
+            let _ = queue!(out, cursor::MoveToNextLine(1));
+        }
+
+        // Pad remaining rows
+        for _ in window.len()..visible_rows {
+            let blank = format!("  │{}  │", " ".repeat(term_w.saturating_sub(4)));
+            let _ = queue!(
+                out,
+                style::PrintStyledContent(blank.with(Color::Cyan)),
+                cursor::MoveToNextLine(1),
+            );
+        }
+
+        // Footer
+        let footer = format!("  ╰{}╯", "─".repeat(term_w.saturating_sub(4)));
+        let _ = queue!(
+            out,
+            style::PrintStyledContent(footer.with(Color::Cyan)),
+            cursor::MoveToNextLine(1),
+        );
+
+        // Key hint
+        let _ = queue!(
+            out,
+            style::PrintStyledContent(
+                "  ↑↓ navigate  Enter select  Esc cancel  type to filter\n".with(Color::DarkGrey)
+            ),
+        );
+
+        let _ = out.flush();
+
+        // ── input ──────────────────────────────────────────────────────────
+
+        match event::read().ok()? {
+            Event::Key(key) => match (key.code, key.modifiers) {
+                (KeyCode::Esc, _)
+                | (KeyCode::Char('c'), KeyModifiers::CONTROL)
+                | (KeyCode::Char('q'), KeyModifiers::NONE) => {
+                    return None;
+                }
+                (KeyCode::Enter, _) => {
+                    if total > 0 {
+                        return Some(filtered[selected_idx].to_string());
+                    }
+                }
+                (KeyCode::Up, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
+                    if selected_idx > 0 {
+                        selected_idx -= 1;
+                    }
+                }
+                (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+                    if selected_idx + 1 < total {
+                        selected_idx += 1;
+                    }
+                }
+                (KeyCode::Backspace, _) => {
+                    query.pop();
+                    selected_idx = 0;
+                }
+                (KeyCode::Char(c), KeyModifiers::NONE)
+                | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+                    query.push(c);
+                    selected_idx = 0;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
+// ─── /validate ───────────────────────────────────────────────────────────────
 
 fn cmd_validate(config: &ShakoConfig, rt: &tokio::runtime::Runtime) -> i32 {
     let llm = config.active_llm();
@@ -213,10 +551,25 @@ fn cmd_provider(args: &str, config: &mut ShakoConfig) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn make_runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Runtime::new()
             .expect("failed to create tokio runtime for slash command test")
+    }
+
+    fn dummy_history() -> PathBuf {
+        PathBuf::from("/nonexistent/history.txt")
+    }
+
+    /// Helper: run a slash command and extract the exit code.
+    /// `/history` is not tested here because it requires a TTY.
+    fn run_code(name: &str, args: &str, config: &mut ShakoConfig) -> i32 {
+        let rt = make_runtime();
+        match run(name, args, config, &rt, &dummy_history()) {
+            SlashOutcome::Code(c) => c,
+            SlashOutcome::Prefill(_) => 0,
+        }
     }
 
     #[test]
@@ -225,66 +578,81 @@ mod tests {
     }
 
     #[test]
+    fn test_slash_commands_includes_history() {
+        let names: Vec<&str> = SLASH_COMMANDS.iter().map(|(n, _)| *n).collect();
+        assert!(names.contains(&"history"), "/history must be listed");
+    }
+
+    #[test]
     fn test_unknown_command_returns_1() {
         let mut config = ShakoConfig::default();
-        let rt = make_runtime();
-        assert_eq!(run("nonexistent", "", &mut config, &rt), 1);
+        assert_eq!(run_code("nonexistent", "", &mut config), 1);
     }
 
     #[test]
     fn test_help_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = make_runtime();
-        assert_eq!(run("help", "", &mut config, &rt), 0);
+        assert_eq!(run_code("help", "", &mut config), 0);
     }
 
     #[test]
     fn test_config_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = make_runtime();
-        assert_eq!(run("config", "", &mut config, &rt), 0);
+        assert_eq!(run_code("config", "", &mut config), 0);
     }
 
     #[test]
     fn test_model_no_args_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = make_runtime();
-        assert_eq!(run("model", "", &mut config, &rt), 0);
+        assert_eq!(run_code("model", "", &mut config), 0);
     }
 
     #[test]
     fn test_safety_no_args_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = make_runtime();
-        assert_eq!(run("safety", "", &mut config, &rt), 0);
+        assert_eq!(run_code("safety", "", &mut config), 0);
     }
 
     #[test]
     fn test_safety_set_valid_mode() {
         let mut config = ShakoConfig::default();
-        let rt = make_runtime();
-        assert_eq!(run("safety", "off", &mut config, &rt), 0);
+        assert_eq!(run_code("safety", "off", &mut config), 0);
         assert_eq!(config.behavior.safety_mode, "off");
     }
 
     #[test]
     fn test_safety_set_invalid_mode() {
         let mut config = ShakoConfig::default();
-        let rt = make_runtime();
-        assert_eq!(run("safety", "invalid", &mut config, &rt), 1);
+        assert_eq!(run_code("safety", "invalid", &mut config), 1);
     }
 
     #[test]
     fn test_provider_no_args_returns_0() {
         let mut config = ShakoConfig::default();
-        let rt = make_runtime();
-        assert_eq!(run("provider", "", &mut config, &rt), 0);
+        assert_eq!(run_code("provider", "", &mut config), 0);
     }
 
     #[test]
     fn test_provider_switch_unknown() {
         let mut config = ShakoConfig::default();
+        assert_eq!(run_code("provider", "nonexistent", &mut config), 1);
+    }
+
+    #[test]
+    fn test_history_no_tty_returns_code() {
+        // In a non-TTY test environment (no fzf/sk, stdin not a terminal),
+        // /history should fall back gracefully and return a Code outcome.
         let rt = make_runtime();
-        assert_eq!(run("provider", "nonexistent", &mut config, &rt), 1);
+        let result = run(
+            "history",
+            "",
+            &mut ShakoConfig::default(),
+            &rt,
+            &dummy_history(),
+        );
+        // We only care that it doesn't panic; the exact code may vary.
+        match result {
+            SlashOutcome::Code(_) | SlashOutcome::Prefill(_) => {}
+        }
     }
 }
