@@ -670,6 +670,24 @@ pub async fn search_history(
     client::query_llm(system, &user_msg, config.active_llm()).await
 }
 
+/// Build a pipeline plan from a natural-language description.
+///
+/// Returns an ordered list of pipeline steps (as JSON from the LLM), which
+/// the caller passes to [`crate::pipe_builder::parse_plan`] to produce a
+/// [`crate::pipe_builder::PipelinePlan`].
+pub async fn build_pipeline(
+    description: &str,
+    config: &ShakoConfig,
+    recent_history: Vec<String>,
+) -> Result<String> {
+    let guard_cfg = prompt_guard::GuardConfig {
+        enabled: config.security.prompt_injection_guard,
+    };
+    let ctx = context::build_context(recent_history, vec![], Some(guard_cfg))?;
+    let system_prompt = prompt::pipe_plan_prompt(&ctx);
+    client::query_llm(&system_prompt, description, config.active_llm()).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::DiagnosisResult;

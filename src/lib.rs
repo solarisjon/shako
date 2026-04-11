@@ -36,6 +36,7 @@ pub mod env_context;
 pub mod incident;
 pub mod journal;
 pub mod learned_prefs;
+pub mod pipe_builder;
 pub mod setup;
 pub mod spinner;
 pub mod undo;

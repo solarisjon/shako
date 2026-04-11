@@ -37,6 +37,10 @@ pub enum Classification {
     ///
     /// The inner string is the raw query used to resolve which snapshot to restore.
     UndoRequest(String),
+    /// AI Pipe Builder request (prefixed with `|?`).
+    ///
+    /// The inner string is the natural-language pipeline description.
+    PipelineBuild(String),
     /// Empty input.
     Empty,
 }
@@ -80,6 +84,12 @@ impl Classifier {
         }
         if let Some(rest) = trimmed.strip_prefix("ai:") {
             return Classification::ForcedAI(rest.trim().to_string());
+        }
+
+        // AI Pipe Builder: `|? description` — build a pipeline with live previews.
+        // Must be checked before the forced-AI `?` catch-all.
+        if let Some(rest) = trimmed.strip_prefix("|?") {
+            return Classification::PipelineBuild(rest.trim().to_string());
         }
 
         // AI history search: `??query` or `?? query`

@@ -22,6 +22,7 @@ use crate::config::ShakoConfig;
 use crate::env_context::{self, ContextTracker};
 use crate::executor;
 use crate::parser;
+use crate::pipe_builder;
 use crate::proactive;
 use crate::shell::prompt::{self, CommandTimer, StarshipPrompt};
 use crate::slash;
@@ -475,6 +476,42 @@ pub fn run_repl(
                             }
                         } else {
                             eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                        }
+                    }
+                    Classification::PipelineBuild(description) => {
+                        if !config.behavior.ai_enabled {
+                            eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                        } else if description.is_empty() {
+                            eprintln!("shako: usage: |? <pipeline description>");
+                            eprintln!("       example: |? top 10 IPs from access.log");
+                        } else {
+                            let history = read_recent_history_with_dedup(
+                                &history_path,
+                                config.behavior.history_context_lines,
+                                config.behavior.history_dedup,
+                            );
+                            let sp = spinner::Spinner::start("building pipeline...");
+                            let result = rt.block_on(
+                                ai::build_pipeline(&description, &config, history)
+                            );
+                            drop(sp);
+                            match result {
+                                Ok(raw) => {
+                                    match pipe_builder::parse_plan(&raw) {
+                                        Some(plan) if !plan.steps.is_empty() => {
+                                            if let Some(cmd) = pipe_builder::present_and_confirm(&plan) {
+                                                ai::maybe_take_snapshot(&cmd, &config);
+                                                let status = executor::execute_command(&cmd);
+                                                set_exit_code(status);
+                                            }
+                                        }
+                                        _ => {
+                                            eprintln!("shako: could not build a pipeline for that description");
+                                        }
+                                    }
+                                }
+                                Err(e) => eprintln!("shako: pipeline build failed: {e}"),
+                            }
                         }
                     }
                     Classification::UndoRequest(query) => {

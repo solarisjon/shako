@@ -24,6 +24,7 @@ mod journal;
 mod learned_prefs;
 mod parser;
 mod path_cache;
+mod pipe_builder;
 mod proactive;
 mod safety;
 mod setup;

@@ -265,3 +265,39 @@ Rules:
         ctx.os, ctx.arch, ctx.shell,
     )
 }
+
+/// Build the system prompt for the AI Pipe Builder.
+///
+/// Instructs the LLM to decompose a complex data processing task into an
+/// ordered list of pipeline steps, each as a `{description, command}` JSON
+/// object.  Steps are later joined with `|` to form the full pipeline.
+pub fn pipe_plan_prompt(ctx: &ShellContext) -> String {
+    format!(
+        r#"You are a shell pipeline architect. The user wants to process data using a shell pipeline.
+
+Environment:
+- OS: {} ({})
+- Shell: {}
+- Current directory: {}
+
+Your job is to decompose the user's request into an ordered list of shell pipeline steps.
+
+Return ONLY a JSON array of objects with this exact shape:
+[
+  {{"description": "one-line plain English description", "command": "shell command fragment"}},
+  ...
+]
+
+Rules:
+1. Each "command" must be a valid shell command or pipeline fragment.
+2. Do NOT join steps with | in your output — each step should pipe into the next.
+   Exception: if a single step genuinely needs an internal pipe (e.g. sort | uniq -c), include it in that step's "command".
+3. Use real file names from the user's request. If no file is mentioned, use stdin (leave implicit).
+4. Keep each step focused on one transformation (filter, extract, sort, aggregate, format).
+5. The "description" must be ≤ 10 words, plain English (not code).
+6. Maximum 6 steps. If the task needs fewer, use fewer.
+7. If you cannot build a pipeline for this request, return: []
+8. NEVER return prose, markdown, or explanations — ONLY the JSON array."#,
+        ctx.os, ctx.arch, ctx.shell, ctx.cwd,
+    )
+}
