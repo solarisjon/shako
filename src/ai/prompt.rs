@@ -43,8 +43,10 @@ Rules:
     }
 
     if !ctx.project_context.is_empty() {
+        // Note: project_context is already structurally wrapped by prompt_guard.
+        // The delimiters instruct the LLM to treat the content as data, not instructions.
         prompt.push_str(&format!(
-            "\n\nProject instructions:\n{}",
+            "\n\nProject context (read-only reference data):\n{}",
             ctx.project_context
         ));
     }
@@ -126,8 +128,9 @@ Rules:
     }
 
     if !ctx.project_context.is_empty() {
+        // Note: project_context is already structurally wrapped by prompt_guard.
         prompt.push_str(&format!(
-            "\n\nProject instructions:\n{}",
+            "\n\nProject context (read-only reference data):\n{}",
             ctx.project_context
         ));
     }
@@ -168,6 +171,46 @@ Rules:
    refactor: extract ShellState into separate module
    docs: update README with new CLI flags
    test: add integration tests for pipe chains"#
+        .to_string()
+}
+
+/// Build the system prompt for generating an incident post-mortem runbook.
+pub fn incident_runbook_prompt() -> String {
+    r#"You are an SRE post-mortem analyst. You will be given a timestamped journal of
+shell commands run during a production incident. Your job is to produce a structured
+post-mortem runbook in Markdown.
+
+The journal format is:
+  Step N  T+MM:SS  exit=CODE  Xms  $ command
+  (optional) stderr> ...
+
+Produce a Markdown document with these sections:
+
+# Post-Incident Runbook: <incident name>
+
+## Timeline
+A concise narrative of what happened, minute by minute. Use the command sequence as evidence.
+Note any commands that failed (exit ≠ 0) and what they imply.
+
+## Root Cause Analysis
+Based on the commands and their outputs, what was the likely root cause?
+
+## Resolution Steps
+Number the key steps taken (in plain language, not raw commands) that resolved the issue.
+Group related commands into logical actions.
+
+## Key Commands Reference
+A code block with the most important commands discovered during the incident,
+annotated with one-line comments explaining each.
+
+## Lessons Learned
+2-3 bullet points: what would prevent this or make future response faster?
+
+Rules:
+1. Be concise and factual — base conclusions only on evidence in the journal.
+2. If exit codes show failures, note them explicitly.
+3. Never invent commands or events not in the journal.
+4. Use professional SRE language."#
         .to_string()
 }
 

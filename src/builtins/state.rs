@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::incident::IncidentSession;
+
 /// A background job tracked by the shell.
 pub struct Job {
     pub id: usize,
@@ -34,6 +36,8 @@ pub struct ShellState {
     pub dir_stack: Vec<PathBuf>,
     /// Rolling AI session memory: (user NL input, AI command response)
     pub ai_session_memory: Vec<(String, String)>,
+    /// Active incident session, or `None` when not in incident mode.
+    pub incident_session: Option<IncidentSession>,
 }
 
 impl ShellState {
@@ -48,6 +52,7 @@ impl ShellState {
             next_job_id: 1,
             dir_stack: Vec::new(),
             ai_session_memory: Vec::new(),
+            incident_session: None,
         }
     }
 

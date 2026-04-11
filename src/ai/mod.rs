@@ -2,6 +2,7 @@ pub mod client;
 pub mod confirm;
 pub mod context;
 pub mod prompt;
+pub mod prompt_guard;
 pub mod render;
 
 use crate::config::ShakoConfig;
@@ -21,8 +22,20 @@ pub async fn translate_and_execute(
         eprintln!("shako: ai is disabled (set ai_enabled = true in config to enable)");
         return Ok(());
     }
-    let mut ctx = context::build_context(recent_history, session_memory.clone())?;
-    ctx.system_prompt_extra = config.behavior.ai_system_prompt_extra.clone();
+    let guard_cfg = prompt_guard::GuardConfig {
+        enabled: config.security.prompt_injection_guard,
+    };
+    let mut ctx = context::build_context(recent_history, session_memory.clone(), Some(guard_cfg.clone()))?;
+
+    // Sanitize `ai_system_prompt_extra` (from user config) before LLM injection.
+    ctx.system_prompt_extra = config.behavior.ai_system_prompt_extra.as_deref().map(|raw| {
+        let safe = prompt_guard::sanitize_or_warn(
+            raw,
+            "`[behavior].ai_system_prompt_extra` in config.toml",
+            &guard_cfg,
+        );
+        if safe.is_empty() { None } else { Some(safe) }
+    }).flatten();
     let system_prompt = prompt::system_prompt(&ctx);
 
     let mut current_input = input.to_string();
@@ -126,7 +139,10 @@ pub async fn diagnose_error(
     config: &ShakoConfig,
     recent_history: Vec<String>,
 ) -> Result<String> {
-    let ctx = context::build_context(recent_history, vec![])?;
+    let guard_cfg = prompt_guard::GuardConfig {
+        enabled: config.security.prompt_injection_guard,
+    };
+    let ctx = context::build_context(recent_history, vec![], Some(guard_cfg))?;
     let system_prompt = prompt::error_recovery_prompt(&ctx);
     let user_msg = if stderr_hint.is_empty() {
         format!("Command: {command}\nExit code: {exit_code}")
@@ -195,7 +211,10 @@ pub async fn explain_command(
     config: &ShakoConfig,
     spinner_flag: Option<Arc<AtomicBool>>,
 ) -> Result<String> {
-    let ctx = context::build_context(vec![], vec![])?;
+    let guard_cfg = prompt_guard::GuardConfig {
+        enabled: config.security.prompt_injection_guard,
+    };
+    let ctx = context::build_context(vec![], vec![], Some(guard_cfg))?;
     let system_prompt = prompt::explain_prompt(&ctx);
 
     let raw = if let Some(flag) = spinner_flag {
@@ -205,6 +224,23 @@ pub async fn explain_command(
     };
 
     Ok(render::render_markdown_explanation(&raw))
+}
+
+/// Generate an AI-powered post-mortem runbook from an incident step log.
+///
+/// `incident_name` is the human label; `step_log` is the output of
+/// `IncidentSession::step_log()`.
+pub async fn generate_incident_runbook(
+    incident_name: &str,
+    step_log: &str,
+    config: &ShakoConfig,
+) -> Result<String> {
+    let system_prompt = prompt::incident_runbook_prompt();
+    let user_msg = format!(
+        "Incident: {incident_name}\n\nCommand Journal:\n{step_log}"
+    );
+    let raw = client::query_llm(&system_prompt, &user_msg, config.active_llm()).await?;
+    Ok(raw.trim().to_string())
 }
 
 /// Search shell history using AI semantic matching.

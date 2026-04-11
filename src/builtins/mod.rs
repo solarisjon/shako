@@ -83,6 +83,8 @@ pub const BUILTINS: &[&str] = &[
     "break",
     "continue",
     "local",
+    // Incident mode
+    "incident",
 ];
 
 // Thread-local signal for early return from user-defined functions.
@@ -228,11 +230,209 @@ pub fn run_builtin(input: &str, state: &mut ShellState) -> i32 {
                 .and_then(|s| s.code())
                 .unwrap_or(0)
         }
+        "incident" => builtin_incident(&parts[1..], state),
         other => {
             eprintln!("shako: unknown builtin: {other}");
             1
         }
     }
+}
+
+/// Handle the `incident` builtin: start / status / end / report.
+fn builtin_incident(args: &[&str], state: &mut ShellState) -> i32 {
+    use crate::incident::{self, IncidentSession};
+
+    let subcommand = args.first().copied().unwrap_or("status");
+
+    match subcommand {
+        "start" => {
+            if state.incident_session.is_some() {
+                let id = state.incident_session.as_ref().unwrap().id();
+                eprintln!("shako: incident already active: {id}");
+                eprintln!("  Use `incident end` or `incident report` first.");
+                return 1;
+            }
+            let name = if args.len() > 1 {
+                args[1..].join("-")
+            } else {
+                // Default name based on timestamp
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                format!("incident-{ts}")
+            };
+            let session = IncidentSession::new(&name);
+            let id = session.id();
+            eprintln!("\x1b[1;31m⚡ INCIDENT MODE ACTIVATED\x1b[0m");
+            eprintln!("\x1b[90m  ID:   {id}\x1b[0m");
+            eprintln!("\x1b[90m  All commands will be timestamped and recorded.\x1b[0m");
+            eprintln!("\x1b[90m  Run `incident report` when done to generate a runbook.\x1b[0m");
+            state.incident_session = Some(session);
+            // Signal prompt to show [INC] indicator
+            crate::shell::prompt::set_incident_active(true);
+            0
+        }
+        "status" => match &state.incident_session {
+            None => {
+                eprintln!("shako: no active incident session");
+                eprintln!("  Start one with: incident start <name>");
+                1
+            }
+            Some(session) => {
+                eprintln!("\x1b[1;31m⚡ INCIDENT ACTIVE\x1b[0m  {}", session.id());
+                eprintln!(
+                    "  Elapsed: {}  |  Steps recorded: {}",
+                    session.elapsed_display(),
+                    session.steps.len()
+                );
+                if !session.steps.is_empty() {
+                    eprintln!("\n  Last 5 steps:");
+                    let start = session.steps.len().saturating_sub(5);
+                    for step in &session.steps[start..] {
+                        let icon = if step.exit_code == 0 { "✓" } else { "✗" };
+                        eprintln!(
+                            "  \x1b[90m{icon} exit={:<3}  $ {}\x1b[0m",
+                            step.exit_code, step.command
+                        );
+                    }
+                }
+                0
+            }
+        },
+        "end" => {
+            match state.incident_session.take() {
+                None => {
+                    eprintln!("shako: no active incident session");
+                    1
+                }
+                Some(session) => {
+                    eprintln!(
+                        "\x1b[90mIncident {} ended after {} ({} steps recorded).\x1b[0m",
+                        session.id(),
+                        session.elapsed_display(),
+                        session.steps.len()
+                    );
+                    eprintln!("\x1b[90m  Tip: use `incident report` next time to generate a runbook.\x1b[0m");
+                    crate::shell::prompt::set_incident_active(false);
+                    0
+                }
+            }
+        }
+        "report" => {
+            // Pull the session out so we can pass it to the AI without borrowing `state`.
+            match state.incident_session.take() {
+                None => {
+                    eprintln!("shako: no active incident session");
+                    1
+                }
+                Some(session) => {
+                    crate::shell::prompt::set_incident_active(false);
+                    eprintln!(
+                        "\x1b[1;31m⚡\x1b[0m Incident {} ended after {} ({} steps).",
+                        session.id(),
+                        session.elapsed_display(),
+                        session.steps.len()
+                    );
+
+                    if session.steps.is_empty() {
+                        eprintln!("  No steps were recorded — nothing to report.");
+                        return 0;
+                    }
+
+                    let step_log = session.step_log();
+                    let incident_name = session.name.clone();
+                    let incident_id = session.id();
+
+                    // Print the step log first so the user can review it while waiting.
+                    eprintln!(
+                        "\n\x1b[90m─── Step Journal ───────────────────────────────────\x1b[0m"
+                    );
+                    for line in step_log.lines() {
+                        eprintln!("  \x1b[90m{line}\x1b[0m");
+                    }
+                    eprintln!(
+                        "\x1b[90m────────────────────────────────────────────────────\x1b[0m\n"
+                    );
+
+                    // We need a config reference; access it via a thread-local trick or
+                    // just emit the step log as a formatted markdown report without AI.
+                    // For the AI call we need the runtime — store the step_log and
+                    // generate a minimal markdown report synchronously, then offer the
+                    // AI-enhanced version if AI is enabled (handled by the REPL caller).
+                    // For now: emit a complete markdown report synchronously.
+                    let md =
+                        incident::build_markdown_report(&incident_id, &incident_name, &step_log);
+                    eprintln!("\x1b[90mGenerated post-incident report:\x1b[0m");
+                    println!("{md}");
+
+                    // Attempt auto-save to configured runbook_dir if we can find it.
+                    // We read it from the local .shako.toml `[incident] runbook_dir` key.
+                    if let Some(save_path) = incident_save_path(&incident_id) {
+                        match std::fs::write(&save_path, &md) {
+                            Ok(_) => eprintln!("\x1b[90m  Saved: {}\x1b[0m", save_path.display()),
+                            Err(e) => eprintln!("shako: could not save runbook: {e}"),
+                        }
+                    }
+
+                    0
+                }
+            }
+        }
+        _ => {
+            eprintln!("shako: incident: unknown subcommand: {subcommand}");
+            eprintln!("  Usage: incident [start <name>|status|end|report]");
+            1
+        }
+    }
+}
+
+/// Determine where to save the runbook markdown file.
+/// Reads `.shako.toml` in the current directory for `[incident] runbook_dir`.
+fn incident_save_path(incident_id: &str) -> Option<std::path::PathBuf> {
+    use std::io::BufRead;
+
+    // Try .shako.toml in the current directory.
+    let toml_path = std::env::current_dir().ok()?.join(".shako.toml");
+    if !toml_path.exists() {
+        return None;
+    }
+    let file = std::fs::File::open(&toml_path).ok()?;
+    let reader = std::io::BufReader::new(file);
+
+    let mut in_incident_section = false;
+    let mut runbook_dir: Option<String> = None;
+
+    for line in reader.lines().map_while(Result::ok) {
+        let trimmed = line.trim();
+        if trimmed == "[incident]" {
+            in_incident_section = true;
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_incident_section = false;
+        }
+        if in_incident_section {
+            if let Some(val) = trimmed.strip_prefix("runbook_dir") {
+                // e.g. `runbook_dir = "~/incidents"`
+                let val = val.trim_start_matches(|c: char| c == ' ' || c == '=');
+                let val = val.trim().trim_matches('"').trim_matches('\'');
+                runbook_dir = Some(val.to_string());
+            }
+        }
+    }
+
+    let dir_str = runbook_dir?;
+    let dir_str = if dir_str.starts_with('~') {
+        let home = std::env::var("HOME").unwrap_or_default();
+        dir_str.replacen('~', &home, 1)
+    } else {
+        dir_str
+    };
+
+    let dir = std::path::PathBuf::from(dir_str);
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join(format!("{incident_id}.md")))
 }
 
 /// Try to parse and register a function definition.

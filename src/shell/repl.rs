@@ -153,6 +153,17 @@ pub fn run_repl(
                     continue;
                 }
 
+                // Handle `incident report` specially so we have access to rt and config.
+                if input.trim() == "incident report" {
+                    handle_incident_report(&mut state, &config, &rt);
+                    last_command = input.to_string();
+                    ctx_tracker.post_command();
+                    prompt::set_production_context_active(
+                        ctx_tracker.is_currently_production(&config.behavior.production_contexts),
+                    );
+                    continue;
+                }
+
                 // Check for function definition
                 if input.starts_with("function ") {
                     builtins::try_define_function(&input, &mut state);
@@ -236,9 +247,22 @@ pub fn run_repl(
                 match classifier.classify(&input) {
                     Classification::Command(cmd) => {
                         ran_foreground = true;
+                        let cmd_start = std::time::Instant::now();
                         let (status, stderr_output) =
                             executor::execute_command_with_stderr(&cmd);
+                        let cmd_duration = cmd_start.elapsed();
                         set_exit_code(status);
+
+                        // Record step in active incident session.
+                        if let Some(ref mut session) = state.incident_session {
+                            let exit_code = status.and_then(|s| s.code()).unwrap_or(0);
+                            session.record(
+                                cmd.as_str(),
+                                exit_code,
+                                &stderr_output,
+                                cmd_duration,
+                            );
+                        }
 
                         // If the foreground process was stopped by Ctrl-Z,
                         // add it to the jobs list.
@@ -266,6 +290,7 @@ pub fn run_repl(
                         // that `pushd /tmp && ls` works correctly.
                         let chains = parser::split_chains(&cmd);
                         let mut last_code = 0i32;
+                        let builtin_start = std::time::Instant::now();
                         for (segment, op) in &chains {
                             let code = if is_pure_builtin_call(segment) {
                                 builtins::run_builtin(segment, &mut state)
@@ -281,6 +306,19 @@ pub fn run_repl(
                             };
                             if stop {
                                 break;
+                            }
+                        }
+                        // Record builtin step in active incident session
+                        // (skip `incident` itself to avoid meta-noise).
+                        let first_token = cmd.split_whitespace().next().unwrap_or("");
+                        if first_token != "incident" {
+                            if let Some(ref mut session) = state.incident_session {
+                                session.record(
+                                    cmd.as_str(),
+                                    last_code,
+                                    "",
+                                    builtin_start.elapsed(),
+                                );
                             }
                         }
                         prompt::set_last_status(last_code);
@@ -1224,6 +1262,122 @@ fn show_context_drift_warning(warning: &env_context::ContextWarning<'_>, command
     );
 
     answer == "y" || answer == "yes"
+}
+
+// ─── Incident report handler ──────────────────────────────────────────────────
+
+/// Handle `incident report` with access to the AI runtime and config.
+///
+/// Ends the active session, emits the step journal, then calls the AI
+/// to generate a structured post-mortem runbook.
+fn handle_incident_report(state: &mut ShellState, config: &ShakoConfig, rt: &Runtime) {
+    use crate::incident;
+
+    let session = match state.incident_session.take() {
+        Some(s) => s,
+        None => {
+            eprintln!("shako: no active incident session");
+            return;
+        }
+    };
+
+    prompt::set_incident_active(false);
+
+    eprintln!(
+        "\x1b[1;31m⚡\x1b[0m Incident {} ended after {} ({} steps).",
+        session.id(),
+        session.elapsed_display(),
+        session.steps.len()
+    );
+
+    if session.steps.is_empty() {
+        eprintln!("  No steps were recorded — nothing to report.");
+        return;
+    }
+
+    let step_log = session.step_log();
+    let incident_name = session.name.clone();
+    let incident_id = session.id();
+
+    // Print the raw step journal.
+    eprintln!("\n\x1b[90m─── Step Journal ───────────────────────────────────\x1b[0m");
+    for line in step_log.lines() {
+        eprintln!("  \x1b[90m{line}\x1b[0m");
+    }
+    eprintln!("\x1b[90m────────────────────────────────────────────────────\x1b[0m\n");
+
+    // If AI is enabled, generate an enhanced runbook.
+    let report = if config.behavior.ai_enabled {
+        let sp = crate::spinner::Spinner::start("generating runbook...");
+        let result = rt.block_on(ai::generate_incident_runbook(
+            &incident_name,
+            &step_log,
+            config,
+        ));
+        drop(sp);
+        match result {
+            Ok(runbook) => runbook,
+            Err(e) => {
+                eprintln!("shako: AI runbook generation failed: {e}");
+                eprintln!("  Falling back to plain step log report.");
+                incident::build_markdown_report(&incident_id, &incident_name, &step_log)
+            }
+        }
+    } else {
+        incident::build_markdown_report(&incident_id, &incident_name, &step_log)
+    };
+
+    // Emit the report to stdout.
+    println!("{report}");
+
+    // Auto-save to configured runbook_dir.
+    if let Some(save_path) = incident_save_path(&incident_id) {
+        match std::fs::write(&save_path, &report) {
+            Ok(_) => eprintln!("\x1b[90m  Saved: {}\x1b[0m", save_path.display()),
+            Err(e) => eprintln!("shako: could not save runbook: {e}"),
+        }
+    }
+}
+
+/// Determine where to save the runbook markdown file.
+/// Reads `.shako.toml` in the current directory for `[incident] runbook_dir`.
+fn incident_save_path(incident_id: &str) -> Option<std::path::PathBuf> {
+    use std::io::BufRead;
+    let toml_path = std::env::current_dir().ok()?.join(".shako.toml");
+    if !toml_path.exists() {
+        return None;
+    }
+    let file = std::fs::File::open(&toml_path).ok()?;
+    let reader = std::io::BufReader::new(file);
+    let mut in_section = false;
+    let mut runbook_dir: Option<String> = None;
+    for line in reader.lines().map_while(Result::ok) {
+        let trimmed = line.trim();
+        if trimmed == "[incident]" {
+            in_section = true;
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_section = false;
+        }
+        if in_section {
+            if let Some(val) = trimmed.strip_prefix("runbook_dir") {
+                let val = val.trim_start_matches(|c: char| c == ' ' || c == '=');
+                let val = val.trim().trim_matches('"').trim_matches('\'');
+                runbook_dir = Some(val.to_string());
+            }
+        }
+    }
+    let dir_str = runbook_dir?;
+    let dir_str = if dir_str.starts_with('~') {
+        let home = std::env::var("HOME").unwrap_or_default();
+        dir_str.replacen('~', &home, 1)
+    } else {
+        dir_str
+    };
+    let dir = std::path::PathBuf::from(dir_str);
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join(format!("{incident_id}.md")))
 }
 
 // ─── UI helpers (explain/banner) ─────────────────────────────────────────────

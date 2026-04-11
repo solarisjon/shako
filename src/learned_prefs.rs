@@ -9,6 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use which::which;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,23 @@ impl LearnedPrefs {
     }
 
     /// Record one (from → to) substitution, incrementing an existing entry or inserting a new one.
+    ///
+    /// **Security**: the `to` token is validated to be an actual binary on PATH before
+    /// it is persisted.  This prevents session-history poisoning by crafted edit sequences
+    /// where an attacker tricks the learned-prefs file into injecting a malicious tool name
+    /// (e.g. a script named after a real tool placed in `/tmp`).
+    ///
+    /// If `to` is not found on PATH the substitution is silently ignored.
     pub fn record(&mut self, from: &str, to: &str) {
+        // Only persist if the target binary actually exists on PATH.
+        if which(to).is_err() {
+            log::debug!(
+                "learned_prefs: ignoring substitution '{from}' → '{to}': \
+                 '{to}' not found on PATH"
+            );
+            return;
+        }
+
         if let Some(existing) = self
             .substitutions
             .iter_mut()

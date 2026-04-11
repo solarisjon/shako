@@ -17,6 +17,9 @@ pub struct ShakoConfig {
     /// Shell behavior settings (confirmation, safety mode, history, etc.).
     #[serde(default)]
     pub behavior: BehaviorConfig,
+    /// Security settings (prompt injection guard, etc.).
+    #[serde(default)]
+    pub security: SecurityConfig,
     /// Fish shell import settings.
     #[serde(default)]
     pub fish: FishConfig,
@@ -137,6 +140,36 @@ pub struct BehaviorConfig {
     /// about destructive commands in the new context.  Defaults to 300 (5 min).
     #[serde(default = "default_warn_window_secs")]
     pub context_warn_window_secs: u64,
+}
+
+/// Security configuration for shako.
+///
+/// Example in `~/.config/shako/config.toml`:
+/// ```toml
+/// [security]
+/// prompt_injection_guard = true   # default: true
+/// ```
+#[derive(Debug, Deserialize, Clone)]
+pub struct SecurityConfig {
+    /// Enable the prompt injection firewall for all user-controlled LLM context
+    /// (`.shako.toml` `[ai].context`, `learned_prefs.toml`, `ai_system_prompt_extra`).
+    ///
+    /// When `true` (default), any field containing known injection patterns is stripped
+    /// and a warning is printed.  All clean fields are wrapped in structural delimiters
+    /// so the LLM treats them as data, not instructions.
+    ///
+    /// **Strongly recommended to leave enabled.**  Set to `false` only if you control
+    /// every file that shako reads and trust its contents absolutely.
+    #[serde(default = "default_true")]
+    pub prompt_injection_guard: bool,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            prompt_injection_guard: true,
+        }
+    }
 }
 
 /// Configuration for fish shell interoperability.

@@ -17,6 +17,8 @@ static LAST_JOB_COUNT: AtomicUsize = AtomicUsize::new(0);
 static AI_CONTEXT_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Whether the current environment context is production (affects fallback prompt color).
 static PRODUCTION_CONTEXT_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Whether an incident session is currently active (adds [INC] to prompt).
+static INCIDENT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Signal that the AI session context is active or inactive.
 /// Used by the fallback prompt to switch to a yellow indicator.
@@ -37,6 +39,17 @@ pub fn set_production_context_active(active: bool) {
 #[allow(dead_code)]
 pub fn is_production_context_active() -> bool {
     PRODUCTION_CONTEXT_ACTIVE.load(Ordering::Relaxed)
+}
+
+/// Signal that an incident session is active (or has ended).
+/// When true the fallback prompt prepends a red `[INC]` indicator.
+pub fn set_incident_active(active: bool) {
+    INCIDENT_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+/// Return whether an incident session is currently active.
+pub fn is_incident_active() -> bool {
+    INCIDENT_ACTIVE.load(Ordering::Relaxed)
 }
 
 pub fn set_last_status(code: i32) {
@@ -154,20 +167,31 @@ impl StarshipPrompt {
 /// - Production context      → amber ❯ (persistent warning: you are in prod)
 /// - AI context active       → yellow ❯ (signals the shell has session memory)
 /// - Normal                  → teal ❯ (matches brand gradient)
+///
+/// When an incident session is active a dim red `[INC]` prefix is prepended
+/// regardless of the other priority tiers.
 fn fallback_prompt_left(last_status: i32) -> String {
-    if last_status != 0 {
+    let inc_prefix = if INCIDENT_ACTIVE.load(Ordering::Relaxed) {
+        "\x1b[90m[INC]\x1b[0m "
+    } else {
+        ""
+    };
+
+    let chevron = if last_status != 0 {
         // Red — command failed
-        "\x1b[31m❯\x1b[0m ".to_string()
+        "\x1b[31m❯\x1b[0m "
     } else if PRODUCTION_CONTEXT_ACTIVE.load(Ordering::Relaxed) {
         // Amber — currently in a production context; keep the engineer aware
-        "\x1b[38;5;214m❯\x1b[0m ".to_string()
+        "\x1b[38;5;214m❯\x1b[0m "
     } else if AI_CONTEXT_ACTIVE.load(Ordering::Relaxed) {
         // Yellow — AI session memory is active
-        "\x1b[33m❯\x1b[0m ".to_string()
+        "\x1b[33m❯\x1b[0m "
     } else {
         // Teal — normal, matches brand
-        "\x1b[38;5;38m❯\x1b[0m ".to_string()
-    }
+        "\x1b[38;5;38m❯\x1b[0m "
+    };
+
+    format!("{inc_prefix}{chevron}")
 }
 
 impl Prompt for StarshipPrompt {

@@ -4,6 +4,8 @@ use std::fs;
 use std::path::PathBuf;
 use which::which;
 
+use super::prompt_guard::{sanitize_or_warn, GuardConfig};
+
 /// Shell context sent to the LLM for better command translation.
 pub struct ShellContext {
     pub os: String,
@@ -81,9 +83,15 @@ const TOOL_PREFERENCES: &[(&str, &str)] = &[
 ];
 
 /// Build context from the current environment.
+///
+/// `guard_cfg` controls whether the prompt injection firewall is active.
+/// Pass `None` to use the default (guard enabled).  This is separate from
+/// the full `ShakoConfig` so that callers that don't have access to a config
+/// (e.g. error recovery) can still use a sensible default.
 pub fn build_context(
     recent_history: Vec<String>,
     session_memory: Vec<(String, String)>,
+    guard_cfg: Option<GuardConfig>,
 ) -> Result<ShellContext> {
     let cwd = env::current_dir()
         .map(|p| p.display().to_string())
@@ -101,8 +109,24 @@ pub fn build_context(
 
     let dir_context = build_dir_context();
     let git_context = build_git_context();
-    let project_context = read_project_context();
-    let user_preferences = crate::learned_prefs::context_hint();
+
+    // Apply the prompt injection firewall to all user-controlled context fields
+    // before they reach the LLM system prompt.
+    let guard_cfg = guard_cfg.unwrap_or_default();
+
+    let raw_project_context = read_project_context();
+    let project_context = sanitize_or_warn(
+        &raw_project_context,
+        "`.shako.toml` [ai].context",
+        &guard_cfg,
+    );
+
+    let raw_user_preferences = crate::learned_prefs::context_hint();
+    let user_preferences = sanitize_or_warn(
+        &raw_user_preferences,
+        "`~/.config/shako/learned_prefs.toml`",
+        &guard_cfg,
+    );
 
     Ok(ShellContext {
         os: env::consts::OS.to_string(),

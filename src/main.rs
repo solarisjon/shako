@@ -17,6 +17,7 @@ mod env_context;
 mod executor;
 #[cfg(feature = "fish-import")]
 mod fish_import;
+mod incident;
 mod learned_prefs;
 mod parser;
 mod path_cache;
