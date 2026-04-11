@@ -437,6 +437,31 @@ const GIT_BRANCH_CMDS: &[&str] = &[
     "branch",
 ];
 
+/// Escape shell-special characters in a filename so that inserting it into the
+/// command line is safe regardless of surrounding quote context.
+///
+/// The following characters are escaped with a leading backslash:
+/// `'`, `"`, ` ` (space), `\t` (tab), `(`, `)`, `[`, `]`, `{`, `}`,
+/// `!`, `#`, `&`, `;`, `<`, `>`, `|`, `$`, `` ` ``, `~`, `*`, `?`, `\`.
+///
+/// Only the *filename* portion should be passed here — never the dir prefix,
+/// which the user has already typed and is therefore assumed to be correctly
+/// formed.
+fn shell_escape_filename(name: &str) -> String {
+    let special: &[char] = &[
+        '\'', '"', ' ', '\t', '(', ')', '[', ']', '{', '}', '!', '#', '&', ';', '<', '>', '|', '$',
+        '`', '~', '*', '?', '\\',
+    ];
+    let mut out = String::with_capacity(name.len() + 4);
+    for c in name.chars() {
+        if special.contains(&c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Tab-completion engine for the shako interactive shell.
 ///
 /// Provides context-aware completions for commands, flags, paths, git branches,
@@ -576,17 +601,16 @@ impl ShakoCompleter {
 
         // Helper: build a suggestion from a filename entry.
         let make_suggestion = |name: &str, is_dir: bool, case_insensitive: bool| -> Suggestion {
-            let mut value = format!("{dir_prefix}{name}");
+            // Escape shell-special characters in the filename portion only.
+            // The dir_prefix was already typed by the user and is left as-is.
+            let escaped_name = shell_escape_filename(name);
+            let mut value = format!("{dir_prefix}{escaped_name}");
             let append_whitespace = if is_dir {
                 value.push('/');
                 false
             } else {
                 true
             };
-            // Escape spaces in filenames with backslash
-            if value.contains(' ') {
-                value = value.replace(' ', "\\ ");
-            }
             let description = if case_insensitive {
                 Some("(case-insensitive match)".to_string())
             } else {
@@ -1278,5 +1302,39 @@ mod tests {
                 s.value
             );
         }
+    }
+
+    // ── shell_escape_filename unit tests ─────────────────────────────────────
+
+    #[test]
+    fn test_escape_filename_plain() {
+        assert_eq!(shell_escape_filename("hello"), "hello");
+    }
+
+    #[test]
+    fn test_escape_filename_space() {
+        assert_eq!(shell_escape_filename("hello world"), "hello\\ world");
+    }
+
+    #[test]
+    fn test_escape_filename_single_quote() {
+        // "Jon's Vault" → "Jon\'s\ Vault"
+        assert_eq!(shell_escape_filename("Jon's Vault"), "Jon\\'s\\ Vault");
+    }
+
+    #[test]
+    fn test_escape_filename_double_quote() {
+        assert_eq!(shell_escape_filename("say \"hi\""), "say\\ \\\"hi\\\"");
+    }
+
+    #[test]
+    fn test_escape_filename_multiple_specials() {
+        // Parens, dollar, ampersand
+        assert_eq!(shell_escape_filename("a(b)$c&d"), "a\\(b\\)\\$c\\&d");
+    }
+
+    #[test]
+    fn test_escape_filename_backslash() {
+        assert_eq!(shell_escape_filename("a\\b"), "a\\\\b");
     }
 }

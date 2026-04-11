@@ -1660,4 +1660,43 @@ mod tests {
         let args = parse_args(r#"echo "$(echo hello world)""#);
         assert_eq!(args, vec!["echo", "hello world"]);
     }
+
+    // ── Quote handling in paths (CPE-208: single-quote in filename) ─────────
+
+    /// When the completer emits a backslash-escaped single quote, the tokenizer
+    /// should strip the backslash and pass the literal `'` to the filesystem.
+    /// Input:  `cd Jon\'s\ Vault/`
+    /// Expect: two tokens — ["cd", "Jon's Vault/"]
+    #[test]
+    fn test_backslash_escaped_single_quote_in_path() {
+        let tokens = tokenize(r"cd Jon\'s\ Vault/");
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].value, "cd");
+        assert_eq!(tokens[1].value, "Jon's Vault/");
+        assert!(
+            !tokens[1].quoted,
+            "backslash-escaped token should not be marked quoted"
+        );
+    }
+
+    /// Verify that a single quote mid-token (without a closing quote) causes
+    /// the rest of the input to be treated as part of the same token (single-
+    /// quote mode is entered and runs to end-of-input).  This is the failure
+    /// mode documented in CPE-208: the completer previously inserted unescaped
+    /// apostrophes that corrupted the token boundary.
+    #[test]
+    fn test_unescaped_apostrophe_mid_token_is_bug() {
+        // "cd Jon's\ Vault/" — the ' opens single-quote mode; the \ is
+        // treated as a literal backslash inside single quotes.  The whole tail
+        // "s\ Vault/" becomes one token value.  This is the *wrong* result —
+        // the test documents the misparse so regressions are visible.
+        let tokens = tokenize("cd Jon's\\ Vault/");
+        // Should merge into one path token — but the backslash is NOT stripped.
+        assert_eq!(tokens.len(), 2);
+        // The merged token value contains the literal backslash (broken path).
+        assert!(
+            tokens[1].value.contains('\\'),
+            "unescaped apostrophe causes literal backslash in token value (CPE-208 misparse)"
+        );
+    }
 }
