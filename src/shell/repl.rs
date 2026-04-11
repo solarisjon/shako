@@ -247,6 +247,10 @@ pub fn run_repl(
                 match classifier.classify(&input) {
                     Classification::Command(cmd) => {
                         ran_foreground = true;
+                        // Pre-execution snapshot for directly typed dangerous commands.
+                        if config.behavior.safety_mode != "off" {
+                            ai::maybe_take_snapshot(&cmd, &config);
+                        }
                         let cmd_start = std::time::Instant::now();
                         let (status, stderr_output) =
                             executor::execute_command_with_stderr(&cmd);
@@ -471,6 +475,16 @@ pub fn run_repl(
                             }
                         } else {
                             eprintln!("shako: AI is disabled (ai_enabled = false in config)");
+                        }
+                    }
+                    Classification::UndoRequest(query) => {
+                        match ai::handle_undo_request(&query, &config) {
+                            Ok(true) => prompt::set_last_status(0),
+                            Ok(false) => prompt::set_last_status(0),
+                            Err(e) => {
+                                eprintln!("shako: undo error: {e}");
+                                prompt::set_last_status(1);
+                            }
                         }
                     }
                     Classification::ExplainCommand(cmd) => {
@@ -1016,129 +1030,59 @@ fn offer_ai_recovery(
     drop(sp);
 
     match result {
-        Ok(response) => {
-            let response = response.trim();
+        Ok(diagnosis) => {
+            // Show the cause to orient the user even if there's no fix.
+            if !diagnosis.explanation.is_empty() {
+                eprintln!("\x1b[90mshako: cause: {}\x1b[0m", diagnosis.explanation);
+            }
 
-            let mut cause = String::new();
-            let mut fix = String::new();
-
-            for line in response.lines() {
-                let line = line.trim();
-                if let Some(c) = line.strip_prefix("CAUSE:") {
-                    cause = c.trim().to_string();
-                } else if let Some(f) = line.strip_prefix("FIX:") {
-                    fix = f.trim().to_string();
-                } else if !fix.is_empty() && !line.is_empty() && line != "SHAKO_NO_FIX" {
-                    fix.push('\n');
-                    fix.push_str(line);
+            let fix = match diagnosis.suggested_command {
+                Some(ref cmd) => cmd.clone(),
+                None => {
+                    // AI could not suggest a corrective command.
+                    return;
                 }
-            }
-
-            if fix.is_empty() || fix == "SHAKO_NO_FIX" {
-                return;
-            }
-
-            // ── styled diagnosis result panel ────────────────────────────────
-            let cause_row = if cause.is_empty() {
-                String::new()
-            } else {
-                format!("\x1b[90mcause:\x1b[0m  {cause}")
-            };
-            let fix_row = format!("\x1b[90mfix:\x1b[0m    \x1b[1;36m{fix}\x1b[0m");
-            let opts_row = "\x1b[90m[Y]es  [n]o  [e]dit\x1b[0m";
-
-            let mut rows: Vec<&str> = Vec::new();
-            if !cause_row.is_empty() {
-                rows.push(&cause_row);
-            }
-            rows.push(&fix_row);
-
-            let max_vis = rows
-                .iter()
-                .chain(std::iter::once(&opts_row))
-                .map(|s| visible_len(s))
-                .max()
-                .unwrap_or(32);
-            let content_width2 = max_vis.max(36);
-            let inner_width2 = (content_width2 + 4).min(term_width.saturating_sub(2));
-            let content_inner2 = inner_width2.saturating_sub(4);
-
-            let box_line2 = |content: &str| -> String {
-                let vl = visible_len(content);
-                let pad = content_inner2.saturating_sub(vl);
-                format!(
-                    " {b}  {content}{}  {b}",
-                    " ".repeat(pad),
-                    b = border('│')
-                )
             };
 
-            let diag_label = format!("\x1b[38;5;{mid_color}m diagnosis \x1b[0m");
-            let diag_label_vis = 12usize;
-            let diag_rest = inner_width2.saturating_sub(diag_label_vis + 2);
-
-            eprintln!(
-                " {tl}{sep}{label}{rest}{tr}",
-                tl = border('╭'),
-                sep = grad_line(2),
-                label = diag_label,
-                rest = grad_line(diag_rest),
-                tr = border('╮'),
-            );
-            for row in &rows {
-                eprintln!("{}", box_line2(row));
-            }
-            eprintln!(
-                " {bl}{sep}{br}",
-                bl = border('├'),
-                sep = grad_line(inner_width2),
-                br = border('┤'),
-            );
-
-            // Options prompt inside the panel
-            let opts_vis = visible_len(opts_row);
-            let opts_pad = content_inner2.saturating_sub(opts_vis);
-            eprint!(
-                " {b}  {opts}{}  {b} ",
-                " ".repeat(opts_pad),
-                b = border('│'),
-                opts = opts_row,
-            );
-            io::stdout().flush().ok();
-
-            let mut answer = String::new();
-            io::stdin().read_line(&mut answer).ok();
-            let answer = answer.trim().to_lowercase();
-
-            eprintln!(
-                " {bl}{bot}{br}",
-                bl = border('╰'),
-                bot = grad_line(inner_width2),
-                br = border('╯'),
-            );
-
-            match answer.as_str() {
-                "" | "y" | "yes" => {
-                    for line in fix.lines() {
-                        let line = line.trim();
-                        if !line.is_empty() {
-                            let status = executor::execute_command(line);
-                            set_exit_code(status);
-                        }
-                    }
-                }
-                "e" | "edit" => {
-                    eprint!(" {} ", border('❯'));
-                    io::stdout().flush().ok();
-                    let mut edited = String::new();
-                    io::stdin().read_line(&mut edited).ok();
-                    let edited = edited.trim();
-                    if !edited.is_empty() {
-                        let status = executor::execute_command(edited);
+            // Route the suggested fix through the shared confirm_command loop.
+            // This gives the user the full [Y]es / [n]o / [e]dit / [w]hy / [r]efine
+            // panel — identical UX to a normal AI-translated command.
+            let mut current_fix = fix.clone();
+            loop {
+                match ai::confirm::confirm_command(&current_fix) {
+                    Ok(ai::confirm::ConfirmAction::Execute) => {
+                        ai::maybe_take_snapshot(&current_fix, config);
+                        let status = executor::execute_command(&current_fix);
                         set_exit_code(status);
+                        break;
                     }
+                    Ok(ai::confirm::ConfirmAction::Edit(edited)) => {
+                        ai::maybe_take_snapshot(&edited, config);
+                        let status = executor::execute_command(&edited);
+                        set_exit_code(status);
+                        break;
+                    }
+                    Ok(ai::confirm::ConfirmAction::Cancel) => break,
+                    Ok(ai::confirm::ConfirmAction::Why) => {
+                        // Explain why the *original* failed command broke —
+                        // reuse the cause line we already have.
+                        if !diagnosis.explanation.is_empty() {
+                            eprintln!("\x1b[90m{}\x1b[0m", diagnosis.explanation);
+                        } else {
+                            eprintln!("\x1b[90mNo additional explanation available.\x1b[0m");
+                        }
+                        // loop continues — re-shows the confirm panel
+                    }
+                    Ok(ai::confirm::ConfirmAction::Refine) => {
+                        // Refine is not meaningful in error-recovery context;
+                        // re-show the panel so the user can choose another option.
+                    }
+                    Err(_) => break,
                 }
-                _ => {}
+                // Refresh current_fix in case the user edits inline; since
+                // ConfirmAction::Edit already breaks, this is a no-op for now
+                // but guards against future loop changes.
+                current_fix = fix.clone();
             }
         }
         Err(e) => {

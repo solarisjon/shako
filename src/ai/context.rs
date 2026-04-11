@@ -20,6 +20,10 @@ pub struct ShellContext {
     pub project_context: String,
     /// Learned user preferences injected from ~/.config/shako/learned_prefs.toml
     pub user_preferences: String,
+    /// Behavioral fingerprint injected from ~/.config/shako/behavioral_profile.json.
+    /// Contains compact hints about workflow patterns, flag preferences, commit style,
+    /// and pre-command guards observed from the command journal.
+    pub behavioral_hint: String,
     /// Rolling session memory: (user NL input, AI command)
     pub session_memory: Vec<(String, String)>,
     /// Optional extra text appended to the system prompt
@@ -128,6 +132,16 @@ pub fn build_context(
         &guard_cfg,
     );
 
+    // Behavioral fingerprint: workflow patterns, flag preferences, commit style.
+    // This is derived data (statistics), not raw commands, so prompt-injection
+    // risk is negligible — but we sanitize it anyway for defence in depth.
+    let raw_behavioral_hint = crate::behavioral_profile::context_hint();
+    let behavioral_hint = sanitize_or_warn(
+        &raw_behavioral_hint,
+        "`~/.config/shako/behavioral_profile.json`",
+        &guard_cfg,
+    );
+
     Ok(ShellContext {
         os: env::consts::OS.to_string(),
         arch: env::consts::ARCH.to_string(),
@@ -140,6 +154,7 @@ pub fn build_context(
         git_context,
         project_context,
         user_preferences,
+        behavioral_hint,
         session_memory,
         system_prompt_extra: None, // set by caller from config if needed
     })
@@ -274,6 +289,11 @@ fn build_git_context() -> String {
 }
 
 /// Read per-project AI context from `.shako.toml` in the current directory.
+///
+/// In addition to the `[ai].context` free-text field, this function also
+/// reads the `[ai.scope]` section and appends a compact capability-scope
+/// summary so the LLM knows which commands are allowed before it generates
+/// its first suggestion.
 fn read_project_context() -> String {
     let path = std::path::Path::new(".shako.toml");
     if !path.exists() {
@@ -297,8 +317,41 @@ fn read_project_context() -> String {
         context: String,
     }
 
-    match toml::from_str::<ProjectConfig>(&contents) {
-        Ok(config) if !config.ai.context.is_empty() => config.ai.context,
-        _ => String::new(),
+    let mut parts: Vec<String> = Vec::new();
+
+    if let Ok(config) = toml::from_str::<ProjectConfig>(&contents) {
+        if !config.ai.context.is_empty() {
+            parts.push(config.ai.context);
+        }
     }
+
+    // Append a capability-scope summary when a scope is configured.
+    // This primes the LLM so it avoids out-of-scope commands from the start,
+    // reducing the number of costly regeneration rounds.
+    if let Some(scope) = crate::ai::capability_scope::CapabilityScope::load_from_project() {
+        let mut scope_lines: Vec<String> = Vec::new();
+        scope_lines.push("Capability scope restrictions apply to this project:".to_string());
+        if !scope.allow_commands.is_empty() {
+            scope_lines.push(format!(
+                "  allowed commands: {}",
+                scope.allow_commands.join(", ")
+            ));
+        }
+        if !scope.deny_commands.is_empty() {
+            scope_lines.push(format!(
+                "  denied commands: {}",
+                scope.deny_commands.join(", ")
+            ));
+        }
+        if !scope.allow_sudo {
+            scope_lines.push("  sudo is NOT allowed".to_string());
+        }
+        if !scope.allow_network {
+            scope_lines
+                .push("  outbound network commands (curl, wget, etc.) are NOT allowed".to_string());
+        }
+        parts.push(scope_lines.join("\n"));
+    }
+
+    parts.join("\n\n")
 }
