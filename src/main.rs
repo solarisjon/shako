@@ -9,6 +9,7 @@ use reedline::{
 };
 
 mod ai;
+mod behavioral_profile;
 mod builtins;
 mod classifier;
 mod config;
@@ -18,6 +19,7 @@ mod executor;
 #[cfg(feature = "fish-import")]
 mod fish_import;
 mod incident;
+mod journal;
 mod learned_prefs;
 mod parser;
 mod path_cache;
@@ -28,6 +30,7 @@ mod shell;
 mod slash;
 mod smart_defaults;
 mod spinner;
+mod undo;
 
 use builtins::ShellState;
 use classifier::Classifier;

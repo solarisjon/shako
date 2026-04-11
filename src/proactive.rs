@@ -4,26 +4,85 @@
 //!   - After `git add`, offer an AI-generated commit message.
 //!   - After `git push`, display the current version number (minor only,
 //!     unless the push bumped the major component).
+//!   - After `cd` into a stale project (3+ days inactive), offer an
+//!     AI-powered session resumption brief from the command journal.
 
 use std::io::{self, Write};
 use std::process::Command;
 
 use crate::ai;
+use crate::behavioral_profile;
 use crate::config::ShakoConfig;
 use crate::executor;
+use crate::journal;
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Called after every successful foreground command. Checks whether a
 /// proactive suggestion is appropriate and, if so, offers it to the user.
+///
+/// Also triggers a background behavioral profile update (fire-and-forget)
+/// so the fingerprint stays current without blocking the shell.
 pub fn check(cmd: &str, config: &ShakoConfig, rt: &tokio::runtime::Runtime) {
+    // Always update the behavioral fingerprint in the background after each
+    // successful command (when the session journal is enabled).
+    if config.behavior.session_journal {
+        behavioral_profile::update_async();
+    }
+
     if is_git_add(cmd) {
         offer_commit_suggestion(config, rt);
     } else if is_git_push(cmd) {
         show_push_version();
-    } else if let Some(suggestion) = check_passive(cmd) {
-        eprintln!("\x1b[90mshako: {suggestion}\x1b[0m");
+    } else if is_cd(cmd) {
+        // Session resumption brief runs before the Makefile tip so the user
+        // sees the archaeology context first.
+        if config.behavior.session_journal && config.behavior.ai_enabled {
+            offer_session_resumption(config, rt);
+        }
+        // Also show passive Makefile tip if applicable.
+        if let Some(suggestion) = check_passive(cmd) {
+            eprintln!("\x1b[90mshako: {suggestion}\x1b[0m");
+        }
+    } else {
+        // Check behavioral sequence: suggest the likely next step.
+        if config.behavior.session_journal {
+            offer_sequence_suggestion(cmd);
+        }
+        if let Some(suggestion) = check_passive(cmd) {
+            eprintln!("\x1b[90mshako: {suggestion}\x1b[0m");
+        }
     }
+}
+
+// ── Behavioral sequence suggestion ───────────────────────────────────────────
+
+/// Offer a proactive next-step suggestion based on the behavioral fingerprint.
+///
+/// If the user's profile shows they reliably run a certain command after the
+/// one they just ran, quietly hint at it.  Output is deliberately understated
+/// (gray, no prompt) to avoid being intrusive.
+fn offer_sequence_suggestion(cmd: &str) {
+    let profile = behavioral_profile::BehavioralProfile::load();
+
+    // Suggest the predicted next command
+    if let Some(next) = profile.predicted_next_command(cmd) {
+        eprintln!("\x1b[90mshako: you usually run `{next}` next\x1b[0m");
+    }
+
+    // Suggest a pre-command guard for the command the user *just* ran
+    // (i.e. they may have forgotten to run the guard first)
+    // We only surface this if the exit code were 0 — we already passed
+    // that gating by being in check() at all.  The guard hint is useful
+    // as a retrospective reminder ("next time, activate venv first").
+    // For prospective guarding (before the command runs) a future hook
+    // in the executor layer would be more appropriate.
+}
+
+/// Returns true for any `cd` invocation (plain or with arguments).
+fn is_cd(cmd: &str) -> bool {
+    let mut tokens = cmd.split_whitespace();
+    matches!(tokens.next(), Some("cd"))
 }
 
 /// Check for lightweight passive suggestions that don't require user interaction.
@@ -52,6 +111,219 @@ fn check_passive(cmd: &str) -> Option<String> {
     }
 
     None
+}
+
+// ── Session resumption brief ──────────────────────────────────────────────────
+
+/// Offer an AI-powered session resumption brief when the user `cd`s into a
+/// project they haven't touched in `config.behavior.session_stale_days` days.
+///
+/// Shows a styled panel and asks `[y/n]` before calling the AI.
+fn offer_session_resumption(config: &ShakoConfig, rt: &tokio::runtime::Runtime) {
+    let cwd = match std::env::current_dir() {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(_) => return,
+    };
+
+    let summary = match journal::last_session_for_cwd(&cwd, config.behavior.session_stale_days) {
+        Some(s) => s,
+        None => return, // No stale session — nothing to offer.
+    };
+
+    // ── Styled offer panel ────────────────────────────────────────────────
+    const GRAD: &[u8] = &[30, 31, 32, 37, 38, 44, 45];
+    let mid_color = GRAD[GRAD.len() / 2];
+
+    let term_width = crossterm::terminal::size()
+        .map(|(w, _)| w as usize)
+        .unwrap_or(80);
+
+    let grad_line = |width: usize| -> String {
+        (0..width)
+            .map(|i| {
+                let idx = if width <= 1 {
+                    0
+                } else {
+                    i * (GRAD.len() - 1) / (width - 1)
+                };
+                format!("\x1b[38;5;{}m─\x1b[0m", GRAD[idx])
+            })
+            .collect()
+    };
+    let border = |c: char| format!("\x1b[38;5;{mid_color}m{c}\x1b[0m");
+
+    let visible_len = |s: &str| -> usize {
+        let mut len = 0;
+        let mut in_esc = false;
+        for c in s.chars() {
+            if c == '\x1b' {
+                in_esc = true;
+            } else if in_esc {
+                if c.is_ascii_alphabetic() {
+                    in_esc = false;
+                }
+            } else {
+                len += 1;
+            }
+        }
+        len
+    };
+
+    let days_label = if summary.days_ago == 1 {
+        "1 day".to_string()
+    } else {
+        format!("{} days", summary.days_ago)
+    };
+    let branch_part = if summary.branch.is_empty() {
+        String::new()
+    } else {
+        format!(" · branch \x1b[1m{}\x1b[0m", summary.branch)
+    };
+    let header = format!("\x1b[90mlast session {days_label} ago{branch_part}\x1b[0m");
+    let last_intent_display = if summary.last_intent.is_empty() {
+        String::new()
+    } else {
+        format!("\x1b[90mYou were: '{}'\x1b[0m", summary.last_intent)
+    };
+    let hint = "\x1b[90mget a resumption brief? [y/N]\x1b[0m";
+
+    let mut rows = vec![header.as_str()];
+    if !last_intent_display.is_empty() {
+        rows.push(last_intent_display.as_str());
+    }
+
+    let max_vis = rows
+        .iter()
+        .chain(std::iter::once(&hint))
+        .map(|s| visible_len(s))
+        .max()
+        .unwrap_or(40);
+    let content_width = max_vis.max(40);
+    let inner_width = (content_width + 4).min(term_width.saturating_sub(2));
+    let content_inner = inner_width.saturating_sub(4);
+
+    let box_line = |content: &str| -> String {
+        let vl = visible_len(content);
+        let pad = content_inner.saturating_sub(vl);
+        format!(
+            " {}  {}{}  {}",
+            border('│'),
+            content,
+            " ".repeat(pad),
+            border('│')
+        )
+    };
+
+    let label_str = format!("\x1b[38;5;{mid_color}m archaeology \x1b[0m");
+    let label_vis = 14usize;
+    let rest_width = inner_width.saturating_sub(label_vis + 2);
+
+    eprintln!(
+        " {tl}{sep}{label}{rest}{tr}",
+        tl = border('╭'),
+        sep = grad_line(2),
+        label = label_str,
+        rest = grad_line(rest_width),
+        tr = border('╮'),
+    );
+    for row in &rows {
+        eprintln!("{}", box_line(row));
+    }
+    eprintln!(
+        " {bl}{sep}{br}",
+        bl = border('├'),
+        sep = grad_line(inner_width),
+        br = border('┤'),
+    );
+
+    let hint_vis = visible_len(hint);
+    let hint_pad = content_inner.saturating_sub(hint_vis);
+    eprint!(
+        " {}  {}{}  {} ",
+        border('│'),
+        hint,
+        " ".repeat(hint_pad),
+        border('│'),
+    );
+    io::stdout().flush().ok();
+
+    let mut answer = String::new();
+    if io::stdin().read_line(&mut answer).is_err() {
+        eprintln!();
+        return;
+    }
+    // Close the panel.
+    eprintln!(
+        " {bl}{bot}{br}",
+        bl = border('╰'),
+        bot = grad_line(inner_width),
+        br = border('╯'),
+    );
+
+    if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
+        return;
+    }
+
+    // ── Call AI for the resumption brief ─────────────────────────────────
+    print!("\x1b[90mshako: thinking...\x1b[0m");
+    io::stdout().flush().ok();
+
+    let brief = rt.block_on(ai::synthesize_session_brief(&summary, config));
+
+    // Clear the spinner text.
+    print!("\r\x1b[K");
+    io::stdout().flush().ok();
+
+    match brief {
+        Ok(text) => {
+            // Display the brief in a styled panel.
+            let brief_label = format!("\x1b[38;5;{mid_color}m resumption brief \x1b[0m");
+            let brief_label_vis = 19usize;
+            let brief_lines: Vec<&str> = text.lines().collect();
+
+            let max_brief_vis = brief_lines
+                .iter()
+                .map(|l| l.len()) // plain text, no ANSI in AI response
+                .max()
+                .unwrap_or(40);
+            let brief_content = max_brief_vis.max(40);
+            let brief_inner = (brief_content + 4).min(term_width.saturating_sub(2));
+            let brief_content_inner = brief_inner.saturating_sub(4);
+
+            let brief_box_line = |line: &str| -> String {
+                let pad = brief_content_inner.saturating_sub(line.len());
+                format!(
+                    " {}  {}{}  {}",
+                    border('│'),
+                    line,
+                    " ".repeat(pad),
+                    border('│')
+                )
+            };
+
+            let brief_rest = brief_inner.saturating_sub(brief_label_vis + 2);
+            eprintln!(
+                " {tl}{sep}{label}{rest}{tr}",
+                tl = border('╭'),
+                sep = grad_line(2),
+                label = brief_label,
+                rest = grad_line(brief_rest),
+                tr = border('╮'),
+            );
+            for line in &brief_lines {
+                eprintln!("{}", brief_box_line(line));
+            }
+            eprintln!(
+                " {bl}{bot}{br}",
+                bl = border('╰'),
+                bot = grad_line(brief_inner),
+                br = border('╯'),
+            );
+        }
+        Err(e) => {
+            eprintln!("shako: couldn't generate resumption brief: {e}");
+        }
+    }
 }
 
 // ── git push → version display ────────────────────────────────────────────────

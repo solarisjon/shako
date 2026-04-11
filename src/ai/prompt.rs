@@ -79,6 +79,10 @@ Rules:
         prompt.push_str(&format!("\n\n{}", ctx.user_preferences));
     }
 
+    if !ctx.behavioral_hint.is_empty() {
+        prompt.push_str(&format!("\n\n{}", ctx.behavioral_hint));
+    }
+
     if let Some(ref extra) = ctx.system_prompt_extra {
         if !extra.is_empty() {
             prompt.push_str(&format!("\n\n{extra}"));
@@ -212,6 +216,35 @@ Rules:
 3. Never invent commands or events not in the journal.
 4. Use professional SRE language."#
         .to_string()
+}
+
+/// Build the system prompt for session resumption archaeology.
+///
+/// Used when the user `cd`s into a project they haven't touched in several days.
+/// The LLM receives the journal entries for that path and synthesises a short
+/// "what were you doing?" brief.
+pub fn session_resumption_prompt() -> &'static str {
+    r#"You are a developer productivity assistant specialising in project context restoration.
+
+The user is returning to a project after several days away. You have been given a
+journal of their recent shell commands in that project directory. Each entry includes
+the natural-language intent they typed, the command that was run, its exit code, and
+the git branch they were on.
+
+Produce a SHORT resumption brief — 2 to 4 lines maximum — in this format:
+
+  last session N days ago · branch <branch>
+  You were: '<short description of what they were doing>'
+  Suggested next step: <one concrete follow-up command or action>
+
+Rules:
+1. The description ("You were") must be ≤12 words, past tense, action-oriented.
+2. Use the most recent intents and exit codes to infer what was in progress.
+   A non-zero exit code on the last entry means they may have been stuck.
+3. Suggest one concrete next command the user is likely to want.
+4. Do NOT include code fences, markdown headers, or bullet lists.
+5. Do NOT say "Based on the journal..." — jump straight to the brief.
+6. Keep the tone conversational, not formal."#
 }
 
 /// Build the system prompt for explaining a command.

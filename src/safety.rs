@@ -197,6 +197,28 @@ pub fn is_dangerous(command: &str) -> bool {
     }
 }
 
+/// Returns true when the command is one that shako can meaningfully snapshot
+/// before execution (i.e. it operates on filesystem paths we can copy).
+///
+/// This is used by the undo layer to decide whether to offer a pre-snapshot.
+pub fn is_snapshotable(command: &str) -> bool {
+    if is_fork_bomb(command) {
+        return false; // no paths involved
+    }
+    let args = parser::parse_args(command);
+    if args.is_empty() {
+        return false;
+    }
+    let cmd = args[0].to_ascii_lowercase();
+    // Strip sudo prefix.
+    let cmd = if cmd == "sudo" && args.len() > 1 {
+        args[1].to_ascii_lowercase()
+    } else {
+        cmd
+    };
+    matches!(cmd.as_str(), "rm" | "mv" | "chmod" | "chown")
+}
+
 /// Check if an AI-generated command should get extra confirmation.
 pub fn needs_extra_confirmation(command: &str) -> bool {
     let lower = command.to_ascii_lowercase();

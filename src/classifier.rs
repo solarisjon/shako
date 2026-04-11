@@ -33,6 +33,10 @@ pub enum Classification {
     ExplainCommand(String),
     /// Slash command — internal shako meta-command (e.g. `/validate`, `/help`).
     SlashCommand { name: String, args: String },
+    /// Natural language undo/restore request ("undo that", "restore what I deleted").
+    ///
+    /// The inner string is the raw query used to resolve which snapshot to restore.
+    UndoRequest(String),
     /// Empty input.
     Empty,
 }
@@ -114,6 +118,13 @@ impl Classifier {
                     args,
                 };
             }
+        }
+
+        // Undo / restore request — check early, before typo and PATH lookups.
+        // This ensures "undo that", "go back", etc. are routed correctly even
+        // if the first token happens to be a known binary or a near-typo match.
+        if looks_like_undo_request(trimmed) {
+            return Classification::UndoRequest(trimmed.to_string());
         }
 
         // Extract first token
@@ -310,6 +321,44 @@ fn looks_like_natural_language(args: &[&str]) -> bool {
     }
 
     false
+}
+
+/// Returns true if the input looks like a natural-language undo or restore request.
+///
+/// Recognized patterns (case-insensitive):
+/// - "undo that", "undo that rm", "undo the last command"
+/// - "restore what I deleted", "restore that file"
+/// - "go back", "revert that"
+/// - "un-delete", "undelete"
+fn looks_like_undo_request(input: &str) -> bool {
+    let lower = input.to_ascii_lowercase();
+
+    // Must not start with `/` (slash commands) or `?` (AI/history)
+    if lower.starts_with('/') || lower.starts_with('?') {
+        return false;
+    }
+
+    // Undo-family keywords.
+    const UNDO_TRIGGERS: &[&str] = &[
+        "undo that",
+        "undo the",
+        "undo last",
+        "go back",
+        "revert that",
+        "revert the last",
+        "restore what",
+        "restore that",
+        "restore the",
+        "un-delete",
+        "undelete",
+        "bring back what",
+        "bring it back",
+        "roll back that",
+    ];
+
+    UNDO_TRIGGERS
+        .iter()
+        .any(|trigger| lower.starts_with(trigger) || lower == trigger.trim())
 }
 
 #[cfg(test)]
@@ -688,5 +737,84 @@ mod tests {
         let result = c.classify("xyzzy");
         // Should be NaturalLanguage (unknown) or Typo — never Command.
         assert!(!matches!(result, Classification::Command(_)));
+    }
+
+    // ── UndoRequest ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_undo_that_routes_to_undo_request() {
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("undo that rm"),
+            Classification::UndoRequest(_)
+        ));
+    }
+
+    #[test]
+    fn test_undo_that_bare() {
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("undo that"),
+            Classification::UndoRequest(_)
+        ));
+    }
+
+    #[test]
+    fn test_restore_what_routes_to_undo_request() {
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("restore what I deleted"),
+            Classification::UndoRequest(_)
+        ));
+    }
+
+    #[test]
+    fn test_go_back_routes_to_undo_request() {
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("go back"),
+            Classification::UndoRequest(_)
+        ));
+    }
+
+    #[test]
+    fn test_revert_that_routes_to_undo_request() {
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("revert that"),
+            Classification::UndoRequest(_)
+        ));
+    }
+
+    #[test]
+    fn test_undelete_routes_to_undo_request() {
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("undelete"),
+            Classification::UndoRequest(_)
+        ));
+    }
+
+    #[test]
+    fn test_undo_case_insensitive() {
+        let c = test_classifier();
+        assert!(matches!(
+            c.classify("Undo that"),
+            Classification::UndoRequest(_)
+        ));
+        assert!(matches!(
+            c.classify("UNDO THAT"),
+            Classification::UndoRequest(_)
+        ));
+    }
+
+    #[test]
+    fn test_regular_command_not_undo() {
+        let c = test_classifier();
+        // "list files" should not be an undo request.
+        assert!(!matches!(
+            c.classify("list all files"),
+            Classification::UndoRequest(_)
+        ));
     }
 }

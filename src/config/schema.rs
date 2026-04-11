@@ -140,6 +140,44 @@ pub struct BehaviorConfig {
     /// about destructive commands in the new context.  Defaults to 300 (5 min).
     #[serde(default = "default_warn_window_secs")]
     pub context_warn_window_secs: u64,
+    /// Enable the Temporal Command Archaeology session journal.
+    ///
+    /// When `true` (default), every confirmed NL→command execution is appended
+    /// to `~/.local/share/shako/journal.jsonl`.  When the user `cd`s into a
+    /// project they haven't touched in `session_stale_days` days, shako offers
+    /// an AI-powered resumption brief summarising what they were doing last time.
+    ///
+    /// Set to `false` to disable all journalling and resumption prompts.
+    #[serde(default = "default_true")]
+    pub session_journal: bool,
+    /// Number of days of inactivity before a project is considered "stale"
+    /// and a resumption brief is offered on `cd`.  Defaults to 3.
+    #[serde(default = "default_session_stale_days")]
+    pub session_stale_days: u64,
+
+    // ── Danger Replay / Undo Graph ────────────────────────────────────────────
+    /// Enable automatic filesystem snapshots before dangerous commands.
+    ///
+    /// When `true` (default), shako offers to snapshot affected paths before
+    /// executing commands that match the safety layer's dangerous patterns.
+    /// Snapshots are stored in `~/.local/share/shako/snapshots/` and can be
+    /// restored via natural language ("undo that rm", "restore what I deleted").
+    ///
+    /// Set to `false` to disable all snapshotting.
+    #[serde(default = "default_true")]
+    pub undo_snapshots: bool,
+
+    /// Maximum size (in bytes) of a snapshot target before we skip snapshotting.
+    ///
+    /// Defaults to 52_428_800 (50 MB).  Set to 0 to use the default.
+    #[serde(default = "default_snapshot_max_bytes")]
+    pub snapshot_max_bytes: u64,
+
+    /// How many days to keep old snapshots before garbage-collecting them.
+    ///
+    /// Defaults to 7 days.
+    #[serde(default = "default_snapshot_gc_days")]
+    pub snapshot_gc_days: u64,
 }
 
 /// Security configuration for shako.
@@ -230,6 +268,18 @@ fn default_warn_window_secs() -> u64 {
     300
 }
 
+fn default_session_stale_days() -> u64 {
+    3
+}
+
+fn default_snapshot_max_bytes() -> u64 {
+    50 * 1024 * 1024 // 50 MB
+}
+
+fn default_snapshot_gc_days() -> u64 {
+    7
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
@@ -259,6 +309,11 @@ impl Default for BehaviorConfig {
             ai_system_prompt_extra: None,
             production_contexts: Vec::new(),
             context_warn_window_secs: 300,
+            session_journal: true,
+            session_stale_days: 3,
+            undo_snapshots: true,
+            snapshot_max_bytes: default_snapshot_max_bytes(),
+            snapshot_gc_days: default_snapshot_gc_days(),
         }
     }
 }
