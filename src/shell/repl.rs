@@ -19,6 +19,7 @@ use crate::ai;
 use crate::builtins::{self, ShellState};
 use crate::classifier::{Classification, Classifier};
 use crate::config::ShakoConfig;
+use crate::env_context::{self, ContextTracker};
 use crate::executor;
 use crate::parser;
 use crate::proactive;
@@ -42,6 +43,17 @@ pub fn run_repl(
 ) {
     let mut last_command = String::new();
     let mut ran_foreground = false;
+
+    // ── Environment drift detection ──────────────────────────────────────────
+    // Create a context tracker seeded from the current config.
+    let mut ctx_tracker = ContextTracker::new(
+        config.behavior.context_warn_window_secs,
+        config.behavior.production_contexts.clone(),
+    );
+    // Initialise the production-context prompt indicator.
+    prompt::set_production_context_active(
+        ctx_tracker.is_currently_production(&config.behavior.production_contexts),
+    );
 
     loop {
         // Reap finished background jobs before each prompt
@@ -175,6 +187,10 @@ pub fn run_repl(
                     prompt::set_last_status(code);
                     last_command = input.to_string();
                     timer.stop();
+                    ctx_tracker.post_command();
+                    prompt::set_production_context_active(
+                        ctx_tracker.is_currently_production(&config.behavior.production_contexts),
+                    );
                     continue;
                 }
 
@@ -189,7 +205,32 @@ pub fn run_repl(
                         crate::shell::prompt::set_last_status(code);
                     }
                     timer.stop();
+                    ctx_tracker.post_command();
+                    prompt::set_production_context_active(
+                        ctx_tracker.is_currently_production(&config.behavior.production_contexts),
+                    );
                     continue;
+                }
+
+                // ── Environment drift check (pre-execution) ──────────────────
+                // Only run when safety_mode != "off".
+                if config.behavior.safety_mode != "off" {
+                    if let Some(warning) =
+                        ctx_tracker.check_command(&input, &config.behavior.production_contexts)
+                    {
+                        if !show_context_drift_warning(&warning, &input) {
+                            // User aborted — skip execution, record the attempt.
+                            last_command = input.to_string();
+                            timer.stop();
+                            ctx_tracker.post_command();
+                            prompt::set_production_context_active(
+                                ctx_tracker.is_currently_production(
+                                    &config.behavior.production_contexts,
+                                ),
+                            );
+                            continue;
+                        }
+                    }
                 }
 
                 match classifier.classify(&input) {
@@ -416,6 +457,12 @@ pub fn run_repl(
                         }
                     }
                 }
+
+                // ── Post-command: update context snapshot ────────────────────
+                ctx_tracker.post_command();
+                prompt::set_production_context_active(
+                    ctx_tracker.is_currently_production(&config.behavior.production_contexts),
+                );
 
                 last_command = input.to_string();
                 timer.stop();
@@ -1060,6 +1107,123 @@ fn offer_ai_recovery(
             eprintln!("shako: ai error: {e}");
         }
     }
+}
+
+// ─── Environment drift warning ────────────────────────────────────────────────
+
+/// Show a styled context-drift warning panel and prompt the user to confirm.
+///
+/// Returns `true` if the user chose to proceed, `false` to abort.
+fn show_context_drift_warning(warning: &env_context::ContextWarning<'_>, command: &str) -> bool {
+    use std::io::Write;
+
+    // ── colour palette matching the rest of the shell UI ──────────────────
+    // Amber gradient for production risk.
+    const GRAD: &[u8] = &[208, 214, 220, 226, 220, 214, 208];
+    let mid_color = GRAD[GRAD.len() / 2];
+    let border_color = 214u8; // amber
+
+    let term_width = crossterm::terminal::size()
+        .map(|(w, _)| w as usize)
+        .unwrap_or(80);
+
+    let border = |c: char| format!("\x1b[38;5;{border_color}m{c}\x1b[0m");
+
+    let grad_line = |width: usize| -> String {
+        (0..width)
+            .map(|i| {
+                let idx = if width <= 1 { 0 } else { i * (GRAD.len() - 1) / (width - 1) };
+                format!("\x1b[38;5;{}m─\x1b[0m", GRAD[idx])
+            })
+            .collect()
+    };
+
+    let visible_len = |s: &str| -> usize {
+        let mut len = 0usize;
+        let mut in_esc = false;
+        for c in s.chars() {
+            if c == '\x1b' { in_esc = true; }
+            else if in_esc { if c.is_ascii_alphabetic() { in_esc = false; } }
+            else { len += 1; }
+        }
+        len
+    };
+
+    // ── Compose warning lines ─────────────────────────────────────────────
+    let kind_label = warning.kind.label();
+    let switched_ago = env_context::format_duration(warning.switched_ago);
+    let from_label = warning.switch.from.label().unwrap_or_else(|| "unknown".to_string());
+    let to_label = warning.switch.to.label().unwrap_or_else(|| "unknown".to_string());
+
+    let context_line = format!(
+        "\x1b[1;38;5;214m⚠\x1b[0m  {kind_label} context switched \x1b[1m{switched_ago}\x1b[0m ago\
+         \x1b[90m  {from_label} → {to_label}\x1b[0m"
+    );
+    let command_line = format!("   \x1b[1m{command}\x1b[0m \x1b[38;5;196mwill run in PRODUCTION\x1b[0m");
+    let opts_line = "\x1b[90m[y]es  [n]o  (default: abort)\x1b[0m";
+
+    let lines = [context_line.as_str(), command_line.as_str()];
+    let max_vis = lines
+        .iter()
+        .chain(std::iter::once(&opts_line))
+        .map(|s| visible_len(s))
+        .max()
+        .unwrap_or(40);
+
+    let content_width = max_vis.max(40);
+    let inner_width = (content_width + 4).min(term_width.saturating_sub(2));
+    let content_inner = inner_width.saturating_sub(4);
+
+    let box_line = |content: &str| -> String {
+        let vl = visible_len(content);
+        let pad = content_inner.saturating_sub(vl);
+        format!(" {}  {}{}  {}", border('│'), content, " ".repeat(pad), border('│'))
+    };
+
+    let label = format!("\x1b[38;5;{mid_color}m context drift \x1b[0m");
+    let label_vis = 16usize;
+    let rest_width = inner_width.saturating_sub(label_vis + 2);
+
+    eprintln!(
+        " {tl}{sep}{label}{rest}{tr}",
+        tl = border('╭'),
+        sep = grad_line(2),
+        rest = grad_line(rest_width),
+        tr = border('╮'),
+    );
+    for l in &lines {
+        eprintln!("{}", box_line(l));
+    }
+    eprintln!(
+        " {bl}{sep}{br}",
+        bl = border('├'),
+        sep = grad_line(inner_width),
+        br = border('┤'),
+    );
+
+    let opts_vis = visible_len(opts_line);
+    let opts_pad = content_inner.saturating_sub(opts_vis);
+    eprint!(
+        " {}  {}{}  {} ",
+        border('│'),
+        opts_line,
+        " ".repeat(opts_pad),
+        border('│'),
+    );
+    io::stdout().flush().ok();
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer).ok();
+    let answer = answer.trim().to_lowercase();
+
+    eprintln!(
+        " {bl}{bot}{br}",
+        bl = border('╰'),
+        bot = grad_line(inner_width),
+        br = border('╯'),
+    );
+
+    answer == "y" || answer == "yes"
 }
 
 // ─── UI helpers (explain/banner) ─────────────────────────────────────────────

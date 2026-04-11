@@ -15,12 +15,28 @@ static LAST_DURATION_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_JOB_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// Whether AI session context is currently active (affects fallback prompt color).
 static AI_CONTEXT_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Whether the current environment context is production (affects fallback prompt color).
+static PRODUCTION_CONTEXT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Signal that the AI session context is active or inactive.
 /// Used by the fallback prompt to switch to a yellow indicator.
 #[allow(dead_code)]
 pub fn set_ai_context_active(active: bool) {
     AI_CONTEXT_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+/// Signal that the current shell context is (or isn't) a production environment.
+///
+/// When true the fallback prompt indicator turns amber/red to give a persistent
+/// visual cue that destructive commands will affect production systems.
+pub fn set_production_context_active(active: bool) {
+    PRODUCTION_CONTEXT_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+/// Return whether the prompt currently signals a production context.
+#[allow(dead_code)]
+pub fn is_production_context_active() -> bool {
+    PRODUCTION_CONTEXT_ACTIVE.load(Ordering::Relaxed)
 }
 
 pub fn set_last_status(code: i32) {
@@ -133,13 +149,18 @@ impl StarshipPrompt {
 
 /// Mode-aware fallback left prompt used when Starship is unavailable.
 ///
-/// - Last exit non-zero → red ❯
-/// - AI context active  → yellow ❯ (signals the shell has session memory)
-/// - Normal             → teal ❯ (matches brand gradient)
+/// Priority (highest wins):
+/// - Last exit non-zero      → red ❯
+/// - Production context      → amber ❯ (persistent warning: you are in prod)
+/// - AI context active       → yellow ❯ (signals the shell has session memory)
+/// - Normal                  → teal ❯ (matches brand gradient)
 fn fallback_prompt_left(last_status: i32) -> String {
     if last_status != 0 {
         // Red — command failed
         "\x1b[31m❯\x1b[0m ".to_string()
+    } else if PRODUCTION_CONTEXT_ACTIVE.load(Ordering::Relaxed) {
+        // Amber — currently in a production context; keep the engineer aware
+        "\x1b[38;5;214m❯\x1b[0m ".to_string()
     } else if AI_CONTEXT_ACTIVE.load(Ordering::Relaxed) {
         // Yellow — AI session memory is active
         "\x1b[33m❯\x1b[0m ".to_string()

@@ -13,6 +13,7 @@ mod builtins;
 mod classifier;
 mod config;
 mod control;
+mod env_context;
 mod executor;
 #[cfg(feature = "fish-import")]
 mod fish_import;

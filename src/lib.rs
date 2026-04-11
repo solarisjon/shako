@@ -30,6 +30,7 @@ pub mod smart_defaults;
 pub mod fish_import;
 
 pub mod control;
+pub mod env_context;
 pub mod learned_prefs;
 pub mod setup;
 pub mod spinner;

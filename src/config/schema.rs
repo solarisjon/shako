@@ -117,6 +117,26 @@ pub struct BehaviorConfig {
     /// Useful for project-specific instructions not covered by .shako.toml.
     #[serde(default)]
     pub ai_system_prompt_extra: Option<String>,
+    /// Context names (or substrings) that are considered "production".
+    ///
+    /// Used by the environment drift detector to decide when a context switch
+    /// warrants a warning before destructive commands.
+    ///
+    /// Example in `.shako.toml`:
+    /// ```toml
+    /// [behavior]
+    /// production_contexts = ["prod", "production", "arn:aws:eks:us-east-1:123456789"]
+    /// ```
+    ///
+    /// If empty (the default), built-in heuristics apply: any context whose
+    /// name contains `prod`, `production`, `live`, or `prd` is treated as
+    /// production.
+    #[serde(default)]
+    pub production_contexts: Vec<String>,
+    /// How long (in seconds) after a context switch shako continues to warn
+    /// about destructive commands in the new context.  Defaults to 300 (5 min).
+    #[serde(default = "default_warn_window_secs")]
+    pub context_warn_window_secs: u64,
 }
 
 /// Configuration for fish shell interoperability.
@@ -173,6 +193,10 @@ fn default_edit_mode() -> String {
     "emacs".to_string()
 }
 
+fn default_warn_window_secs() -> u64 {
+    300
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
@@ -200,6 +224,8 @@ impl Default for BehaviorConfig {
             history_size: 10_000,
             history_dedup: true,
             ai_system_prompt_extra: None,
+            production_contexts: Vec::new(),
+            context_warn_window_secs: 300,
         }
     }
 }
