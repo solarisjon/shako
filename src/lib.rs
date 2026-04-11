@@ -29,6 +29,7 @@ pub mod smart_defaults;
 #[cfg(feature = "fish-import")]
 pub mod fish_import;
 
+pub mod audit;
 pub mod behavioral_profile;
 pub mod control;
 pub mod env_context;

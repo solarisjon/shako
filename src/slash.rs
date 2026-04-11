@@ -11,6 +11,10 @@ pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("model", "Show or switch the active AI model/provider"),
     ("safety", "Show or change safety mode (warn/block/off)"),
     ("provider", "Show or switch the active LLM provider"),
+    (
+        "audit",
+        "Verify audit log chain or search AI history (/audit verify|search <q>)",
+    ),
 ];
 
 /// The outcome of running a slash command.
@@ -42,6 +46,7 @@ pub fn run(
         "model" => SlashOutcome::Code(cmd_model(args, config)),
         "safety" => SlashOutcome::Code(cmd_safety(args, config)),
         "provider" => SlashOutcome::Code(cmd_provider(args, config)),
+        "audit" => SlashOutcome::Code(cmd_audit(args)),
         _ => {
             eprintln!("shako: unknown command /{name}");
             eprintln!("       run /help to see available commands");
@@ -545,6 +550,90 @@ fn cmd_provider(args: &str, config: &mut ShakoConfig) -> i32 {
             eprintln!("       available: {}", names.join(", "));
         }
         1
+    }
+}
+
+// ─── /audit ───────────────────────────────────────────────────────────────────
+
+/// Handle the `/audit` slash command.
+///
+/// Subcommands:
+/// - `/audit verify`          — re-compute the hash chain and report integrity
+/// - `/audit search <query>`  — search past AI queries by keyword
+fn cmd_audit(args: &str) -> i32 {
+    let args = args.trim();
+    let (sub, rest) = match args.split_once(' ') {
+        Some((s, r)) => (s.trim(), r.trim()),
+        None => (args, ""),
+    };
+
+    match sub {
+        "verify" | "" => {
+            let path = crate::audit::audit_path();
+            if !path.exists() {
+                eprintln!("\x1b[90mshako: audit log is empty (no entries yet)\x1b[0m");
+                return 0;
+            }
+            match crate::audit::verify_chain() {
+                Ok(count) => {
+                    eprintln!(
+                        "\x1b[32mshako: audit log OK — {count} entr{} verified, chain intact\x1b[0m",
+                        if count == 1 { "y" } else { "ies" }
+                    );
+                    0
+                }
+                Err(e) => {
+                    eprintln!("\x1b[1;31mshako: audit log TAMPERED — {e}\x1b[0m");
+                    1
+                }
+            }
+        }
+        "search" => {
+            if rest.is_empty() {
+                eprintln!("shako: /audit search requires a query");
+                eprintln!("       usage: /audit search <keyword>");
+                return 1;
+            }
+            let results = crate::audit::search_entries(rest, 20);
+            if results.is_empty() {
+                eprintln!("\x1b[90mshako: no audit entries matching '{rest}'\x1b[0m");
+                return 0;
+            }
+            eprintln!(
+                "\x1b[90mshako: found {} match{} for '{rest}':\x1b[0m",
+                results.len(),
+                if results.len() == 1 { "" } else { "es" }
+            );
+            for entry in &results {
+                let kind = match entry.kind {
+                    crate::audit::AuditKind::AiQuery => "ai",
+                    crate::audit::AuditKind::DirectCommand => "cmd",
+                    crate::audit::AuditKind::SafetyBlock => "block",
+                    crate::audit::AuditKind::ExfilBlock => "exfil",
+                };
+                let display = if !entry.executed.is_empty() {
+                    &entry.executed
+                } else if !entry.generated.is_empty() {
+                    &entry.generated
+                } else {
+                    &entry.nl_input
+                };
+                eprintln!(
+                    "  \x1b[90m[{}]\x1b[0m \x1b[36m{kind:<5}\x1b[0m  {}",
+                    &entry.ts[..10],
+                    display
+                );
+                if !entry.nl_input.is_empty() && entry.nl_input != *display {
+                    eprintln!("         \x1b[90mintent: {}\x1b[0m", entry.nl_input);
+                }
+            }
+            0
+        }
+        _ => {
+            eprintln!("shako: unknown /audit subcommand: '{sub}'");
+            eprintln!("       usage: /audit verify | /audit search <query>");
+            1
+        }
     }
 }
 

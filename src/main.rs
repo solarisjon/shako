@@ -9,6 +9,7 @@ use reedline::{
 };
 
 mod ai;
+mod audit;
 mod behavioral_profile;
 mod builtins;
 mod classifier;

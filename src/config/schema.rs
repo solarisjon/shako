@@ -186,6 +186,7 @@ pub struct BehaviorConfig {
 /// ```toml
 /// [security]
 /// prompt_injection_guard = true   # default: true
+/// audit_log = true                # default: true
 /// ```
 #[derive(Debug, Deserialize, Clone)]
 pub struct SecurityConfig {
@@ -200,12 +201,24 @@ pub struct SecurityConfig {
     /// every file that shako reads and trust its contents absolutely.
     #[serde(default = "default_true")]
     pub prompt_injection_guard: bool,
+
+    /// Enable the immutable AI audit log.
+    ///
+    /// When `true` (default), every AI query, generated command, and user decision
+    /// is appended to `~/.local/share/shako/audit.jsonl` as a hash-chained JSONL
+    /// record. Use `/audit verify` to check chain integrity and `/audit search` to
+    /// query past AI interactions.
+    ///
+    /// Set to `false` to disable all audit logging.
+    #[serde(default = "default_true")]
+    pub audit_log: bool,
 }
 
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
             prompt_injection_guard: true,
+            audit_log: true,
         }
     }
 }

@@ -60,6 +60,9 @@ pub async fn translate_and_execute(
         if config.behavior.safety_mode != "off" && crate::safety::is_dangerous(&command) {
             if config.behavior.safety_mode == "block" {
                 eprintln!("shako: dangerous command blocked: {command}");
+                if config.security.audit_log {
+                    crate::audit::record_safety_block(&command, "dangerous_command_block");
+                }
                 return Ok(());
             }
             eprintln!("shako: dangerous command detected: {command}");
@@ -76,6 +79,9 @@ pub async fn translate_and_execute(
                 && config.behavior.safety_mode == "block"
             {
                 eprintln!("shako: command blocked by Secret Canary (credential exfiltration risk)");
+                if config.security.audit_log {
+                    crate::audit::record_exfil_block(&command, "critical_exfil_risk");
+                }
                 return Ok(());
             }
         }
@@ -120,6 +126,12 @@ pub async fn translate_and_execute(
                                 if config.behavior.session_journal {
                                     journal::append_async(input, &command, exit_code);
                                 }
+                                // Audit log: record AI query + decision.
+                                if config.security.audit_log {
+                                    crate::audit::record_ai_query(
+                                        input, &command, &command, "execute", exit_code,
+                                    );
+                                }
                                 break 'translate;
                             }
                             confirm::ConfirmAction::Edit(edited) => {
@@ -134,9 +146,21 @@ pub async fn translate_and_execute(
                                 if config.behavior.session_journal {
                                     journal::append_async(input, &edited, exit_code);
                                 }
+                                // Audit log: record AI query + edit decision.
+                                if config.security.audit_log {
+                                    crate::audit::record_ai_query(
+                                        input, &command, &edited, "edit", exit_code,
+                                    );
+                                }
                                 break 'translate;
                             }
                     confirm::ConfirmAction::Cancel => {
+                        // Audit log: record cancelled AI query.
+                        if config.security.audit_log {
+                            crate::audit::record_ai_query(
+                                input, &command, "", "cancel", -1,
+                            );
+                        }
                         println!("cancelled");
                         break 'translate;
                     }
@@ -174,6 +198,12 @@ pub async fn translate_and_execute(
             // Journal the auto-executed command.
             if config.behavior.session_journal {
                 journal::append_async(input, &command, exit_code);
+            }
+            // Audit log: auto-executed (no confirmation required).
+            if config.security.audit_log {
+                crate::audit::record_ai_query(
+                    input, &command, &command, "auto_execute", exit_code,
+                );
             }
             break 'translate;
         }
