@@ -48,6 +48,7 @@ pub fn set_incident_active(active: bool) {
 }
 
 /// Return whether an incident session is currently active.
+#[allow(dead_code)]
 pub fn is_incident_active() -> bool {
     INCIDENT_ACTIVE.load(Ordering::Relaxed)
 }

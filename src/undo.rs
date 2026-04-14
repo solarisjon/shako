@@ -554,6 +554,7 @@ pub fn format_snapshot(entry: &SnapshotEntry) -> String {
 }
 
 /// List all unrestored snapshots for the /undo command.
+#[allow(dead_code)]
 pub fn list_snapshots() -> Vec<SnapshotEntry> {
     let graph = load_graph();
     graph.entries.into_iter().filter(|e| !e.restored).collect()

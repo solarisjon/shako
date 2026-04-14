@@ -133,6 +133,7 @@ impl ExfilRisk {
     }
 
     /// A short human-readable label for display.
+    #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
             ExfilRisk::Critical { .. } => "CRITICAL — credential exfiltration detected",

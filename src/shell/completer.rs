@@ -805,6 +805,16 @@ impl Completer for ShakoCompleter {
         // allocate Strings only for the filtered suggestions — avoiding a full
         // clone of the path commands Vec<String> on every Tab press.
         if completing_first_token {
+            // If the token looks like an explicit path (./foo, ../foo, /abs, ~/foo),
+            // route straight to path completion — these are never PATH commands.
+            let is_path_token = partial.starts_with("./")
+                || partial.starts_with("../")
+                || partial.starts_with('/')
+                || partial.starts_with("~/");
+            if is_path_token {
+                return self.path_completions(partial, false, start, pos);
+            }
+
             let path_cmds = self.path_commands();
             let extra_guard = self.extra_completions.read().ok();
             let extra_slice: &[String] = extra_guard.as_deref().map_or(&[], |v| v);
@@ -1159,6 +1169,21 @@ mod tests {
         assert!(
             suggestions.iter().any(|s| s.value == "git"),
             "expected 'git' in command completions"
+        );
+    }
+
+    #[test]
+    fn test_dotslash_first_token_path_completion() {
+        // Regression: "./depl<TAB>" as the sole token must yield path completions,
+        // not "NO RECORDS FOUND" (which happens when only PATH commands are searched).
+        // The repo root contains "deployment" or at least "src/" — just assert that
+        // path_completions is reached (non-empty and values start with "./").
+        let mut c = test_completer();
+        let suggestions = c.complete("./sr", 4);
+        assert!(
+            suggestions.iter().any(|s| s.value.starts_with("./src")),
+            "expected path completions starting with './src' for './sr', got: {:?}",
+            suggestions.iter().map(|s| &s.value).collect::<Vec<_>>()
         );
     }
 

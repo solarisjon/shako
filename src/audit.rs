@@ -201,6 +201,7 @@ pub fn record_ai_query(
 }
 
 /// Record a direct shell command typed by the user (not via AI).
+#[allow(dead_code)]
 pub fn record_direct_command(command: &str, exit_code: i32) {
     let prev_hash = last_hash();
     let mut entry = AuditEntry {

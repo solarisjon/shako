@@ -262,6 +262,7 @@ impl BehavioralProfile {
     /// Given the command the user is about to run, return the guard command they
     /// typically run first, if one is reliably observed and not already the last
     /// command.  Returns `None` if no guard applies.
+    #[allow(dead_code)]
     pub fn required_guard<'a>(&'a self, about_to_run: &str, last_ran: &str) -> Option<&'a str> {
         let base = about_to_run.split_whitespace().next()?;
         let last_base = last_ran.split_whitespace().next().unwrap_or("");

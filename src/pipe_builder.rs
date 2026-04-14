@@ -23,11 +23,9 @@
 //! ╰──────────────────────────────────────────────╯
 //! ```
 
-use anyhow::Result;
 use serde::Deserialize;
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
-use std::time::Duration;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

@@ -131,6 +131,7 @@ impl IncidentSession {
 
 /// Short indicator string to embed in the shell prompt when incident is active.
 /// The caller should dim this (e.g. wrap in `\x1b[90m`).
+#[allow(dead_code)]
 pub fn prompt_indicator(session: &IncidentSession) -> String {
     format!("[INC:{}]", session.id())
 }
