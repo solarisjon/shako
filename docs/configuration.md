@@ -97,6 +97,7 @@ auto_correct_typos = true                # suggest corrections for near-miss com
 history_context_lines = 20               # recent commands included in AI context
 safety_mode = "warn"                     # "warn" | "block" | "off"
 edit_mode = "emacs"                      # "emacs" (default) or "vi"
+behavioral_fingerprinting = true         # learn workflow patterns to personalise AI hints
 
 # --- Fish compatibility ---
 
@@ -135,17 +136,60 @@ gs = "git status -sb"
 | `safety_mode` | string | `"warn"` | `"warn"` shows warnings, `"block"` prevents execution, `"off"` disables |
 | `edit_mode` | string | `"emacs"` | `"emacs"` (default) or `"vi"` for vi-style keybindings |
 | `ai_enabled` | boolean | `true` | Global kill switch for all AI features |
+| `behavioral_fingerprinting` | boolean | `true` | Learn command-sequence and flag-preference patterns; inject as AI context hint |
 
 ## Per-Project Config (`.shako.toml`)
 
-Drop a `.shako.toml` in any project directory to provide AI context specific to that project:
+Drop a `.shako.toml` in any project directory to provide AI context and per-project security scoping:
 
 ```toml
 [ai]
 context = "Rust project using actix-web. Tests: cargo nextest run. DB: PostgreSQL on port 5433."
+
+# Optional: restrict which commands the AI is allowed to generate
+[ai.scope]
+allow_commands = ["python", "pip", "jupyter", "rg", "fd", "git", "ls", "cat"]
+deny_commands  = ["sudo", "rm", "curl", "wget"]
+allow_sudo     = false
+allow_network  = true
+
+# Optional: environment drift detection
+[safety]
+production_contexts = ["prod", "production", "prd"]  # kubectl / AWS profile substrings
+context_warn_window_secs = 300                        # warn window after context switch (default: 5 min)
+
+# Optional: incident runbook auto-save
+[incident]
+runbook_dir = "~/incidents"   # directory to save AI-generated runbooks
 ```
 
 See [AI Features](ai-features.md#per-project-context-shakotoml) for details.
+
+## Per-Project Config Fields
+
+### `[ai.scope]` — Capability Scoping
+
+Restricts which commands the AI is allowed to generate. If `[ai.scope]` is absent, no restrictions apply.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `allow_commands` | list of strings | `[]` (all allowed) | Only these base command names are permitted. Empty list = allow all |
+| `deny_commands` | list of strings | `[]` | Always denied, even if in `allow_commands` |
+| `allow_sudo` | boolean | `false` | Whether `sudo`-prefixed commands are permitted |
+| `allow_network` | boolean | `true` | Whether outbound network tools (`curl`, `wget`, `nc`, …) are permitted |
+
+### `[safety]` — Environment Drift Detection
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `production_contexts` | list of strings | `[]` | Context name substrings (kubectl, AWS profile, etc.) treated as production |
+| `context_warn_window_secs` | integer | `300` | Seconds after a context switch during which destructive commands trigger a warning |
+
+### `[incident]` — Incident Mode
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `runbook_dir` | string | (unset) | Directory where `incident report` saves the AI-generated markdown runbook |
 
 ## Startup Script
 

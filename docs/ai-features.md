@@ -299,6 +299,143 @@ $ ? connect to the database
 
 The file is optional and gitignore-friendly — commit it for the team or keep it personal.
 
+## AI Pipe Builder
+
+Use `|? <description>` to build a pipeline step-by-step with live previews of intermediate output. The AI decomposes your goal into stages and runs each one before asking for confirmation:
+
+```
+$ |? top 10 IPs by request count in access.log
+
+shako: building pipeline...
+╭── pipe builder ──────────────────────────────────────╮
+│ Step 1: grep pattern from access.log                  │
+│       grep -E '^[0-9]+\.' access.log                 │
+│       ▶ 42,891 lines total, showing first 5:          │
+│       192.168.1.1 - - [11/Apr ...                    │
+│   + awk '{print $1}'                                  │
+│       extract IP from each line                       │
+│       192.168.1.1                                     │
+│   + sort | uniq -c | sort -rn | head -10              │
+│       rank by frequency, top 10                       │
+│       3214 192.168.1.1                                │
+│ full:  grep -E ... | awk '{print $1}' | sort | ...   │
+├──────────────────────────────────────────────────────┤
+│ [Y]es  [n]o  [e]dit                                  │
+╰──────────────────────────────────────────────────────╯
+```
+
+Each stage runs against your actual data so you see what each step produces before committing. Choosing `[e]dit` lets you replace the full assembled pipeline before it runs.
+
+## AI Audit Log
+
+Every AI interaction is recorded to `~/.local/share/shako/audit.jsonl` in a tamper-evident hash-chained format. Each line is a JSON object containing:
+
+| Field | Description |
+|---|---|
+| `ts` | RFC 3339 timestamp |
+| `kind` | `ai_query`, `direct_command`, `safety_block`, or `exfil_block` |
+| `nl_input` | Natural-language input you typed |
+| `generated` | Command the AI produced |
+| `executed` | Command actually run (may differ after `[e]dit`) |
+| `decision` | `execute`, `edit`, `cancel`, or `block` |
+| `exit_code` | Exit code of the executed command |
+| `hash` | FNV-1a 64-bit hash of this entry chained to the previous |
+
+Use `/audit verify` to check the chain is intact, and `/audit search <query>` to find past AI interactions.
+
+The hash chain is not cryptographic — it deters accidental corruption and naive editing. For cryptographic assurance, layer GPG signing on top of the file.
+
+## Prompt Injection Firewall
+
+User-controlled strings that reach the AI system prompt are sanitized before insertion:
+
+- **Sources checked**: `.shako.toml` `[ai].context`, `learned_prefs.toml` substitutions, `ai_system_prompt_extra`
+- **Detection**: scans for phrases like `ignore previous instructions`, `forget your instructions`, `act as`, and similar injection patterns
+- **Response**: matched fields are stripped entirely; the user is warned with the source path and matched pattern name
+- **Structural wrapping**: clean fields are embedded in delimiter blocks that instruct the model to treat them as data, not instructions — analogous to SQL parameterization
+
+## Secret Canary
+
+Every AI-generated command is scanned for credential exfiltration patterns *before* the confirmation panel appears. This guards against compromised or socially-engineered LLM endpoints.
+
+**Risk levels:**
+
+| Level | Trigger | UI |
+|---|---|---|
+| `Critical` | Secret-file pattern **and** outbound network command in the same pipeline | Red double-border warning box |
+| `High` | Secret-file access without an obvious outbound network step | Yellow warning box |
+| `None` | No sensitive patterns detected | No additional UI |
+
+**Detected secret patterns** include: `~/.aws/credentials`, `~/.ssh/id_*`, `~/.gnupg/`, `~/.kube/config`, `~/.docker/config.json`, `~/.npmrc`, `~/.netrc`, `~/.pypirc`, and common env var names (`API_KEY`, `AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, etc.).
+
+**Detected exfiltration commands**: `curl`, `wget`, `nc`, `scp`, `rsync`, `ssh`, and Python/Ruby/Perl one-liners that open sockets.
+
+Critical-risk commands are also recorded in the audit log as `exfil_block` events.
+
+## Capability-Scoped AI Sessions
+
+Add an `[ai.scope]` block to `.shako.toml` to restrict what commands the AI is allowed to generate for a project. This is an allowlist model — ideal for data science environments, CI workers, or any context where the AI should only touch a known set of tools.
+
+```toml
+# .shako.toml
+[ai.scope]
+allow_commands = ["python", "pip", "jupyter", "rg", "fd", "git", "ls", "cat"]
+deny_commands  = ["sudo", "rm", "curl", "wget"]
+allow_sudo     = false
+allow_network  = true
+```
+
+**Evaluation order** (deny wins):
+1. `deny_commands` — always blocked, even if also in `allow_commands`
+2. `allow_sudo = false` — blocks any command containing `sudo`
+3. `allow_network = false` — blocks `curl`, `wget`, `nc`, `rsync`, and similar outbound tools
+4. `allow_commands` — if non-empty, blocks any base command not in this list
+
+Scope violations are shown before the confirmation prompt. An empty `allow_commands` (the default) means all commands are allowed unless `deny_commands` or the other flags block them.
+
+## Behavioral Fingerprinting
+
+shako learns your workflow patterns from your command history and uses them to personalise AI suggestions. The behavioral profile is rebuilt in a background thread after each session and injected into every AI prompt as a compact hint (≤ 500 tokens).
+
+**What is tracked (locally only):**
+
+| Signal | Example |
+|---|---|
+| Command co-occurrence | `cargo test` is almost always followed by `git add` in your projects |
+| Flag preferences | You consistently pass `--dry-run` to `rsync` |
+| Commit prefix style | Your commits use `fix:` / `feat:` conventional prefixes |
+| Pre-command guards | You always `source venv/bin/activate` before `pip install` |
+
+The profile is stored at `~/.config/shako/behavioral_profile.json`. No raw command content leaves your machine — only derived statistics are included in the AI context.
+
+Disable with `[behavior] behavioral_fingerprinting = false` in `~/.config/shako/config.toml`.
+
+## Danger Replay and Undo
+
+Before executing a confirmed dangerous command (e.g. `rm -rf old_build/`), shako optionally snapshots the affected paths so you can recover them with a natural-language request:
+
+```
+$ rm -rf old_build/
+shako: snapshot old_build/ before deleting? [y/N] y
+→ snapshot sha3f7a9c saved
+
+$ undo that rm
+shako: restore old_build/ from snapshot sha3f7a9c? [y/N] y
+→ restored
+```
+
+Natural-language undo phrases that trigger the undo flow:
+- `undo that`, `undo that rm`, `undo the last command`
+- `restore what I deleted`, `restore the last thing`
+- `go back`, `revert that`, `undelete`
+
+**Snapshot rules:**
+- Git-tracked paths are skipped (use `git checkout` instead)
+- Snapshots larger than 50 MB (configurable) are skipped
+- Snapshots older than 7 days are garbage-collected automatically
+- Snapshots live in `~/.local/share/shako/snapshots/<sha>/`
+- The undo graph is stored in `~/.local/share/shako/undo_graph.json`
+
 ## LLM Configuration
 
 shako works with any OpenAI-compatible API. See [Configuration](configuration.md) for provider setup.

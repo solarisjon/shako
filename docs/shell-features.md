@@ -340,3 +340,86 @@ Fish-specific constructs (`bind`, `emit`, `status`, `string`, tool init lines) a
 - **Ctrl-D** — exits the shell (on empty line)
 
 The shell ignores SIGINT, SIGQUIT, SIGTSTP, SIGTTOU, and SIGTTIN. Children have signals reset to defaults via `pre_exec`.
+
+## Environment Drift Detection
+
+shako watches for cloud and Kubernetes context switches and warns when a destructive command is about to run in the wrong environment.
+
+**Tracked contexts:**
+
+| Source | What is tracked |
+|---|---|
+| kubectl | Active context from `KUBECONFIG` / `~/.kube/config` |
+| AWS | `AWS_PROFILE` environment variable |
+| Terraform | `TF_WORKSPACE` environment variable |
+| Docker | `DOCKER_CONTEXT` environment variable |
+
+When a destructive command (e.g. `kubectl delete`, `terraform apply`, `aws s3 rm`) is about to run within the configured warning window (default: 5 minutes) of a context switch, a warning panel appears:
+
+```
+⚠  Context switch detected
+   was: kubectl:dev-cluster
+   now: kubectl:prod-cluster  ← production context
+   switched 42 seconds ago
+
+   about to run: kubectl delete pod payment-worker-abc
+
+   [Y]es, continue  [n]o, cancel
+```
+
+**Production contexts** are identified by substring matching against context names. Configure in `.shako.toml`:
+
+```toml
+[safety]
+production_contexts = ["prod", "production", "prd"]
+context_warn_window_secs = 300
+```
+
+The prompt indicator turns amber when the current context matches a production pattern.
+
+## Incident Mode
+
+Incident mode records a timestamped journal of every command you run during an incident. At the end, the AI synthesises a post-mortem timeline and structured runbook.
+
+### Lifecycle
+
+```
+$ incident start payment-svc-latency   # begin recording; prompt shows [INC:...]
+$ kubectl get pods -n payments          # timestamped
+$ kubectl logs payment-worker-abc       # timestamped
+$ curl -s https://api.internal/health   # timestamped
+$ incident status                      # print session summary
+$ incident report                      # close session + AI-generate runbook
+```
+
+### Prompt indicator
+
+While incident mode is active the prompt shows the incident ID:
+
+```
+[INC:INC-2026-04-11-payment-svc-latency] ❯
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `incident start <name>` | Begin incident mode with the given label |
+| `incident status` | Show current session: name, elapsed time, step count |
+| `incident end` | Close the session without generating a report |
+| `incident report` | Close the session and generate an AI post-mortem + runbook |
+
+### Generated runbook
+
+`incident report` sends the full command journal (commands, exit codes, stderr tails, timestamps) to the AI and requests a structured markdown document containing:
+
+- Incident summary and timeline
+- Root cause analysis (from commands and errors observed)
+- Resolution steps
+- Post-mortem recommendations
+
+The runbook is printed to the terminal. If `[incident] runbook_dir` is set in `.shako.toml`, it is also saved as a markdown file with the incident ID as the filename.
+
+## Danger Replay and Undo
+
+See [AI Features — Danger Replay and Undo](ai-features.md#danger-replay-and-undo) for full documentation of the filesystem snapshot and natural-language undo system.

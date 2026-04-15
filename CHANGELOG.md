@@ -4,6 +4,37 @@ All notable changes to shako are documented here.
 
 ---
 
+## [0.9.0] — 2026-04-14
+
+Major security and intelligence release. Adds a layered AI security stack (audit log, prompt injection firewall, credential exfiltration guard, capability scoping), behavioral fingerprinting, the AI Pipe Builder, Danger Replay / Undo Graph, Incident Mode, Environment Drift Detection, and the `/history` and `/audit` slash commands.
+
+### Added
+
+#### AI Features
+- **AI Pipe Builder** — `|? <description>` decomposes a natural-language pipeline goal into individual steps, executes each step incrementally against real data, and shows a live preview of intermediate output before the user commits to running the full command. Step descriptions appear in a gradient panel matching the existing confirmation UI (`src/pipe_builder.rs`).
+- **DiagnosisResult + confirm_command flow** — the failure→fix loop is now fully closed: `DiagnosisResult` carries a structured `cause` and `fix` command that flow directly into the standard `[Y/n/e/w/r]` confirmation prompt, so the AI-suggested fix can be edited or refined before execution.
+- **Behavioral Fingerprinting** — `BehavioralProfile` is built from command journal data and injected into every AI prompt as a compact hint (≤ 500 tokens). Tracked signals: command co-occurrence sequences, per-tool flag preferences, conventional-commit prefix style, and pre-command guard patterns (e.g. `source venv` always before `pip`). Persisted to `~/.config/shako/behavioral_profile.json`. Configurable via `[behavior] behavioral_fingerprinting = true/false` (`src/behavioral_profile.rs`).
+
+#### Security Stack
+- **Immutable AI Audit Log** — every AI query, generated command, and user decision (execute / edit / cancel / block) is appended to `~/.local/share/shako/audit.jsonl` as a JSONL record with a FNV-1a 64-bit hash chain. Any retroactive modification breaks the chain, detectable by `/audit verify`. Safety blocks and Secret Canary blocks are also recorded (`src/audit.rs`).
+- **Prompt Injection Firewall** — user-controlled strings injected into the AI system prompt (`.shako.toml` `[ai].context`, `learned_prefs.toml` substitutions, `ai_system_prompt_extra`) are scanned for known injection phrases before insertion. Matched fields are stripped and the user is warned with the source path and pattern name. Clean fields are structurally wrapped in delimiter blocks to reduce blast radius even if the model ignores the strip (`src/ai/prompt_guard.rs`).
+- **Secret Canary (ExfilGuard)** — scans every AI-generated command for credential exfiltration patterns before the confirmation prompt appears. `Critical` risk (secret-file access + outbound network in the same command) triggers a red ASCII warning box; `High` risk (secret access, no outbound command) triggers a yellow box. Both events are recorded in the audit log. Detection covers AWS credentials, SSH keys, GnuPG, `.netrc`, `.npmrc`, `.pypirc`, Docker config, kubeconfig, and common `$API_KEY`-style env var names (`src/ai/exfil_guard.rs`).
+- **Capability-Scoped AI Sessions** — per-project `[ai.scope]` block in `.shako.toml` declares an explicit allowlist and denylist for AI-generated commands. Evaluation order: `deny_commands` wins over allow; then `allow_sudo`; then `allow_network`; then `allow_commands`. Violations are shown before the confirmation prompt (`src/ai/capability_scope.rs`).
+- **Learned Prefs PATH validation** — paths injected via `learned_prefs.toml` substitutions are validated to prevent path-traversal abuse.
+
+#### Shell Features
+- **Danger Replay / Undo Graph** — before executing a confirmed dangerous command (e.g. `rm -rf old_build/`), shako optionally snapshots the affected paths to `~/.local/share/shako/snapshots/<sha>/` and records an entry in `~/.local/share/shako/undo_graph.json`. Natural-language undo requests (`undo that rm`, `restore what I deleted`, `go back`, `revert that`) are classified as `UndoRequest` and routed to the undo flow. Git-tracked paths are skipped. Max snapshot size: 50 MB (configurable). Snapshots GC'd after 7 days (`src/undo.rs`).
+- **Environment Drift Detection** — `ContextTracker` snapshots `kubectl` context, `AWS_PROFILE`, `TF_WORKSPACE`, and `DOCKER_CONTEXT` after each command. When a destructive command is about to run within the configured warning window (default 5 min) of a context switch, a warning panel is shown. Production context detection is config-driven via `[safety] production_contexts` in `.shako.toml`. The prompt indicator turns amber in production contexts (`src/env_context.rs`).
+- **Incident Mode** — structured runbook execution: `incident start <name>` activates incident mode and begins timestamping every command. `incident status` prints a live session summary. `incident end` closes the session. `incident report` closes the session and calls the AI to synthesise a post-mortem timeline and structured markdown runbook, optionally saving to `[incident] runbook_dir` from `.shako.toml` (`src/incident.rs`).
+- **`/history` slash command** — fuzzy-browse shell history interactively. If `fzf` is in `$PATH`, history is piped through it for interactive selection; the chosen command is pre-filled in the readline buffer. Falls back to a native paginated picker when `fzf` is absent.
+- **`/audit` slash command** — `audit verify` walks the entire JSONL audit log and reports whether the hash chain is intact. `audit search <query>` returns the most-recent matching entries across `nl_input`, `generated`, and `executed` fields.
+
+### Fixed
+
+- Filename completions now correctly escape single quotes and shell-special characters, preventing completion-time parse errors for paths containing `'`, `(`, `)`, `[`, `]`, `!`, `&`, `\`, and other metacharacters.
+
+---
+
 ## [0.2.1] — 2026-03-30
 
 Patch release adding slash commands, startup instrumentation, native Anthropic API support, and a styled startup banner, plus bug fixes and performance improvements.

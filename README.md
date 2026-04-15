@@ -59,10 +59,19 @@ Every input is classified in order:
 | **History context** | AI sees your recent commands for follow-up queries |
 | **Syntax highlighting** | Full-line: commands, flags, strings, pipes, variables, comments |
 | **Tab completion** | git, cargo, docker, kubectl, make targets, paths, commands |
-| **Slash commands** | `/validate`, `/config`, `/model`, `/safety`, `/provider` — configure shako inline |
+| **Slash commands** | `/validate`, `/config`, `/model`, `/safety`, `/provider`, `/history`, `/audit` |
 | **Typo correction** | Levenshtein distance detection with `[Y/n]` prompt |
 | **Fish compatibility** | `set -x`, fish config import, conf.d, functions directory |
 | **Starship prompt** | Native integration with parallel left/right rendering |
+| **AI Pipe Builder** | `\|? description` — step-by-step pipeline builder with live intermediate previews |
+| **AI Audit Log** | Tamper-evident hash-chained JSONL journal of every AI interaction |
+| **Secret Canary** | Scans AI-generated commands for credential exfiltration before confirmation |
+| **Prompt injection firewall** | Sanitizes user-controlled strings before they reach the LLM system prompt |
+| **Capability scoping** | Per-project `[ai.scope]` allowlist/denylist for AI-generated commands |
+| **Behavioral fingerprinting** | Learns command patterns, flag preferences, and workflow habits for personalised AI |
+| **Danger Replay / Undo** | Snapshots affected paths before risky commands; `undo that rm` to restore |
+| **Environment drift detection** | Warns when destructive commands run shortly after a kubectl/AWS/Terraform context switch |
+| **Incident mode** | `incident start/report` — timestamped runbook capture with AI post-mortem generation |
 
 ## Documentation
 
@@ -71,11 +80,12 @@ Every input is classified in order:
 | [New User Guide](docs/new-user-guide.md) | Step-by-step introduction for first-time users |
 | [Quick Reference](docs/quick-reference.md) | Cheat sheet — syntax, modes, aliases, keybindings |
 | [Getting Started](docs/getting-started.md) | Installation, first run, configuration wizard |
+| [**Examples**](EXAMPLES.md) | **20 real-world use cases and feature showcases** |
 | [AI Features](docs/ai-features.md) | Translation, explain mode, error recovery, project context |
 | [Shell Features](docs/shell-features.md) | Builtins, pipes, redirects, job control, functions, history |
 | [Smart Defaults](docs/smart-defaults.md) | Tool detection, auto-aliases, AI tool preferences |
 | [Configuration](docs/configuration.md) | Full config reference, LLM providers, behavior settings |
-| [Slash Commands](docs/slash-commands.md) | `/validate`, `/config`, `/model`, `/safety`, `/provider`, `/help` |
+| [Slash Commands](docs/slash-commands.md) | `/validate`, `/config`, `/model`, `/safety`, `/provider`, `/history`, `/audit` |
 | [ROADMAP](ROADMAP.md) | Planned features and architecture improvements |
 | [SCOPE](SCOPE.md) | Original design document |
 

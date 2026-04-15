@@ -17,6 +17,8 @@ single alphabetic words after `/` are treated as slash commands.
 | `/model` | Show the active AI model and provider (read-only; edit config to change) |
 | `/safety [mode]` | Show or change the safety mode for this session |
 | `/provider [name]` | Show or switch the active LLM provider for this session |
+| `/history` | Fuzzy-browse shell history and select a command to re-run |
+| `/audit verify\|search <q>` | Verify the AI audit log chain or search AI interaction history |
 
 ## Usage Examples
 
@@ -30,6 +32,9 @@ $ /safety off             # disable safety checks (session only)
 $ /safety warn            # re-enable safety warnings
 $ /provider lm_studio     # switch to the lm_studio provider
 $ /provider               # show available providers
+$ /history                # browse history interactively (fzf if available)
+$ /audit verify           # check audit log hash chain integrity
+$ /audit search rsync     # find past AI interactions mentioning rsync
 ```
 
 ## Details
@@ -85,6 +90,45 @@ $ /provider work_proxy    # switch back to work proxy
 ```
 
 Changes are **session-only**.
+
+### `/history`
+
+Browse your shell history interactively and select a command to pre-fill in the readline buffer:
+
+- **With `fzf`**: history is piped through `fzf` with `--height=40% --reverse`. Press Enter to select; the chosen command appears in the prompt ready to edit or run.
+- **Without `fzf`**: a built-in paginated picker is used.
+
+The selected command is placed in the readline input buffer rather than executed immediately, so you can review or edit it first.
+
+### `/audit`
+
+Manage the immutable AI audit log at `~/.local/share/shako/audit.jsonl`.
+
+#### `/audit verify`
+
+Walks the entire JSONL file and verifies the hash chain. Reports:
+
+- Total number of entries
+- Whether the chain is intact
+- On failure: the line number and nature of the break (prev_hash mismatch or hash mismatch)
+
+```
+$ /audit verify
+✓ audit log intact — 1,247 entries
+```
+
+#### `/audit search <query>`
+
+Case-insensitive substring search across `nl_input`, `generated`, and `executed` fields. Returns the 20 most-recent matches:
+
+```
+$ /audit search rsync
+[2026-04-11T14:23:01Z] ai_query
+  input:    sync build artifacts to staging
+  generated: rsync -avz --progress ./build/ deploy@prod:/var/www/
+  executed:  rsync -avz --progress ./build/ deploy@prod:/var/www/
+  decision:  execute  exit: 0
+```
 
 ## Adding New Slash Commands
 
