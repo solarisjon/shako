@@ -4,6 +4,27 @@ All notable changes to shako are documented here.
 
 ---
 
+## [1.0.0] "Mako" — 2026-04-15
+
+First stable release. Codename **Mako**.
+
+### Added
+
+- **`/shortcuts` slash command** — lists all active smart-default tool substitutions at runtime so users can see exactly which modern tools shako prefers over legacy equivalents.
+- **Expanded smart defaults** — broader coverage of tool substitutions across more command categories.
+
+### Fixed
+
+- 16 clippy lints that were silently allowed locally but triggered CI failures under `-D warnings` (`empty_line_after_doc_comments`, `new_without_default`, `too_many_arguments`, `map_flatten`, `redundant_closure`, `single_match`, `implicit_saturating_sub`, `unnecessary_unwrap`, `double_ended_iterator_last`, `field_reassign_with_default`, `manual_split_once`, `needless_borrow`, `manual_pattern_char_comparison`, `doc_overindented_list_items`, and others).
+- Two `learned_prefs` tests that assumed `rg` (ripgrep) was installed on the test runner — replaced with universally available tools (`find`, `grep`).
+
+### Changed
+
+- Version bumped to **1.0.0** — shako is stable.
+- Startup banner now reads `shako v1.0 "Mako"`.
+
+---
+
 ## [0.9.0] — 2026-04-14
 
 Major security and intelligence release. Adds a layered AI security stack (audit log, prompt injection firewall, credential exfiltration guard, capability scoping), behavioral fingerprinting, the AI Pipe Builder, Danger Replay / Undo Graph, Incident Mode, Environment Drift Detection, and the `/history` and `/audit` slash commands.
