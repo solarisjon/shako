@@ -429,6 +429,7 @@ Meta-commands for inspecting and configuring shako at runtime:
 | `/model` | Show active AI model and provider (read-only) |
 | `/safety [mode]` | Show or change safety mode (`warn`/`block`/`off`, session only) |
 | `/provider [name]` | Show or switch LLM provider (session only) |
+| `/shortcuts [tool]` | List smart default shortcuts; filter by tool name |
 
 See [Slash Commands](slash-commands.md) for details.
 

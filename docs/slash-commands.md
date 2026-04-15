@@ -19,6 +19,7 @@ single alphabetic words after `/` are treated as slash commands.
 | `/provider [name]` | Show or switch the active LLM provider for this session |
 | `/history` | Fuzzy-browse shell history and select a command to re-run |
 | `/audit verify\|search <q>` | Verify the AI audit log chain or search AI interaction history |
+| `/shortcuts [tool]` | List smart default shortcuts, optionally filtered by tool name |
 
 ## Usage Examples
 
@@ -35,6 +36,9 @@ $ /provider               # show available providers
 $ /history                # browse history interactively (fzf if available)
 $ /audit verify           # check audit log hash chain integrity
 $ /audit search rsync     # find past AI interactions mentioning rsync
+$ /shortcuts              # list all smart default shortcuts
+$ /shortcuts podman       # show only podman shortcuts
+$ /shortcuts git          # show only git shortcuts
 ```
 
 ## Details
@@ -129,6 +133,40 @@ $ /audit search rsync
   executed:  rsync -avz --progress ./build/ deploy@prod:/var/www/
   decision:  execute  exit: 0
 ```
+
+### `/shortcuts [tool]`
+
+List all smart default shortcuts shako has registered, grouped by the tool they require. Each entry shows whether the tool is currently installed (✓) or missing (✗).
+
+```
+$ /shortcuts
+Smart default shortcuts  (✓ active  ✗ tool not installed)
+
+  git
+    ✓  ga        git add
+    ✓  gaa       git add -A
+    ✓  gs        git status
+    ...
+
+  podman
+    ✓  pps       podman ps
+    ✗  ppod      podman pod ps
+    ...
+```
+
+Filtering by tool name shows only matching shortcuts:
+
+```
+$ /shortcuts kubectl
+Shortcuts for 'kubectl'  (✓ active  ✗ tool not installed)
+
+  kubectl
+    ✓  k         kubectl
+    ✓  kgp       kubectl get pods
+    ...
+```
+
+See [Smart Defaults](smart-defaults.md) for the full shortcut reference.
 
 ## Adding New Slash Commands
 

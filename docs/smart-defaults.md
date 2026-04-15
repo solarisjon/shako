@@ -59,20 +59,85 @@ When a prerequisite tool is detected, these convenience aliases are created:
 ### Git Shortcuts (requires git)
 | Alias | Expands To |
 |---|---|
-| `gs` | `git status` |
-| `gl` | `git log --oneline -20` |
-| `gd` | `git diff` |
-| `gp` | `git push` |
-| `gpl` | `git pull` |
-| `gco` | `git checkout` |
-| `gcm` | `git commit -m` |
+| `ga`   | `git add` |
+| `gaa`  | `git add -A` |
+| `gs`   | `git status` |
+| `gb`   | `git branch` |
+| `gl`   | `git log --oneline -20` |
+| `gd`   | `git diff` |
+| `gf`   | `git fetch` |
+| `gp`   | `git push` |
+| `gpl`  | `git pull` |
+| `gco`  | `git checkout` |
+| `gcm`  | `git commit -m` |
+| `grb`  | `git rebase` |
+| `gst`  | `git stash` |
+| `gstp` | `git stash pop` |
 
 ### Docker Shortcuts (requires docker)
 | Alias | Expands To |
 |---|---|
-| `dps` | `docker ps` |
-| `dex` | `docker exec -it` |
+| `dps`  | `docker ps` |
+| `dex`  | `docker exec -it` |
 | `dlog` | `docker logs -f` |
+| `dst`  | `docker stop` |
+| `drm`  | `docker rm` |
+| `drmi` | `docker rmi` |
+| `dimg` | `docker images` |
+| `db`   | `docker build` |
+
+### Podman Shortcuts (requires podman)
+| Alias | Expands To |
+|---|---|
+| `pps`  | `podman ps` |
+| `pex`  | `podman exec -it` |
+| `plog` | `podman logs -f` |
+| `ppod` | `podman pod ps` |
+| `pimg` | `podman images` |
+| `pb`   | `podman build` |
+| `pst`  | `podman stop` |
+| `prm`  | `podman rm` |
+| `prmi` | `podman rmi` |
+| `pnet` | `podman network ls` |
+| `pvol` | `podman volume ls` |
+
+### Kubectl Shortcuts (requires kubectl)
+| Alias | Expands To |
+|---|---|
+| `k`   | `kubectl` |
+| `kgp` | `kubectl get pods` |
+| `kgs` | `kubectl get services` |
+| `kgn` | `kubectl get nodes` |
+| `kl`  | `kubectl logs -f` |
+| `kex` | `kubectl exec -it` |
+| `kaf` | `kubectl apply -f` |
+| `kdf` | `kubectl delete -f` |
+| `kdp` | `kubectl describe pod` |
+
+### Terraform Shortcuts (requires terraform)
+| Alias | Expands To |
+|---|---|
+| `tfi` | `terraform init` |
+| `tfp` | `terraform plan` |
+| `tfa` | `terraform apply` |
+| `tfd` | `terraform destroy` |
+
+### Cargo Shortcuts (requires cargo)
+| Alias | Expands To |
+|---|---|
+| `cb`  | `cargo build` |
+| `cr`  | `cargo run` |
+| `ct`  | `cargo test` |
+| `cc`  | `cargo check` |
+| `ccl` | `cargo clippy` |
+
+### npm Shortcuts (requires npm)
+| Alias | Expands To |
+|---|---|
+| `ni` | `npm install` |
+| `nr` | `npm run` |
+| `nt` | `npm test` |
+| `ns` | `npm start` |
 
 ## Zoxide Integration
 
@@ -120,6 +185,23 @@ The AI receives detailed syntax guidance for each detected tool. For example, if
 > use fd instead of find. Syntax: `fd PATTERN`, `fd -e EXTENSION` for files by extension, `fd -t f` files only, `fd -t d` dirs only, `fd --size +100m` for files larger than 100 MB.
 
 This means `find all rust files larger than 1MB` generates `fd -e rs --size +1m` instead of `find . -name "*.rs" -size +1M`.
+
+## Discovering Active Shortcuts
+
+Use `/shortcuts` at any time to see which shortcuts are active:
+
+```
+❯ /shortcuts podman
+Shortcuts for 'podman'  (✓ active  ✗ tool not installed)
+
+  podman
+    ✓  pps       podman ps
+    ✓  pex       podman exec -it
+    ✓  plog      podman logs -f
+    ...
+```
+
+Run `/shortcuts` with no argument to list every category. A ✗ next to an entry means the tool is not installed — the shortcut exists in shako's table but is not currently active.
 
 ## Overriding Defaults
 
