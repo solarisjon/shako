@@ -221,8 +221,8 @@ mod tests {
     #[test]
     fn test_record_increments_existing() {
         let mut prefs = LearnedPrefs::default();
-        prefs.record("grep", "rg");
-        prefs.record("grep", "rg");
+        prefs.record("find", "grep");
+        prefs.record("find", "grep");
         assert_eq!(prefs.substitutions.len(), 1);
         assert_eq!(prefs.substitutions[0].uses, 2);
     }
@@ -236,9 +236,9 @@ mod tests {
     #[test]
     fn test_context_hint_with_subs() {
         let mut prefs = LearnedPrefs::default();
-        prefs.record("grep", "rg");
+        prefs.record("find", "grep");
         let hint = prefs.to_context_hint();
-        assert!(hint.contains("rg"));
         assert!(hint.contains("grep"));
+        assert!(hint.contains("find"));
     }
 }
