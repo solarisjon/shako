@@ -32,6 +32,7 @@ use crate::spinner;
 ///
 /// Consumes the `Reedline` instance and all configuration. Returns only when
 /// the user types `exit` / Ctrl-D or an unrecoverable I/O error occurs.
+#[allow(clippy::too_many_arguments)]
 pub fn run_repl(
     mut line_editor: Reedline,
     prompt: StarshipPrompt,
@@ -800,7 +801,7 @@ pub fn is_pure_builtin_call(segment: &str) -> bool {
 /// - `Y` / Enter — run it immediately
 /// - `n` — cancel
 /// - `e` — edit: re-prompt the user with the command pre-printed so they can
-///          retype/modify it (limited to one-shot since we cannot seed reedline)
+///   retype/modify it (limited to one-shot since we cannot seed reedline)
 ///
 /// Returns `true` if the command was executed.
 fn offer_history_selection(
@@ -1343,7 +1344,7 @@ fn incident_save_path(incident_id: &str) -> Option<std::path::PathBuf> {
         }
         if in_section {
             if let Some(val) = trimmed.strip_prefix("runbook_dir") {
-                let val = val.trim_start_matches(|c: char| c == ' ' || c == '=');
+                let val = val.trim_start_matches([' ', '=']);
                 let val = val.trim().trim_matches('"').trim_matches('\'');
                 runbook_dir = Some(val.to_string());
             }

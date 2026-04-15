@@ -93,6 +93,12 @@ pub struct StarshipPrompt {
     right_handle: Mutex<Option<JoinHandle<String>>>,
 }
 
+impl Default for StarshipPrompt {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StarshipPrompt {
     pub fn new() -> Self {
         let starship_available = which::which("starship").is_ok();

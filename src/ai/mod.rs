@@ -34,14 +34,14 @@ pub async fn translate_and_execute(
     let mut ctx = context::build_context(recent_history, session_memory.clone(), Some(guard_cfg.clone()))?;
 
     // Sanitize `ai_system_prompt_extra` (from user config) before LLM injection.
-    ctx.system_prompt_extra = config.behavior.ai_system_prompt_extra.as_deref().map(|raw| {
+    ctx.system_prompt_extra = config.behavior.ai_system_prompt_extra.as_deref().and_then(|raw| {
         let safe = prompt_guard::sanitize_or_warn(
             raw,
             "`[behavior].ai_system_prompt_extra` in config.toml",
             &guard_cfg,
         );
         if safe.is_empty() { None } else { Some(safe) }
-    }).flatten();
+    });
     let system_prompt = prompt::system_prompt(&ctx);
 
     let mut current_input = input.to_string();
@@ -277,7 +277,7 @@ pub fn handle_undo_request(query: &str, config: &ShakoConfig) -> Result<bool> {
 
     let entry = if !keyword.is_empty() {
         crate::undo::find_snapshot_matching(&keyword)
-            .or_else(|| crate::undo::find_latest_snapshot())
+            .or_else(crate::undo::find_latest_snapshot)
     } else {
         crate::undo::find_latest_snapshot()
     };

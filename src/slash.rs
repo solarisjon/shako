@@ -153,7 +153,7 @@ fn try_external_picker(entries: &[String], bin: &str, args: &[&str]) -> Option<S
             std::fs::OpenOptions::new()
                 .write(true)
                 .open("/dev/tty")
-                .map(|f| Stdio::from(f))
+                .map(Stdio::from)
                 .unwrap_or(Stdio::inherit()),
         )
         .spawn()
@@ -344,8 +344,8 @@ fn run_native_picker(out: &mut impl std::io::Write, entries: &[String]) -> Optio
 
         // ── input ──────────────────────────────────────────────────────────
 
-        match event::read().ok()? {
-            Event::Key(key) => match (key.code, key.modifiers) {
+        if let Event::Key(key) = event::read().ok()? {
+            match (key.code, key.modifiers) {
                 (KeyCode::Esc, _)
                 | (KeyCode::Char('c'), KeyModifiers::CONTROL)
                 | (KeyCode::Char('q'), KeyModifiers::NONE) => {
@@ -357,9 +357,7 @@ fn run_native_picker(out: &mut impl std::io::Write, entries: &[String]) -> Optio
                     }
                 }
                 (KeyCode::Up, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
-                    if selected_idx > 0 {
-                        selected_idx -= 1;
-                    }
+                    selected_idx = selected_idx.saturating_sub(1);
                 }
                 (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
                     if selected_idx + 1 < total {
@@ -376,8 +374,7 @@ fn run_native_picker(out: &mut impl std::io::Write, entries: &[String]) -> Optio
                     selected_idx = 0;
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
     }
 }

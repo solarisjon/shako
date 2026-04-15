@@ -1,12 +1,12 @@
-/// shako library entry point.
-///
-/// Re-exports core modules so they are accessible from integration tests,
-/// benchmarks, and external tooling without going through the binary entry
-/// point in `main.rs`.
-///
-/// Only modules with meaningful public APIs are exposed here.  Internal
-/// implementation details that have no stable public surface (e.g. `spinner`,
-/// `fish_import`) are intentionally left out.
+//! shako library entry point.
+//!
+//! Re-exports core modules so they are accessible from integration tests,
+//! benchmarks, and external tooling without going through the binary entry
+//! point in `main.rs`.
+//!
+//! Only modules with meaningful public APIs are exposed here.  Internal
+//! implementation details that have no stable public surface (e.g. `spinner`,
+//! `fish_import`) are intentionally left out.
 
 pub mod classifier;
 pub mod config;

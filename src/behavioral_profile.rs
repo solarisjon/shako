@@ -135,14 +135,12 @@ impl BehavioralProfile {
     ///
     /// This is called from the background update task after each session.
     pub fn analyze_from_entries(entries: &[JournalEntry]) -> Self {
-        let mut profile = Self::default();
-
-        profile.command_sequences = extract_sequences(entries);
-        profile.flag_preferences = extract_flag_preferences(entries);
-        profile.commit_prefix_style = detect_commit_prefix_style();
-        profile.pre_command_guards = extract_pre_command_guards(entries);
-
-        profile
+        Self {
+            command_sequences: extract_sequences(entries),
+            flag_preferences: extract_flag_preferences(entries),
+            commit_prefix_style: detect_commit_prefix_style(),
+            pre_command_guards: extract_pre_command_guards(entries),
+        }
     }
 
     // ── AI context hint ───────────────────────────────────────────────────────
@@ -431,8 +429,8 @@ fn detect_commit_prefix_style() -> String {
     let re_pattern = regex_prefix_pattern();
     for line in log.lines() {
         // Skip the hash (first token) and look at the subject
-        let subject = line.splitn(2, ' ').nth(1).unwrap_or(line);
-        if let Some(prefix) = extract_prefix(subject, &re_pattern) {
+        let subject = line.split_once(' ').map(|x| x.1).unwrap_or(line);
+        if let Some(prefix) = extract_prefix(subject, re_pattern) {
             *prefix_counts.entry(prefix).or_insert(0) += 1;
         }
     }

@@ -145,9 +145,7 @@ fn last_hash() -> String {
     };
     // Read the last non-empty line.
     let last_line = content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .last()
+        .lines().rfind(|l| !l.trim().is_empty())
         .unwrap_or("");
     if let Ok(entry) = serde_json::from_str::<AuditEntry>(last_line) {
         entry.hash
@@ -402,8 +400,6 @@ fn is_leap(year: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
 
     #[test]
     fn test_fnv1a_hex_deterministic() {

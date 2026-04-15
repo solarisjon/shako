@@ -246,8 +246,8 @@ fn builtin_incident(args: &[&str], state: &mut ShellState) -> i32 {
 
     match subcommand {
         "start" => {
-            if state.incident_session.is_some() {
-                let id = state.incident_session.as_ref().unwrap().id();
+            if let Some(session) = &state.incident_session {
+                let id = session.id();
                 eprintln!("shako: incident already active: {id}");
                 eprintln!("  Use `incident end` or `incident report` first.");
                 return 1;
@@ -415,7 +415,7 @@ fn incident_save_path(incident_id: &str) -> Option<std::path::PathBuf> {
         if in_incident_section {
             if let Some(val) = trimmed.strip_prefix("runbook_dir") {
                 // e.g. `runbook_dir = "~/incidents"`
-                let val = val.trim_start_matches(|c: char| c == ' ' || c == '=');
+                let val = val.trim_start_matches([' ', '=']);
                 let val = val.trim().trim_matches('"').trim_matches('\'');
                 runbook_dir = Some(val.to_string());
             }
