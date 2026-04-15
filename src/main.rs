@@ -458,7 +458,7 @@ fn print_styled_banner(config: &ShakoConfig, ai_status: &ai::client::AiCheckResu
         },
     );
 
-    let line1 = format!("\x1b[1;36mshako\x1b[0m \x1b[90m{version}\x1b[0m");
+    let line1 = format!("\x1b[1;36mshako\x1b[0m \x1b[90m{version} \"Mako\"\x1b[0m");
     let line2 = ai_line;
     let line3 = config_line;
 
