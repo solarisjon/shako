@@ -351,19 +351,17 @@ fn run_native_picker(out: &mut impl std::io::Write, entries: &[String]) -> Optio
                 | (KeyCode::Char('q'), KeyModifiers::NONE) => {
                     return None;
                 }
-                (KeyCode::Enter, _) => {
-                    if total > 0 {
+                (KeyCode::Enter, _)
+                    if total > 0 => {
                         return Some(filtered[selected_idx].to_string());
                     }
-                }
                 (KeyCode::Up, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
                     selected_idx = selected_idx.saturating_sub(1);
                 }
-                (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
-                    if selected_idx + 1 < total {
+                (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL)
+                    if selected_idx + 1 < total => {
                         selected_idx += 1;
                     }
-                }
                 (KeyCode::Backspace, _) => {
                     query.pop();
                     selected_idx = 0;
