@@ -647,13 +647,12 @@ fn prompt_secret(out: &mut impl Write, prompt: &str, default: &str) -> Result<St
                     anyhow::bail!("setup cancelled by user");
                 }
                 // Backspace: remove last char
-                (KeyCode::Backspace, _) => {
-                    if secret.pop().is_some() {
+                (KeyCode::Backspace, _)
+                    if secret.pop().is_some() => {
                         // Erase one mask character from the display.
                         write!(out, "\x08 \x08")?;
                         out.flush()?;
                     }
-                }
                 // Printable character: append to secret, show mask dot.
                 (KeyCode::Char(c), _) => {
                     secret.push(c);
