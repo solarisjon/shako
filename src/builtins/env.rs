@@ -6,7 +6,7 @@
 pub fn builtin_export(args: &[&str]) {
     for arg in args {
         if let Some((key, value)) = arg.split_once('=') {
-            unsafe { std::env::set_var(key, value) };
+            crate::env_guard::set_var(key, value);
         } else {
             match std::env::var(arg) {
                 Ok(val) => println!("{arg}={val}"),
@@ -19,6 +19,6 @@ pub fn builtin_export(args: &[&str]) {
 /// `unset` — remove environment variables.
 pub fn builtin_unset(args: &[&str]) {
     for arg in args {
-        unsafe { std::env::remove_var(arg) };
+        crate::env_guard::remove_var(arg);
     }
 }
