@@ -1,5 +1,5 @@
-use termimad::crossterm::style::{Attribute, Color};
 use termimad::MadSkin;
+use termimad::crossterm::style::{Attribute, Color};
 
 /// Render an AI explanation as styled markdown in the terminal.
 ///

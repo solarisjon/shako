@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use which::which;
 
-use super::prompt_guard::{sanitize_or_warn, GuardConfig};
+use super::prompt_guard::{GuardConfig, sanitize_or_warn};
 
 /// Shell context sent to the LLM for better command translation.
 pub struct ShellContext {

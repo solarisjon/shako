@@ -221,9 +221,7 @@ async fn query_anthropic(
                 if !response.status().is_success() {
                     let status = response.status();
                     let body = response.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!(
-                        "Anthropic API returned {status}: {body}"
-                    ));
+                    return Err(anyhow::anyhow!("Anthropic API returned {status}: {body}"));
                 }
 
                 let mut stream = response.bytes_stream();
@@ -251,7 +249,7 @@ async fn query_anthropic(
                                 if event.event_type == "content_block_delta" {
                                     if let Some(delta) = event.delta {
                                         if delta.delta_type == "text_delta" {
-                                                if let Some(text) = delta.text {
+                                            if let Some(text) = delta.text {
                                                 // Clear the spinner on the first token
                                                 if let Some(ref flag) = spinner_flag {
                                                     if flag.load(Ordering::Relaxed) {
@@ -395,7 +393,7 @@ async fn query_openai_compat(
                             }
                             if let Ok(chunk_resp) = serde_json::from_str::<StreamResponse>(data) {
                                 if let Some(choice) = chunk_resp.choices.first() {
-                                        if let Some(content) = &choice.delta.content {
+                                    if let Some(content) = &choice.delta.content {
                                         // Clear the spinner on the first token
                                         if let Some(ref flag) = spinner_flag {
                                             if flag.load(Ordering::Relaxed) {
@@ -505,8 +503,8 @@ pub async fn check_ai_session(
     };
 
     // Anthropic always requires an API key; local OpenAI-compat servers don't.
-    let is_local = !is_anthropic
-        && (models_url.contains("localhost") || models_url.contains("127.0.0.1"));
+    let is_local =
+        !is_anthropic && (models_url.contains("localhost") || models_url.contains("127.0.0.1"));
     if api_key.is_empty() && !is_local {
         return AiCheckResult::NoApiKey(config.api_key_env.clone());
     }

@@ -2,11 +2,7 @@
 
 /// `test`/`[` — evaluate a conditional expression. Returns 0 (true) or 1 (false).
 pub fn builtin_test(args: &[&str]) -> i32 {
-    if test_eval(args) {
-        0
-    } else {
-        1
-    }
+    if test_eval(args) { 0 } else { 1 }
 }
 
 pub fn test_eval(args: &[&str]) -> bool {

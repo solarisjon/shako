@@ -145,7 +145,8 @@ fn last_hash() -> String {
     };
     // Read the last non-empty line.
     let last_line = content
-        .lines().rfind(|l| !l.trim().is_empty())
+        .lines()
+        .rfind(|l| !l.trim().is_empty())
         .unwrap_or("");
     if let Ok(entry) = serde_json::from_str::<AuditEntry>(last_line) {
         entry.hash
@@ -509,7 +510,7 @@ mod tests {
         e.hash = compute_hash(&e);
         let mut bad = e.clone();
         bad.executed = "rm -rf /".to_string(); // tamper
-                                               // hash unchanged — should fail
+        // hash unchanged — should fail
         let line = serde_json::to_string(&bad).unwrap();
         let result = verify_chain_from_str(&line);
         assert!(result.is_err(), "tampered entry should fail verification");

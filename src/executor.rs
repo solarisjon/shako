@@ -60,7 +60,7 @@ fn setup_child_signals(cmd: &mut Command, pgid: i32, dup_stderr_to_stdout: bool)
                 nix::unistd::Pid::from_raw(pgid),
             )
             .ok();
-            use nix::sys::signal::{signal, SigHandler, Signal};
+            use nix::sys::signal::{SigHandler, Signal, signal};
             for sig in [
                 Signal::SIGINT,
                 Signal::SIGQUIT,
@@ -87,7 +87,7 @@ fn setup_child_signals(_cmd: &mut Command, _pgid: i32, _dup_stderr_to_stdout: bo
 /// On non-Unix the function just waits normally.
 #[cfg(unix)]
 fn foreground_wait(child: std::process::Child) -> std::process::ExitStatus {
-    use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+    use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 
     let child_pid = nix::unistd::Pid::from_raw(child.id() as i32);
     let child_pgid = child_pid; // each foreground child is its own process-group leader
@@ -864,7 +864,7 @@ fn strip_herestring_from_input(input: &str) -> String {
             {
                 let start = i;
                 i += 3; // skip <<<
-                        // Skip whitespace between <<< and the word
+                // Skip whitespace between <<< and the word
                 while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') {
                     i += 1;
                 }

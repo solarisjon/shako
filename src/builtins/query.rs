@@ -1,7 +1,7 @@
 //! Query builtins: `type`, `functions`.
 
-use super::state::ShellState;
 use super::BUILTINS;
+use super::state::ShellState;
 
 /// `type` — describe how each NAME would be interpreted.
 pub fn builtin_type(args: &[&str], state: &ShellState) -> i32 {
@@ -22,11 +22,7 @@ pub fn builtin_type(args: &[&str], state: &ShellState) -> i32 {
             found = false;
         }
     }
-    if found {
-        0
-    } else {
-        1
-    }
+    if found { 0 } else { 1 }
 }
 
 /// `functions` — list all defined shell functions.

@@ -552,11 +552,7 @@ fn find_user_starship_config() -> Option<PathBuf> {
     }
     // XDG default
     let p = dirs::home_dir()?.join(".config").join("starship.toml");
-    if p.exists() {
-        Some(p)
-    } else {
-        None
-    }
+    if p.exists() { Some(p) } else { None }
 }
 
 /// Merge shako shell indicator settings into an existing Starship TOML config string.

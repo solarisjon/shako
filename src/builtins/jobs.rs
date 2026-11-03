@@ -119,7 +119,7 @@ pub(super) fn builtin_wait(args: &[&str], state: &mut ShellState) -> i32 {
             // PID not in our job table — use nix waitpid if available
             #[cfg(unix)]
             {
-                use nix::sys::wait::{waitpid, WaitPidFlag};
+                use nix::sys::wait::{WaitPidFlag, waitpid};
                 use nix::unistd::Pid;
                 let p = Pid::from_raw(pid as i32);
                 return match waitpid(p, Some(WaitPidFlag::empty())) {
@@ -180,8 +180,8 @@ pub(super) fn builtin_fg(args: &[&str], state: &mut ShellState) {
 
     #[cfg(unix)]
     {
-        use nix::sys::signal::{kill, Signal};
-        use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+        use nix::sys::signal::{Signal, kill};
+        use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
         use nix::unistd::Pid;
 
         let job_pgid = Pid::from_raw(job.pgid);

@@ -1130,11 +1130,7 @@ fn run_command_substitution(cmd: &str) -> String {
             // Test runner binaries live under target/…/deps/ and have names like
             // `shako-<hash>` — avoid re-entering those.
             let name = p.file_name()?.to_string_lossy().to_string();
-            if name == "shako" {
-                Some(p)
-            } else {
-                None
-            }
+            if name == "shako" { Some(p) } else { None }
         })
     });
 

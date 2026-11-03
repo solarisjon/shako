@@ -300,25 +300,25 @@ fn builtin_incident(args: &[&str], state: &mut ShellState) -> i32 {
                 0
             }
         },
-        "end" => {
-            match state.incident_session.take() {
-                None => {
-                    eprintln!("shako: no active incident session");
-                    1
-                }
-                Some(session) => {
-                    eprintln!(
-                        "\x1b[90mIncident {} ended after {} ({} steps recorded).\x1b[0m",
-                        session.id(),
-                        session.elapsed_display(),
-                        session.steps.len()
-                    );
-                    eprintln!("\x1b[90m  Tip: use `incident report` next time to generate a runbook.\x1b[0m");
-                    crate::shell::prompt::set_incident_active(false);
-                    0
-                }
+        "end" => match state.incident_session.take() {
+            None => {
+                eprintln!("shako: no active incident session");
+                1
             }
-        }
+            Some(session) => {
+                eprintln!(
+                    "\x1b[90mIncident {} ended after {} ({} steps recorded).\x1b[0m",
+                    session.id(),
+                    session.elapsed_display(),
+                    session.steps.len()
+                );
+                eprintln!(
+                    "\x1b[90m  Tip: use `incident report` next time to generate a runbook.\x1b[0m"
+                );
+                crate::shell::prompt::set_incident_active(false);
+                0
+            }
+        },
         "report" => {
             // Pull the session out so we can pass it to the AI without borrowing `state`.
             match state.incident_session.take() {
