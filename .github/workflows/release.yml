@@ -9,6 +9,10 @@ env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: shako
 
+# Least-privilege default; jobs that need more (create-release) override it.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build ${{ matrix.target }}
