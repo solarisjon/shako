@@ -22,6 +22,20 @@ thread_local! {
     /// PID of the last background job started by the shell (`$!`).
     /// Updated by the REPL loop (main.rs) whenever a background job is spawned.
     static LAST_BG_PID: Cell<u32> = const { Cell::new(0) };
+
+    /// When set, `$(…)` / backtick substitutions expand to nothing instead of
+    /// running (see [`parse_args_inert`]).
+    static SUBST_INERT: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Like [`parse_args`], but command substitutions are **not executed**; they
+/// expand to an empty string.  Use this to analyse untrusted text (e.g. an
+/// AI-generated command awaiting confirmation) without running any part of it.
+pub fn parse_args_inert(input: &str) -> Vec<String> {
+    let previous = SUBST_INERT.with(|c| c.replace(true));
+    let args = parse_args(input);
+    SUBST_INERT.with(|c| c.set(previous));
+    args
 }
 
 /// Update `$!` (last background PID) after spawning a background job.
@@ -627,11 +641,11 @@ fn expand_brace_param(chars: &[char], i: &mut usize) -> String {
 
     // Detect operator: :-, :+, :?, :=, ##, #, %%, %, //, /
     // We scan for the first operator character that is not part of the var name.
-    let var_chars: Vec<char> = inner.chars().collect();
-    let mut vi = 0;
-    while vi < var_chars.len() && (var_chars[vi].is_alphanumeric() || var_chars[vi] == '_') {
-        vi += 1;
-    }
+    // `vi` is a byte offset (not a char count) so non-ASCII names slice safely.
+    let vi = inner
+        .char_indices()
+        .find(|(_, c)| !(c.is_alphanumeric() || *c == '_'))
+        .map_or(inner.len(), |(b, _)| b);
 
     let varname = &inner[..vi];
     let rest = &inner[vi..];
@@ -1095,7 +1109,7 @@ fn extract_balanced(chars: &[char], i: &mut usize, open: char, close: char) -> S
 /// binary cannot be located.
 fn run_command_substitution(cmd: &str) -> String {
     let cmd = cmd.trim();
-    if cmd.is_empty() {
+    if cmd.is_empty() || SUBST_INERT.with(Cell::get) {
         return String::new();
     }
 

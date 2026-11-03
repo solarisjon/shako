@@ -326,7 +326,8 @@ fn basename(arg: &str) -> String {
 /// Parse one simple command (no chains or pipes), look through wrappers, and
 /// return `(command name, args starting at the command, raw text from it)`.
 fn resolve_command(command: &str) -> Option<(String, Vec<String>, String)> {
-    let args = parser::parse_args(command);
+    // Inert: this analyses untrusted text, so it must never run `$(...)`.
+    let args = parser::parse_args_inert(command);
     let idx = skip_wrappers(&args)?;
     // Wrapper prefixes are plain words, so raw whitespace tokens line up with
     // parsed args up to the real command.
@@ -366,7 +367,7 @@ pub fn is_snapshotable(command: &str) -> bool {
     if is_fork_bomb(command) {
         return false; // no paths involved
     }
-    let args = parser::parse_args(command);
+    let args = parser::parse_args_inert(command);
     if args.is_empty() {
         return false;
     }
