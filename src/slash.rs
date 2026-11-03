@@ -640,6 +640,46 @@ fn cmd_audit(args: &str) -> i32 {
     }
 }
 
+// ─── /shortcuts ───────────────────────────────────────────────────────────────
+
+fn cmd_shortcuts(args: &str) -> i32 {
+    let entries = smart_defaults::list_shortcuts(args);
+
+    if entries.is_empty() {
+        if args.trim().is_empty() {
+            eprintln!("shako: no smart shortcuts defined");
+        } else {
+            eprintln!("shako: no shortcuts found for '{}'", args.trim());
+        }
+        return 1;
+    }
+
+    if args.trim().is_empty() {
+        eprintln!("\x1b[1mSmart default shortcuts\x1b[0m  (✓ active  ✗ tool not installed)\n");
+    } else {
+        eprintln!(
+            "\x1b[1mShortcuts for '{}'\x1b[0m  (✓ active  ✗ tool not installed)\n",
+            args.trim()
+        );
+    }
+
+    let mut last_tool = "";
+    for (requires, alias, expansion, active) in &entries {
+        if *requires != last_tool {
+            eprintln!("  \x1b[1m{requires}\x1b[0m");
+            last_tool = requires;
+        }
+        let status = if *active {
+            "\x1b[32m✓\x1b[0m"
+        } else {
+            "\x1b[90m✗\x1b[0m"
+        };
+        eprintln!("    {status}  \x1b[36m{alias:<8}\x1b[0m  {expansion}");
+    }
+    eprintln!();
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -747,40 +787,4 @@ mod tests {
             SlashOutcome::Code(_) | SlashOutcome::Prefill(_) => {}
         }
     }
-}
-
-// ─── /shortcuts ───────────────────────────────────────────────────────────────
-
-fn cmd_shortcuts(args: &str) -> i32 {
-    let entries = smart_defaults::list_shortcuts(args);
-
-    if entries.is_empty() {
-        if args.trim().is_empty() {
-            eprintln!("shako: no smart shortcuts defined");
-        } else {
-            eprintln!("shako: no shortcuts found for '{}'", args.trim());
-        }
-        return 1;
-    }
-
-    if args.trim().is_empty() {
-        eprintln!("\x1b[1mSmart default shortcuts\x1b[0m  (✓ active  ✗ tool not installed)\n");
-    } else {
-        eprintln!(
-            "\x1b[1mShortcuts for '{}'\x1b[0m  (✓ active  ✗ tool not installed)\n",
-            args.trim()
-        );
-    }
-
-    let mut last_tool = "";
-    for (requires, alias, expansion, active) in &entries {
-        if *requires != last_tool {
-            eprintln!("  \x1b[1m{requires}\x1b[0m");
-            last_tool = requires;
-        }
-        let status = if *active { "\x1b[32m✓\x1b[0m" } else { "\x1b[90m✗\x1b[0m" };
-        eprintln!("    {status}  \x1b[36m{alias:<8}\x1b[0m  {expansion}");
-    }
-    eprintln!();
-    0
 }

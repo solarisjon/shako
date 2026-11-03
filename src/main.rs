@@ -100,15 +100,13 @@ fn main() -> Result<()> {
             std::process::exit(2);
         }
         let mut state = ShellState::new(std::path::PathBuf::new());
-        let last_code;
-
-        if control::has_control_flow(&cmd_str) {
+        let last_code = if control::has_control_flow(&cmd_str) {
             let stmts = control::parse_body(&cmd_str);
             let mut locals = Vec::new();
-            last_code = match control::exec_statements(&stmts, &mut locals) {
+            match control::exec_statements(&stmts, &mut locals) {
                 control::ExecSignal::Normal(c) | control::ExecSignal::Return(c) => c,
                 _ => 0,
-            };
+            }
         } else {
             let mut code = 0i32;
             let chains = parser::split_chains(&cmd_str);
@@ -129,8 +127,8 @@ fn main() -> Result<()> {
                 }
                 prev_op = *op;
             }
-            last_code = code;
-        }
+            code
+        };
         std::process::exit(last_code);
     }
 
