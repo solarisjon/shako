@@ -1,0 +1,5 @@
+# Pinned so new clippy/rustc releases cannot break CI unannounced.
+# Bump deliberately: change this and the `toolchain:` lines in .github/workflows/.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
