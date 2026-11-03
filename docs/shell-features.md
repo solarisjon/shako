@@ -309,6 +309,16 @@ shako creates `~/.config/shako/starship.toml` on first run, merging your global 
 
 If Starship isn't installed, a minimal `❯` prompt is used.
 
+## TUIOS Integration
+
+Inside a [TUIOS](https://tuios.dev) pane (detected via `TUIOS_SESSION` or `TERM_PROGRAM=tuios`), shako reports activity using OSC 7501 (Program Status) and OSC 133 prompt marks:
+
+- `working` is reported when a command starts and cleared when the next prompt is drawn
+- commands that run 5 seconds or longer finish as `done` (exit 0) or `error` (non-zero)
+- nothing is emitted outside TUIOS; set `SHAKO_NO_TUIOS=1` to disable
+
+TUIOS binds `Alt+Left` / `Alt+Right` to pane focus, which shadows word-wise cursor movement. Give them back with `tuios keybinds free alt+left` and `tuios keybinds free alt+right`.
+
 ## Fish Compatibility
 
 shako supports fish-style syntax for common operations:

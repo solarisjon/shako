@@ -25,6 +25,7 @@ use crate::parser;
 use crate::pipe_builder;
 use crate::proactive;
 use crate::shell::prompt::{self, CommandTimer, StarshipPrompt};
+use crate::shell::tuios;
 use crate::slash;
 use crate::spinner;
 
@@ -45,6 +46,8 @@ pub fn run_repl(
 ) {
     let mut last_command = String::new();
     let mut ran_foreground = false;
+    // Start time of the command whose TUIOS status is still `working`.
+    let mut tuios_started: Option<std::time::Instant> = None;
 
     // ── Environment drift detection ──────────────────────────────────────────
     // Create a context tracker seeded from the current config.
@@ -82,6 +85,11 @@ pub fn run_repl(
         #[cfg(unix)]
         executor::restore_echo();
 
+        if let Some(started) = tuios_started.take() {
+            tuios::command_finished(prompt::last_status(), started.elapsed());
+        }
+        tuios::prompt_start();
+
         let sig = line_editor.read_line(&prompt);
         match sig {
             Ok(Signal::Success(input)) => {
@@ -96,6 +104,8 @@ pub fn run_repl(
                 if input.is_empty() {
                     continue;
                 }
+                tuios_started = Some(std::time::Instant::now());
+                tuios::command_started();
 
                 // Multiline continuation: trailing \ or unclosed quotes or open heredoc
                 while needs_continuation(&input) {
