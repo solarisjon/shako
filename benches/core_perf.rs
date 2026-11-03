@@ -9,7 +9,7 @@
 /// Run with:
 ///   cargo bench
 ///   cargo bench -- parser        # filter to parser group only
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use shako::classifier::Classifier;
 use shako::parser;
 use shako::path_cache::PathCache;

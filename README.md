@@ -6,14 +6,29 @@ A fish-inspired shell where natural language and shell commands coexist. Type `l
 
 ![shako demo](demo.gif)
 
-## Quick Start
+## Installation
+
+### Homebrew (recommended)
+
+```bash
+brew tap solarisjon/shako
+brew install shako
+```
+
+### Build from source
 
 ```bash
 cargo build --release
 make install        # installs to ~/.local/bin/shako
+```
+
+## Quick Start
+
+```bash
 shako               # first run launches interactive setup wizard
 shako -c "ls -la"   # non-interactive: run one command and exit
 shako --timings     # print startup phase breakdown
+shako --version     # print version
 ```
 
 ## How It Works
@@ -88,8 +103,9 @@ Every input is classified in order:
 | [Slash Commands](docs/slash-commands.md) | `/validate`, `/config`, `/model`, `/safety`, `/provider`, `/history`, `/audit` |
 | [ROADMAP](ROADMAP.md) | Planned features and architecture improvements |
 | [SCOPE](SCOPE.md) | Original design document |
+| [Homebrew](docs/homebrew.md) | Brew tap, release workflow, platform support |
 
-## Building
+## Building from Source
 
 ```bash
 make build          # cargo build
@@ -100,6 +116,8 @@ make register-shell # add to /etc/shells (requires sudo)
 ```
 
 Requires Rust 1.85.0+ (edition 2024).
+
+See [docs/homebrew.md](docs/homebrew.md) for release infrastructure and tap setup.
 
 ## License
 

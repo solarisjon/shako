@@ -34,47 +34,47 @@ const SMART_ALIASES: &[(&str, &str, &str)] = &[
     // rg-powered aliases
     ("rg", "rgf", "rg -l"),
     // git shortcuts
-    ("git", "ga",   "git add"),
-    ("git", "gaa",  "git add -A"),
-    ("git", "gs",   "git status"),
-    ("git", "gb",   "git branch"),
-    ("git", "gl",   "git log --oneline -20"),
-    ("git", "gd",   "git diff"),
-    ("git", "gf",   "git fetch"),
-    ("git", "gp",   "git push"),
-    ("git", "gpl",  "git pull"),
-    ("git", "gco",  "git checkout"),
-    ("git", "gcm",  "git commit -m"),
-    ("git", "grb",  "git rebase"),
-    ("git", "gst",  "git stash"),
+    ("git", "ga", "git add"),
+    ("git", "gaa", "git add -A"),
+    ("git", "gs", "git status"),
+    ("git", "gb", "git branch"),
+    ("git", "gl", "git log --oneline -20"),
+    ("git", "gd", "git diff"),
+    ("git", "gf", "git fetch"),
+    ("git", "gp", "git push"),
+    ("git", "gpl", "git pull"),
+    ("git", "gco", "git checkout"),
+    ("git", "gcm", "git commit -m"),
+    ("git", "grb", "git rebase"),
+    ("git", "gst", "git stash"),
     ("git", "gstp", "git stash pop"),
     // docker shortcuts
-    ("docker", "dps",  "docker ps"),
-    ("docker", "dex",  "docker exec -it"),
+    ("docker", "dps", "docker ps"),
+    ("docker", "dex", "docker exec -it"),
     ("docker", "dlog", "docker logs -f"),
-    ("docker", "dst",  "docker stop"),
-    ("docker", "drm",  "docker rm"),
+    ("docker", "dst", "docker stop"),
+    ("docker", "drm", "docker rm"),
     ("docker", "drmi", "docker rmi"),
     ("docker", "dimg", "docker images"),
-    ("docker", "db",   "docker build"),
+    ("docker", "db", "docker build"),
     // podman shortcuts
-    ("podman", "pps",  "podman ps"),
-    ("podman", "pex",  "podman exec -it"),
+    ("podman", "pps", "podman ps"),
+    ("podman", "pex", "podman exec -it"),
     ("podman", "plog", "podman logs -f"),
     ("podman", "ppod", "podman pod ps"),
     ("podman", "pimg", "podman images"),
-    ("podman", "pb",   "podman build"),
-    ("podman", "pst",  "podman stop"),
-    ("podman", "prm",  "podman rm"),
+    ("podman", "pb", "podman build"),
+    ("podman", "pst", "podman stop"),
+    ("podman", "prm", "podman rm"),
     ("podman", "prmi", "podman rmi"),
     ("podman", "pnet", "podman network ls"),
     ("podman", "pvol", "podman volume ls"),
     // kubectl shortcuts
-    ("kubectl", "k",   "kubectl"),
+    ("kubectl", "k", "kubectl"),
     ("kubectl", "kgp", "kubectl get pods"),
     ("kubectl", "kgs", "kubectl get services"),
     ("kubectl", "kgn", "kubectl get nodes"),
-    ("kubectl", "kl",  "kubectl logs -f"),
+    ("kubectl", "kl", "kubectl logs -f"),
     ("kubectl", "kex", "kubectl exec -it"),
     ("kubectl", "kaf", "kubectl apply -f"),
     ("kubectl", "kdf", "kubectl delete -f"),
@@ -85,10 +85,10 @@ const SMART_ALIASES: &[(&str, &str, &str)] = &[
     ("terraform", "tfa", "terraform apply"),
     ("terraform", "tfd", "terraform destroy"),
     // cargo shortcuts
-    ("cargo", "cb",  "cargo build"),
-    ("cargo", "cr",  "cargo run"),
-    ("cargo", "ct",  "cargo test"),
-    ("cargo", "cc",  "cargo check"),
+    ("cargo", "cb", "cargo build"),
+    ("cargo", "cr", "cargo run"),
+    ("cargo", "ct", "cargo test"),
+    ("cargo", "cc", "cargo check"),
     ("cargo", "ccl", "cargo clippy"),
     // npm shortcuts
     ("npm", "ni", "npm install"),
@@ -109,8 +109,7 @@ pub fn list_shortcuts(filter: &str) -> Vec<(&'static str, &'static str, &'static
             if filter.is_empty() {
                 true
             } else {
-                requires.to_lowercase().contains(&filter)
-                    || alias.to_lowercase().contains(&filter)
+                requires.to_lowercase().contains(&filter) || alias.to_lowercase().contains(&filter)
             }
         })
         .map(|(requires, alias, expansion)| {

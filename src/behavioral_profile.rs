@@ -213,7 +213,7 @@ impl BehavioralProfile {
             }
             let mut lines: Vec<String> = Vec::new();
             for (tool, mut prefs) in by_tool {
-                prefs.sort_by(|a, b| b.count.cmp(&a.count));
+                prefs.sort_by_key(|p| std::cmp::Reverse(p.count));
                 let flags: Vec<&str> = prefs
                     .iter()
                     .take(MAX_FLAG_HINTS_PER_TOOL)

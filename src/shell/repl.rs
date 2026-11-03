@@ -25,6 +25,7 @@ use crate::parser;
 use crate::pipe_builder;
 use crate::proactive;
 use crate::shell::prompt::{self, CommandTimer, StarshipPrompt};
+use crate::shell::tuios;
 use crate::slash;
 use crate::spinner;
 
@@ -45,6 +46,8 @@ pub fn run_repl(
 ) {
     let mut last_command = String::new();
     let mut ran_foreground = false;
+    // Start time of the command whose TUIOS status is still `working`.
+    let mut tuios_started: Option<std::time::Instant> = None;
 
     // ── Environment drift detection ──────────────────────────────────────────
     // Create a context tracker seeded from the current config.
@@ -82,6 +85,11 @@ pub fn run_repl(
         #[cfg(unix)]
         executor::restore_echo();
 
+        if let Some(started) = tuios_started.take() {
+            tuios::command_finished(prompt::last_status(), started.elapsed());
+        }
+        tuios::prompt_start();
+
         let sig = line_editor.read_line(&prompt);
         match sig {
             Ok(Signal::Success(input)) => {
@@ -96,6 +104,8 @@ pub fn run_repl(
                 if input.is_empty() {
                     continue;
                 }
+                tuios_started = Some(std::time::Instant::now());
+                tuios::command_started();
 
                 // Multiline continuation: trailing \ or unclosed quotes or open heredoc
                 while needs_continuation(&input) {
@@ -237,9 +247,8 @@ pub fn run_repl(
                             timer.stop();
                             ctx_tracker.post_command();
                             prompt::set_production_context_active(
-                                ctx_tracker.is_currently_production(
-                                    &config.behavior.production_contexts,
-                                ),
+                                ctx_tracker
+                                    .is_currently_production(&config.behavior.production_contexts),
                             );
                             continue;
                         }
@@ -254,20 +263,14 @@ pub fn run_repl(
                             ai::maybe_take_snapshot(&cmd, &config);
                         }
                         let cmd_start = std::time::Instant::now();
-                        let (status, stderr_output) =
-                            executor::execute_command_with_stderr(&cmd);
+                        let (status, stderr_output) = executor::execute_command_with_stderr(&cmd);
                         let cmd_duration = cmd_start.elapsed();
                         set_exit_code(status);
 
                         // Record step in active incident session.
                         if let Some(ref mut session) = state.incident_session {
                             let exit_code = status.and_then(|s| s.code()).unwrap_or(0);
-                            session.record(
-                                cmd.as_str(),
-                                exit_code,
-                                &stderr_output,
-                                cmd_duration,
-                            );
+                            session.record(cmd.as_str(), exit_code, &stderr_output, cmd_duration);
                         }
 
                         // If the foreground process was stopped by Ctrl-Z,
@@ -415,11 +418,9 @@ pub fn run_repl(
                                 true
                             };
                             if should_run {
-                                let first =
-                                    suggestion.split_whitespace().next().unwrap_or("");
+                                let first = suggestion.split_whitespace().next().unwrap_or("");
                                 if builtins::is_builtin(first) {
-                                    let code =
-                                        builtins::run_builtin(&suggestion, &mut state);
+                                    let code = builtins::run_builtin(&suggestion, &mut state);
                                     prompt::set_last_status(code);
                                 } else {
                                     let status = executor::execute_command(&suggestion);
@@ -492,25 +493,25 @@ pub fn run_repl(
                                 config.behavior.history_dedup,
                             );
                             let sp = spinner::Spinner::start("building pipeline...");
-                            let result = rt.block_on(
-                                ai::build_pipeline(&description, &config, history)
-                            );
+                            let result =
+                                rt.block_on(ai::build_pipeline(&description, &config, history));
                             drop(sp);
                             match result {
-                                Ok(raw) => {
-                                    match pipe_builder::parse_plan(&raw) {
-                                        Some(plan) if !plan.steps.is_empty() => {
-                                            if let Some(cmd) = pipe_builder::present_and_confirm(&plan) {
-                                                ai::maybe_take_snapshot(&cmd, &config);
-                                                let status = executor::execute_command(&cmd);
-                                                set_exit_code(status);
-                                            }
-                                        }
-                                        _ => {
-                                            eprintln!("shako: could not build a pipeline for that description");
+                                Ok(raw) => match pipe_builder::parse_plan(&raw) {
+                                    Some(plan) if !plan.steps.is_empty() => {
+                                        if let Some(cmd) = pipe_builder::present_and_confirm(&plan)
+                                        {
+                                            ai::maybe_take_snapshot(&cmd, &config);
+                                            let status = executor::execute_command(&cmd);
+                                            set_exit_code(status);
                                         }
                                     }
-                                }
+                                    _ => {
+                                        eprintln!(
+                                            "shako: could not build a pipeline for that description"
+                                        );
+                                    }
+                                },
                                 Err(e) => eprintln!("shako: pipeline build failed: {e}"),
                             }
                         }
@@ -667,10 +668,10 @@ pub fn heredoc_needs_continuation(input: &str) -> bool {
                 if marker.is_empty() {
                     break;
                 }
-                let subsequent_lines: Vec<&str> =
-                    input.split('\n').skip(line_idx + 1).collect();
-                let found =
-                    subsequent_lines.iter().any(|l| l.trim_start_matches('\t') == marker);
+                let subsequent_lines: Vec<&str> = input.split('\n').skip(line_idx + 1).collect();
+                let found = subsequent_lines
+                    .iter()
+                    .any(|l| l.trim_start_matches('\t') == marker);
                 if !found {
                     return true;
                 }
@@ -745,11 +746,7 @@ pub fn read_recent_history(history_path: &Path, n: usize) -> Vec<String> {
     read_recent_history_with_dedup(history_path, n, true)
 }
 
-pub fn read_recent_history_with_dedup(
-    history_path: &Path,
-    n: usize,
-    dedup: bool,
-) -> Vec<String> {
+pub fn read_recent_history_with_dedup(history_path: &Path, n: usize, dedup: bool) -> Vec<String> {
     if n == 0 {
         return Vec::new();
     }
@@ -822,7 +819,11 @@ fn offer_history_selection(
     let grad_line = |width: usize| -> String {
         (0..width)
             .map(|i| {
-                let idx = if width <= 1 { 0 } else { i * (GRAD.len() - 1) / (width - 1) };
+                let idx = if width <= 1 {
+                    0
+                } else {
+                    i * (GRAD.len() - 1) / (width - 1)
+                };
                 format!("\x1b[38;5;{}m─\x1b[0m", GRAD[idx])
             })
             .collect()
@@ -833,9 +834,15 @@ fn offer_history_selection(
         let mut len = 0;
         let mut in_esc = false;
         for c in s.chars() {
-            if c == '\x1b' { in_esc = true; }
-            else if in_esc { if c.is_ascii_alphabetic() { in_esc = false; } }
-            else { len += 1; }
+            if c == '\x1b' {
+                in_esc = true;
+            } else if in_esc {
+                if c.is_ascii_alphabetic() {
+                    in_esc = false;
+                }
+            } else {
+                len += 1;
+            }
         }
         len
     };
@@ -851,7 +858,13 @@ fn offer_history_selection(
     let box_line = |content: &str| -> String {
         let vl = visible_len(content);
         let pad = content_inner.saturating_sub(vl);
-        format!(" {}  {}{}  {}", border('│'), content, " ".repeat(pad), border('│'))
+        format!(
+            " {}  {}{}  {}",
+            border('│'),
+            content,
+            " ".repeat(pad),
+            border('│')
+        )
     };
 
     let label = format!("\x1b[38;5;{mid_color}m history \x1b[0m");
@@ -988,9 +1001,8 @@ fn offer_ai_recovery(
         len
     };
 
-    let err_styled = format!(
-        "\x1b[1;31m✗\x1b[0m \x1b[90mexit {exit_code}\x1b[0m  \x1b[1m{command}\x1b[0m"
-    );
+    let err_styled =
+        format!("\x1b[1;31m✗\x1b[0m \x1b[90mexit {exit_code}\x1b[0m  \x1b[1m{command}\x1b[0m");
     let hint_styled = "\x1b[90mask AI for help? [y/N]\x1b[0m";
 
     let err_vis = visible_len(&err_styled);
@@ -1002,11 +1014,7 @@ fn offer_ai_recovery(
     let box_line = |content: &str| -> String {
         let vl = visible_len(content);
         let pad = content_inner.saturating_sub(vl);
-        format!(
-            " {b}  {content}{}  {b}",
-            " ".repeat(pad),
-            b = border('│')
-        )
+        format!(" {b}  {content}{}  {b}", " ".repeat(pad), b = border('│'))
     };
 
     let label = format!("\x1b[38;5;{mid_color}m error \x1b[0m");
@@ -1152,7 +1160,11 @@ fn show_context_drift_warning(warning: &env_context::ContextWarning<'_>, command
     let grad_line = |width: usize| -> String {
         (0..width)
             .map(|i| {
-                let idx = if width <= 1 { 0 } else { i * (GRAD.len() - 1) / (width - 1) };
+                let idx = if width <= 1 {
+                    0
+                } else {
+                    i * (GRAD.len() - 1) / (width - 1)
+                };
                 format!("\x1b[38;5;{}m─\x1b[0m", GRAD[idx])
             })
             .collect()
@@ -1162,9 +1174,15 @@ fn show_context_drift_warning(warning: &env_context::ContextWarning<'_>, command
         let mut len = 0usize;
         let mut in_esc = false;
         for c in s.chars() {
-            if c == '\x1b' { in_esc = true; }
-            else if in_esc { if c.is_ascii_alphabetic() { in_esc = false; } }
-            else { len += 1; }
+            if c == '\x1b' {
+                in_esc = true;
+            } else if in_esc {
+                if c.is_ascii_alphabetic() {
+                    in_esc = false;
+                }
+            } else {
+                len += 1;
+            }
         }
         len
     };
@@ -1172,14 +1190,23 @@ fn show_context_drift_warning(warning: &env_context::ContextWarning<'_>, command
     // ── Compose warning lines ─────────────────────────────────────────────
     let kind_label = warning.kind.label();
     let switched_ago = env_context::format_duration(warning.switched_ago);
-    let from_label = warning.switch.from.label().unwrap_or_else(|| "unknown".to_string());
-    let to_label = warning.switch.to.label().unwrap_or_else(|| "unknown".to_string());
+    let from_label = warning
+        .switch
+        .from
+        .label()
+        .unwrap_or_else(|| "unknown".to_string());
+    let to_label = warning
+        .switch
+        .to
+        .label()
+        .unwrap_or_else(|| "unknown".to_string());
 
     let context_line = format!(
         "\x1b[1;38;5;214m⚠\x1b[0m  {kind_label} context switched \x1b[1m{switched_ago}\x1b[0m ago\
          \x1b[90m  {from_label} → {to_label}\x1b[0m"
     );
-    let command_line = format!("   \x1b[1m{command}\x1b[0m \x1b[38;5;196mwill run in PRODUCTION\x1b[0m");
+    let command_line =
+        format!("   \x1b[1m{command}\x1b[0m \x1b[38;5;196mwill run in PRODUCTION\x1b[0m");
     let opts_line = "\x1b[90m[y]es  [n]o  (default: abort)\x1b[0m";
 
     let lines = [context_line.as_str(), command_line.as_str()];
@@ -1197,7 +1224,13 @@ fn show_context_drift_warning(warning: &env_context::ContextWarning<'_>, command
     let box_line = |content: &str| -> String {
         let vl = visible_len(content);
         let pad = content_inner.saturating_sub(vl);
-        format!(" {}  {}{}  {}", border('│'), content, " ".repeat(pad), border('│'))
+        format!(
+            " {}  {}{}  {}",
+            border('│'),
+            content,
+            " ".repeat(pad),
+            border('│')
+        )
     };
 
     let label = format!("\x1b[38;5;{mid_color}m context drift \x1b[0m");

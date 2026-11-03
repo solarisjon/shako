@@ -31,17 +31,25 @@ pub async fn translate_and_execute(
     let guard_cfg = prompt_guard::GuardConfig {
         enabled: config.security.prompt_injection_guard,
     };
-    let mut ctx = context::build_context(recent_history, session_memory.clone(), Some(guard_cfg.clone()))?;
+    let mut ctx = context::build_context(
+        recent_history,
+        session_memory.clone(),
+        Some(guard_cfg.clone()),
+    )?;
 
     // Sanitize `ai_system_prompt_extra` (from user config) before LLM injection.
-    ctx.system_prompt_extra = config.behavior.ai_system_prompt_extra.as_deref().and_then(|raw| {
-        let safe = prompt_guard::sanitize_or_warn(
-            raw,
-            "`[behavior].ai_system_prompt_extra` in config.toml",
-            &guard_cfg,
-        );
-        if safe.is_empty() { None } else { Some(safe) }
-    });
+    ctx.system_prompt_extra = config
+        .behavior
+        .ai_system_prompt_extra
+        .as_deref()
+        .and_then(|raw| {
+            let safe = prompt_guard::sanitize_or_warn(
+                raw,
+                "`[behavior].ai_system_prompt_extra` in config.toml",
+                &guard_cfg,
+            );
+            if safe.is_empty() { None } else { Some(safe) }
+        });
     let system_prompt = prompt::system_prompt(&ctx);
 
     let mut current_input = input.to_string();
@@ -93,9 +101,7 @@ pub async fn translate_and_execute(
             let verdict = scope.check(&command);
             if verdict.is_denied() {
                 capability_scope::print_scope_denial(&verdict, &scope);
-                eprintln!(
-                    "\x1b[90mshako: asking AI to regenerate within project scope…\x1b[0m"
-                );
+                eprintln!("\x1b[90mshako: asking AI to regenerate within project scope…\x1b[0m");
                 // Inject scope context into the next translation attempt.
                 let scope_hint = build_scope_hint(&scope);
                 current_input = format!("{current_input} ({scope_hint})");
@@ -113,53 +119,51 @@ pub async fn translate_and_execute(
             }
             // Show numbered preview for multi-step commands
             confirm::print_multi_command_preview(&command);
-                    loop {
-                        match confirm::confirm_command(&command)? {
-                            confirm::ConfirmAction::Execute => {
-                                // Offer pre-execution snapshot for dangerous commands.
-                                maybe_take_snapshot(&command, config);
+            loop {
+                match confirm::confirm_command(&command)? {
+                    confirm::ConfirmAction::Execute => {
+                        // Offer pre-execution snapshot for dangerous commands.
+                        maybe_take_snapshot(&command, config);
 
-                                let status = crate::executor::execute_command(&command);
-                                let exit_code = status.and_then(|s| s.code()).unwrap_or(0);
-                                push_memory(session_memory, input, &command);
-                                // Journal the confirmed execution for session resumption.
-                                if config.behavior.session_journal {
-                                    journal::append_async(input, &command, exit_code);
-                                }
-                                // Audit log: record AI query + decision.
-                                if config.security.audit_log {
-                                    crate::audit::record_ai_query(
-                                        input, &command, &command, "execute", exit_code,
-                                    );
-                                }
-                                break 'translate;
-                            }
-                            confirm::ConfirmAction::Edit(edited) => {
-                                crate::learned_prefs::record_edit(&command, &edited);
-                                // Offer pre-execution snapshot for the edited command too.
-                                maybe_take_snapshot(&edited, config);
+                        let status = crate::executor::execute_command(&command);
+                        let exit_code = status.and_then(|s| s.code()).unwrap_or(0);
+                        push_memory(session_memory, input, &command);
+                        // Journal the confirmed execution for session resumption.
+                        if config.behavior.session_journal {
+                            journal::append_async(input, &command, exit_code);
+                        }
+                        // Audit log: record AI query + decision.
+                        if config.security.audit_log {
+                            crate::audit::record_ai_query(
+                                input, &command, &command, "execute", exit_code,
+                            );
+                        }
+                        break 'translate;
+                    }
+                    confirm::ConfirmAction::Edit(edited) => {
+                        crate::learned_prefs::record_edit(&command, &edited);
+                        // Offer pre-execution snapshot for the edited command too.
+                        maybe_take_snapshot(&edited, config);
 
-                                let status = crate::executor::execute_command(&edited);
-                                let exit_code = status.and_then(|s| s.code()).unwrap_or(0);
-                                push_memory(session_memory, input, &edited);
-                                // Journal the edited command too.
-                                if config.behavior.session_journal {
-                                    journal::append_async(input, &edited, exit_code);
-                                }
-                                // Audit log: record AI query + edit decision.
-                                if config.security.audit_log {
-                                    crate::audit::record_ai_query(
-                                        input, &command, &edited, "edit", exit_code,
-                                    );
-                                }
-                                break 'translate;
-                            }
+                        let status = crate::executor::execute_command(&edited);
+                        let exit_code = status.and_then(|s| s.code()).unwrap_or(0);
+                        push_memory(session_memory, input, &edited);
+                        // Journal the edited command too.
+                        if config.behavior.session_journal {
+                            journal::append_async(input, &edited, exit_code);
+                        }
+                        // Audit log: record AI query + edit decision.
+                        if config.security.audit_log {
+                            crate::audit::record_ai_query(
+                                input, &command, &edited, "edit", exit_code,
+                            );
+                        }
+                        break 'translate;
+                    }
                     confirm::ConfirmAction::Cancel => {
                         // Audit log: record cancelled AI query.
                         if config.security.audit_log {
-                            crate::audit::record_ai_query(
-                                input, &command, "", "cancel", -1,
-                            );
+                            crate::audit::record_ai_query(input, &command, "", "cancel", -1);
                         }
                         println!("cancelled");
                         break 'translate;
@@ -201,9 +205,7 @@ pub async fn translate_and_execute(
             }
             // Audit log: auto-executed (no confirmation required).
             if config.security.audit_log {
-                crate::audit::record_ai_query(
-                    input, &command, &command, "auto_execute", exit_code,
-                );
+                crate::audit::record_ai_query(input, &command, &command, "auto_execute", exit_code);
             }
             break 'translate;
         }
@@ -276,8 +278,7 @@ pub fn handle_undo_request(query: &str, config: &ShakoConfig) -> Result<bool> {
     let keyword = extract_undo_keyword(query);
 
     let entry = if !keyword.is_empty() {
-        crate::undo::find_snapshot_matching(&keyword)
-            .or_else(crate::undo::find_latest_snapshot)
+        crate::undo::find_snapshot_matching(&keyword).or_else(crate::undo::find_latest_snapshot)
     } else {
         crate::undo::find_latest_snapshot()
     };
@@ -301,7 +302,11 @@ pub fn handle_undo_request(query: &str, config: &ShakoConfig) -> Result<bool> {
     let grad_line = |width: usize| -> String {
         (0..width)
             .map(|i| {
-                let idx = if width <= 1 { 0 } else { i * (GRAD.len() - 1) / (width - 1) };
+                let idx = if width <= 1 {
+                    0
+                } else {
+                    i * (GRAD.len() - 1) / (width - 1)
+                };
                 format!("\x1b[38;5;{}m─\x1b[0m", GRAD[idx])
             })
             .collect()
@@ -310,17 +315,22 @@ pub fn handle_undo_request(query: &str, config: &ShakoConfig) -> Result<bool> {
         let mut len = 0;
         let mut in_esc = false;
         for c in s.chars() {
-            if c == '\x1b' { in_esc = true; }
-            else if in_esc { if c.is_ascii_alphabetic() { in_esc = false; } }
-            else { len += 1; }
+            if c == '\x1b' {
+                in_esc = true;
+            } else if in_esc {
+                if c.is_ascii_alphabetic() {
+                    in_esc = false;
+                }
+            } else {
+                len += 1;
+            }
         }
         len
     };
 
     let snapshot_display = crate::undo::format_snapshot(&entry);
-    let prompt_styled = format!(
-        "\x1b[1;36mrestore\x1b[0m \x1b[90m{snapshot_display}\x1b[0m? \x1b[90m[y/N]\x1b[0m"
-    );
+    let prompt_styled =
+        format!("\x1b[1;36mrestore\x1b[0m \x1b[90m{snapshot_display}\x1b[0m? \x1b[90m[y/N]\x1b[0m");
     let opts_styled = "\x1b[90m[y]es  [n]o (default: abort)\x1b[0m";
 
     let pv = visible_len(&prompt_styled);
@@ -332,7 +342,13 @@ pub fn handle_undo_request(query: &str, config: &ShakoConfig) -> Result<bool> {
     let box_line = |content: &str| -> String {
         let vl = visible_len(content);
         let pad = content_inner.saturating_sub(vl);
-        format!(" {}  {}{}  {}", border('│'), content, " ".repeat(pad), border('│'))
+        format!(
+            " {}  {}{}  {}",
+            border('│'),
+            content,
+            " ".repeat(pad),
+            border('│')
+        )
     };
 
     let label = format!("\x1b[38;5;{mid_color}m undo \x1b[0m");
@@ -397,8 +413,24 @@ pub fn handle_undo_request(query: &str, config: &ShakoConfig) -> Result<bool> {
 /// For "undo that rm", returns "rm". For "restore what I deleted", returns "".
 fn extract_undo_keyword(query: &str) -> String {
     const SKIP: &[&str] = &[
-        "undo", "that", "the", "last", "restore", "what", "i", "deleted", "removed",
-        "go", "back", "revert", "un-delete", "undelete", "bring", "it", "roll", "command",
+        "undo",
+        "that",
+        "the",
+        "last",
+        "restore",
+        "what",
+        "i",
+        "deleted",
+        "removed",
+        "go",
+        "back",
+        "revert",
+        "un-delete",
+        "undelete",
+        "bring",
+        "it",
+        "roll",
+        "command",
     ];
     let lower = query.to_ascii_lowercase();
     let words: Vec<&str> = lower.split_whitespace().collect();
@@ -559,10 +591,7 @@ fn build_scope_hint(scope: &capability_scope::CapabilityScope) -> String {
         ));
     }
     if !scope.deny_commands.is_empty() {
-        parts.push(format!(
-            "do NOT use: {}",
-            scope.deny_commands.join(", ")
-        ));
+        parts.push(format!("do NOT use: {}", scope.deny_commands.join(", ")));
     }
     if !scope.allow_sudo {
         parts.push("do NOT use sudo".to_string());
@@ -612,9 +641,7 @@ pub async fn generate_incident_runbook(
     config: &ShakoConfig,
 ) -> Result<String> {
     let system_prompt = prompt::incident_runbook_prompt();
-    let user_msg = format!(
-        "Incident: {incident_name}\n\nCommand Journal:\n{step_log}"
-    );
+    let user_msg = format!("Incident: {incident_name}\n\nCommand Journal:\n{step_log}");
     let raw = client::query_llm(&system_prompt, &user_msg, config.active_llm()).await?;
     Ok(raw.trim().to_string())
 }
@@ -636,7 +663,11 @@ pub async fn synthesize_session_brief(
         summary.days_ago, summary.branch
     );
     for entry in &summary.entries {
-        let status = if entry.exit_code == 0 { "ok" } else { &format!("exit={}", entry.exit_code) };
+        let status = if entry.exit_code == 0 {
+            "ok"
+        } else {
+            &format!("exit={}", entry.exit_code)
+        };
         journal_text.push_str(&format!(
             "  intent=\"{}\"  cmd=\"{}\"  {}\n",
             entry.intent, entry.cmd, status
@@ -738,6 +769,9 @@ mod tests {
     fn test_parse_fix_with_leading_whitespace() {
         let raw = "CAUSE: port in use\nFIX:   lsof -ti:8080 | xargs kill";
         let r = DiagnosisResult::parse(raw);
-        assert_eq!(r.suggested_command, Some("lsof -ti:8080 | xargs kill".to_string()));
+        assert_eq!(
+            r.suggested_command,
+            Some("lsof -ti:8080 | xargs kill".to_string())
+        );
     }
 }
