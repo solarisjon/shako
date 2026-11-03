@@ -3,3 +3,4 @@ pub mod highlighter;
 pub mod hinter;
 pub mod prompt;
 pub mod repl;
+pub mod tuios;
